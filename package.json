@@ -1,0 +1,33 @@
+{
+  "name": "snakepit",
+  "version": "0.0.1",
+  "description": "Machine learning job scheduler",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mozilla/snakepit.git"
+  },
+  "keywords": [
+    "node",
+    "js",
+    "machine",
+    "learning",
+    "job",
+    "scheduler",
+    "daemon",
+    "cli",
+    "cuda",
+    "gpu",
+    "cluster",
+    "worker"
+  ],
+  "author": "Tilman Kamp",
+  "license": "MPL-2.0",
+  "bugs": {
+    "url": "https://github.com/mozilla/snakepit/issues"
+  },
+  "homepage": "https://github.com/mozilla/snakepit#readme"
+}
