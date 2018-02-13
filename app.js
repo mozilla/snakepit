@@ -1,4 +1,6 @@
 const cluster = require('cluster')
+const store = require('./src/store.js')
+
 
 var numReqs = 0
 var worker
@@ -11,6 +13,7 @@ if (cluster.isMaster) {
     }
 } else {
     store.registerWorker(process)
+    store.root.counter = 0
 
     const express = require('express')
     const app = express()
@@ -18,6 +21,7 @@ if (cluster.isMaster) {
     app.get('/now', function(req, res) {
         res.status(200).send({ date: new Date() })
         process.send({ chat: 'Hey master, I got a new now request!' })
+        store.root.counter++
     })
 
     // Bind to a port
