@@ -1,32 +1,20 @@
 const cluster = require('cluster')
-const store = require('./src/store.js')
+const db = require('./src/store.js').root
+const cpus = require('os').cpus().length
 
-
-var numReqs = 0
-var worker
+const modules = 'user node'.split(' ').map(name => require('./src/' + name + '.js'))
 
 if (cluster.isMaster) {
-    // Fork workers.
-    for (var i = 0; i < 2; i++) {
-        worker = cluster.fork()
-        store.registerWorker(worker)
-    }
+    for (var i = 0; i < cpus; i++)
+        cluster.fork()
+    modules.forEach(module => module.initDb(db))
 } else {
-    store.registerWorker(process)
-    store.root.counter = 0
-
     const express = require('express')
     const app = express()
 
-    app.get('/now', function(req, res) {
-        res.status(200).send({ date: new Date() })
-        process.send({ chat: 'Hey master, I got a new now request!' })
-        store.root.counter++
-    })
+    modules.forEach(module => module.initApp(app, db))
 
-    // Bind to a port
-    var port = process.env.PORT || 1337
+    var port = process.env.SNAKEPIT_PORT || 1337
     app.listen(port)
     console.log('Worker running on port ' + port)
-
 }

@@ -1,32 +1,29 @@
-const shared = require('shared')
-const config = require('config')
 
 var exports = module.exports = {}
 
-exports.register = function(email) {
-    return shared.OK
+exports.initDb = function(db) {
+    console.log(JSON.stringify(db))
+    console.log(!!db.users)
+    if (!db.users) {
+        console.log('Was soll das?')
+        db.users = { 'admin': { token: '' } }
+    }
 }
 
-exports.delete = function(email) {
-    return shared.OK
-}
+exports.initApp = function(app, db) {
+    
+    app.get('/users', function(req, res) {
+        res.status(200).send({ users: db.users })
+        console.log(JSON.stringify(db.users))
+    })
 
-exports.renew = function(email) {
-    return shared.OK
-}
-
-exports.addToGroup = function(email, group) {
-    return shared.OK
-}
-
-exports.removeFromGroup = function(email, group) {
-    return shared.OK
-}
-
-exports.list = function() {
-    return shared.OK
-}
-
-exports.info = function(email) {
-    return shared.OK
+    app.get('/users/add', function(req, res) {
+        var id = req.query.id
+        if (db.users[id])
+            res.status(400).send()
+        else {
+            db.users[id] = { id: id, name: req.query.name, email: req.query.email }
+            res.status(200).send()
+        }
+    })
 }
