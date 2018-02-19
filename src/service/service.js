@@ -1,8 +1,8 @@
 const cluster = require('cluster')
-const db = require('./src/store.js').root
+const db = require('./store.js').root
 const cpus = require('os').cpus().length
 
-const modules = 'user node'.split(' ').map(name => require('./src/' + name + '.js'))
+const modules = 'user node'.split(' ').map(name => require('./' + name + '.js'))
 
 if (cluster.isMaster) {
     for (var i = 0; i < cpus; i++)
