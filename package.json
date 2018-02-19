@@ -4,8 +4,7 @@
   "description": "Machine learning job scheduler",
   "main": "app.js",
   "scripts": {
-    "start": "node src/service.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/service.js"
   },
   "repository": {
     "type": "git",

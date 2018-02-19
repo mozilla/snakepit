@@ -9,12 +9,22 @@ if (cluster.isMaster) {
         cluster.fork()
     modules.forEach(module => module.initDb(db))
 } else {
+    const fs = require('fs')
+    const url = require('url')
+    const http = require('http')
+    const https = require('https')
     const express = require('express')
-    const app = express()
 
+    var privateKey  = fs.readFileSync('connect/key.pem', 'utf8')
+    var certificate = fs.readFileSync('connect/cert.pem', 'utf8')
+    var credentials = { key: privateKey, cert: certificate }
+
+    var app = express()
     modules.forEach(module => module.initApp(app, db))
 
-    var port = process.env.SNAKEPIT_PORT || 1337
-    app.listen(port)
-    console.log('Worker running on port ' + port)
+    var httpsServer = https.createServer(credentials, app)
+    var configPort = url.parse(fs.readFileSync('connect/.pitconnect.txt', 'utf-8').split('\n')[0]).port
+    var port = process.env.SNAKEPIT_PORT || configPort || 1443
+    httpsServer.listen(port)
+    console.log('Snakepit service running on port ' + port)
 }
