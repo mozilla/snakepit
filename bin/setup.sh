@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-if [ -d "./connect" ]; then
-    echo "The directory ./connect already exists. If you want to reconfigure connectivity, remove (and secure its contents) before running again."
+if [ -d "./config" ]; then
+    echo "The directory ./config already exists. If you want to reconfigure, remove (and secure its contents) before running again."
     exit
 fi
-mkdir "./connect"
+mkdir "./config"
 
 read -e -p "Address of the snakepit service that clients should use to connect (without protocol/port): " -i `hostname` SNAKEPIT_FQDN
 read -e -p "Port of the snakepit service: " -i "7443" SNAKEPIT_PORT
@@ -16,12 +16,16 @@ read -e -p "Organization: " ORGANIZATION
 read -e -p "Department within organization: " UNIT
 
 SUBJ="/C=$COUNTRY/ST=$STATE/L=$LOCATION/O=$ORGANIZATION/OU=$UNIT/CN=$SNAKEPIT_FQDN"
-openssl req -x509 -newkey rsa:4096 -keyout ./connect/key.pem -out ./connect/cert.pem -days 3650 -nodes -subj "$SUBJ"
+openssl req -x509 -newkey rsa:4096 -keyout ./config/key.pem -out ./config/cert.pem -days 3650 -nodes -subj "$SUBJ"
 
-echo "https://$SNAKEPIT_FQDN:$SNAKEPIT_PORT" >./connect/.pitconnect.txt
-cat ./connect/cert.pem >>./connect/.pitconnect.txt
+openssl rand -base64 32 >./config/token-secret.txt
+
+echo "{ \"tokenTTL\": \"1d\", \"hashRounds\": 10, \"fqdn\": \"$SNAKEPIT_FQDN\", \"port\": $SNAKEPIT_PORT }" >./config/snakepit.config
+
+echo "https://$SNAKEPIT_FQDN:$SNAKEPIT_PORT" >./config/.pitconnect.txt
+cat ./config/cert.pem >>./config/.pitconnect.txt
 
 echo ""
-echo "Now you can distribute the file ./connect/.pitconnect.txt to your users."
+echo "Now you can distribute the file ./config/.pitconnect.txt to your users."
 
 
