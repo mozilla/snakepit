@@ -15,7 +15,7 @@ exports.initApp = function(app, db) {
     })
 
     function authorize(req, callback) {
-        var token = req.headers['X-Auth-Token']
+        var token = req.get('X-Auth-Token')             
         if (token) {
             jwt.verify(token, app.get('tokenSecret'), function(err, decoded) {
                 if (!err) {
@@ -32,7 +32,7 @@ exports.initApp = function(app, db) {
         var id = req.params.id
         var user = req.body
         authorize(req, function() {
-            if (db.users[id] && !(req.user.id === id || req.user.isadmin)) {
+            if (db.users[id] && req.user.id !== id && !req.user.admin) {
                 res.status(409).send()
             } else {
                 bcrypt.hash(user.password, app.get('config').hashRounds || 10, function(err, hash) {
@@ -59,7 +59,6 @@ exports.initApp = function(app, db) {
                         { expiresIn: app.get('config').tokenTTL },
                         function(err, token) {
                             if (err) {
-                                console.log(err)
                                 res.status(500).send()
                             } else {
                                 res.status(200).send({ token: token })
@@ -73,6 +72,16 @@ exports.initApp = function(app, db) {
         } else {
             res.status(404).send()
         }
+    })
+
+    app.use(function(req, res, next) {
+        authorize(req, function() {
+            if (req.user) {
+                next()
+            } else {
+                res.status(401).send({ message: 'No or invalid token provided.' })
+            }
+        })
     })
 
     app.get('/users', function(req, res) {
