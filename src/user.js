@@ -53,7 +53,7 @@ exports.initApp = function(app, db) {
         if (user) {
             bcrypt.compare(req.body.password, user.password, function(err, result) {
                 if(result) {
-                    var token = jwt.sign(
+                    jwt.sign(
                         { user: id },
                         app.get('tokenSecret'),
                         { expiresIn: app.get('config').tokenTTL },
@@ -79,13 +79,13 @@ exports.initApp = function(app, db) {
             if (req.user) {
                 next()
             } else {
-                res.status(401).send({ message: 'No or invalid token provided.' })
+                res.status(401).json({ message: 'No or invalid token provided.' })
             }
         })
     })
 
     app.get('/users', function(req, res) {
-        res.status(200).send(Object.keys(db.users))
+        res.status(200).json(Object.keys(db.users))
     })
 
     app.delete('/users/:id', function(req, res) {
