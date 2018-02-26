@@ -5,7 +5,7 @@ var exports = module.exports = {}
 
 exports.initDb = function(db) {
     if (!db.users) {
-        db.users = { }
+        db.users = {}
     }
 }
 
@@ -15,7 +15,7 @@ exports.initApp = function(app, db) {
     })
 
     function authorize(req, callback) {
-        var token = req.get('X-Auth-Token')             
+        var token = req.get('X-Auth-Token')
         if (token) {
             jwt.verify(token, app.get('tokenSecret'), function(err, decoded) {
                 if (!err) {
