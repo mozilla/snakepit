@@ -1,6 +1,5 @@
 const fs = require('fs')
 const cluster = require('cluster')
-const shared = require('./shared.js')
 
 var exports = module.exports = {}
 
