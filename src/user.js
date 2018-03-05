@@ -19,7 +19,11 @@ exports.initApp = function(app, db) {
         if (token) {
             jwt.verify(token, app.get('tokenSecret'), function(err, decoded) {
                 if (err) {
-                    res.status(400).json({ message: 'Invalid token.' })
+                    if (err.name == 'TokenExpiredError') {
+                        res.status(401).json({ message: 'Token expired.' })
+                    } else {
+                        res.status(400).json({ message: 'Invalid token.' })
+                    }
                 } else {
                     req.user = db.users[decoded.user]
                     if (req.user) {
@@ -41,16 +45,31 @@ exports.initApp = function(app, db) {
         var user = req.body
         authorize(req, res, false, function() {
             if (db.users[id] && req.user && req.user.id !== id && !req.user.admin) {
-                res.status(409).send()
+                res.status(403).send()
             } else {
                 var dbuser = db.users[id] || {}
                 function setUser(hash) {
-                    var newuser = { 
-                        id: id, 
-                        fullname: user.fullname || dbuser.fullname, 
+                    var admin = dbuser.admin
+                    if (Object.keys(db.users).length === 0) {
+                        admin = true
+                    } else if (req.user && req.user.admin) {
+                        if (user.admin == 'yes') {
+                            admin = true
+                        } else if (user.admin == 'no') {
+                            admin = false
+                        } else {
+                            admin = dbuser.admin
+                        }
+                    } else if (user.admin == 'yes') {
+                        res.status(403).send()
+                        return
+                    }
+                    var newuser = {
+                        id: id,
+                        fullname: user.fullname || dbuser.fullname,
                         email: user.email || dbuser.email,
                         password: hash,
-                        admin: Object.keys(db.users).length === 0 || (req.user && req.user.admin && (user.admin || dbuser.admin))
+                        admin: admin
                     }
                     db.users[id] = newuser
                     res.status(200).send()
@@ -113,10 +132,18 @@ exports.initApp = function(app, db) {
 
     app.get('/users/:id', function(req, res) {
         var id = req.params.id
+        if (id == '~') {
+            id = req.user.id
+        }
         if (req.user.id == id || req.user.admin) {
-            var user = db.users[id]
-            if (user) {
-                res.status(200).json(user)
+            var dbuser = db.users[id]
+            if (dbuser) {
+                res.status(200).json({
+                    id: dbuser.id,
+                    fullname: dbuser.fullname,
+                    email: dbuser.email,
+                    admin: dbuser.admin ? 'yes' : 'no'
+                })
             } else {
                 res.status(404).send()
             }
