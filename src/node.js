@@ -1,12 +1,15 @@
-var exports = module.exports = {}
+const store = require('./store.js')
 
-exports.initDb = function(db) {
+var exports = module.exports = {}
+var db = store.root
+
+exports.initDb = function() {
     if (!db.nodes) {
         db.nodes = {}
     }
 }
 
-exports.initApp = function(app, db) {
+exports.initApp = function(app) {
     app.put('/nodes/:id', function(req, res) {
         if (req.user.admin) {
             var id = req.params.id

@@ -1,10 +1,8 @@
 const fs = require('fs')
 const path = require('path')
 const cluster = require('cluster')
-const db = require('./store.js').root
 const cpus = require('os').cpus().length
-
-const modules = 'user node'.split(' ').map(name => require('./' + name + '.js'))
+const modules = 'user node job'.split(' ').map(name => require('./' + name + '.js'))
 
 function readConfigFile(name) {
     var filename = path.join('config', name)
@@ -22,7 +20,7 @@ if (cluster.isMaster) {
         console.log('Worker ' + deadWorker.process.pid + ' died.');
         console.log('Worker ' + worker.process.pid + ' born.');
     })
-    modules.forEach(module => module.initDb(db))
+    modules.forEach(module => module.initDb())
 } else {
     try {
         const url = require('url')
@@ -40,7 +38,7 @@ if (cluster.isMaster) {
         app.use(bodyParser.json())
         app.use(morgan('dev'))
 
-        modules.forEach(module => module.initApp(app, db))
+        modules.forEach(module => module.initApp(app))
 
         var credentials = {
             key: readConfigFile('key.pem'),

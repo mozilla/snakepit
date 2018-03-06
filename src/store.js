@@ -8,16 +8,20 @@ const NAME_SYMBOL = Symbol('name')
 const DB_PATH = process.env.SNAKEPIT_DB || 'db.json'
 
 var rawRoot = (fs.existsSync(DB_PATH) && fs.statSync(DB_PATH).isFile()) ? JSON.parse(fs.readFileSync(DB_PATH).toString()) : {}
-_parentify(rawRoot, null, '')
 var dirty = false
+var locks = {}
+var callbackIdCounter = 0
+var callbacks = {}
+
+_parentify(rawRoot, null, '')
 
 function log(msg) {
     var entity = cluster.worker ? ('Worker ' + cluster.worker.id) : 'Master'
     console.log(entity + ': ' + msg)
 }
 
-function _send(msg, skip_worker) {
-    log('sending message:' + JSON.stringify(msg))
+function _broadcast(msg, skip_worker) {
+    //log('sending message:' + JSON.stringify(msg))
     if (cluster.isMaster)
         for(var wid in cluster.workers) {
             var worker = cluster.workers[wid]
@@ -66,25 +70,82 @@ var observer = {
             value = JSON.parse(value_str)
             _parentify(value, target, name)
         }
-        log('Setting property "' + name + '" of object "' + path + '" to value "' + value_str + '"')
-        if (this != 'skip') _send({ store_operation: 'set', path: path, args: [name, value] })
+        //log('Setting property "' + name + '" of object "' + path + '" to value "' + value_str + '"')
+        if (this != 'skip') {
+            _broadcast({ storeOperation: 'set', path: path, args: [name, value] })
+        }
         dirty = true
         return Reflect.set(target, name, value)
     },
     deleteProperty: function(target, name) {
         var path = _getPath(target)
-        log('Deleting property "' + name + '" of object "' + path + '"')
-        if (this != 'skip') _send({ store_operation: 'deleteProperty', path: path, args: [name] })
+        //log('Deleting property "' + name + '" of object "' + path + '"')
+        if (this != 'skip') {
+            _broadcast({ storeOperation: 'deleteProperty', path: path, args: [name] })
+        }
         dirty = true
         return Reflect.deleteProperty(...arguments)
     }
 }
 
-function _handle_message(msg) {
-    log('Got a message ' + JSON.stringify(msg))
-    if (msg.store_operation) {
-        observer[msg.store_operation].apply('skip', [_getObject(msg.path)].concat(msg.args))
+function _send(recipient, msg) {
+    if (recipient) {
+        recipient.send(msg)
+    } else if (cluster.isMaster) {
+        _handle_message(msg, null)
+    } else {
+        process.send(msg)
     }
+}
+
+function _handle_message(msg, sender) {
+    //log('Got a message ' + JSON.stringify(msg))
+    if (msg.storeOperation) {
+        observer[msg.storeOperation].apply('skip', [_getObject(msg.path)].concat(msg.args))
+        if (cluster.isMaster) {
+            _broadcast(msg, sender)
+        }
+    } else if (msg.askLock) {
+        var waiting = locks[msg.askLock]
+        var entry = { sender: sender, id: msg.id }
+        if (waiting && waiting.length > 0) {
+            waiting.push(entry)
+        } else {
+            locks[msg.askLock] = [entry]
+            _send(sender, { gotLock: msg.askLock, id: msg.id })
+        }
+        //log('asked for lock')
+    } else if (msg.gotLock) {
+        var callback = callbacks[msg.id]
+        delete callbacks[msg.id]
+        if (callback.sync) {
+            try {
+                callback.fun()
+            } finally {
+                _send(sender, { freeLock: msg.gotLock })
+            }
+        } else {
+            callback.fun(function() {
+                _send(sender, { freeLock: msg.gotLock })
+            })
+        }
+        //log('got lock')
+    } else if (msg.freeLock) {
+        var waiting = locks[msg.freeLock]
+        if (waiting && waiting.length > 0) {
+            waiting.shift()
+        }
+        if (waiting && waiting.length > 0) {
+            _send(waiting[0].sender, { gotLock: msg.freeLock, id: waiting[0].id })
+        }
+        //log('freed lock')
+    }
+}
+
+function _lock(target, callback, sync) {
+    callbackIdCounter += 1
+    callbacks[callbackIdCounter] = { fun: callback, sync: !!sync }
+    _send(null, { askLock: target, id: callbackIdCounter })
 }
 
 function _tickOn() {
@@ -97,7 +158,7 @@ function _tick() {
         fs.writeFile(DB_PATH, JSON.stringify(rawRoot, null, '\t'), function(err) {
             if(err)
                 return console.err(err);
-            console.log('Wrote db!')
+            //log('Wrote db!')
             dirty = false
         })
     }
@@ -105,12 +166,31 @@ function _tick() {
 }
 
 if (cluster.isMaster) {
-    cluster.on('fork', worker => worker.on('message', msg => {
-        _handle_message(msg)
-        _send(msg, worker)
-    }))
+    cluster.on('fork', worker => worker.on('message', msg => _handle_message(msg, worker)))
+    cluster.on('exit', function(worker, code, signal) {
+        for (lockName in locks) {
+            if (locks.hasOwnProperty(lockName)) {
+                var waiting = locks[lockName]
+                if (waiting && waiting.length > 0) {
+                    var first = waiting[0]
+                    locks[lockName] = waiting = waiting.filter(entry => entry.sender == worker)
+                    if (waiting.length > 0 && first != waiting[0]) {
+                        _send(waiting[0].sender, { gotLock: lockName, id: waiting[0].id })
+                    }
+                }
+            }
+        }
+    })
     _tickOn()
 } else
     process.on('message', _handle_message)
 
 exports.root = new Proxy(rawRoot, observer)
+
+exports.lockAutoRelease = function(target, callback) {
+    _lock(target, callback, true)
+}
+
+exports.lockAsyncRelease = function (target, callback) {
+    _lock(target, callback, false)
+}

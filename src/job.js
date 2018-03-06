@@ -1,39 +1,71 @@
-var exports = module.exports = {}
+const store = require('./store.js')
 
-exports.initDb = function(db) {
-    var jobs = db.jobs
-    if (!jobs) {
-        jobs = db.jobs = {}
+var exports = module.exports = {}
+var db = store.root
+
+exports.initDb = function() {
+    if (!db.jobIdCounter) {
+        db.jobIdCounter = 1
     }
-    if (!jobs.running) {
-        jobs.running = []
+    if (!db.jobs) {
+        db.jobs = {}
     }
-    if (!jobs.waiting) {
-        jobs.waiting = []
+    if (!db.allocation) {
+        db.allocation = {}
     }
-    if (!jobs.done) {
-        jobs.done = []
+    if (!db.schedule) {
+        db.schedule = []
     }
 }
 
-exports.initApp = function(app, db) {
+function _getEmptyCluster() {
+
+}
+
+function _getAllocation(numNodes, numGpus, clusterAllocation) {
+    //if (numNodes)
+}
+
+function _mergeAllocation(allocation, clusterAllocation) {
+
+}
+
+exports.initApp = function(app) {
     app.get('/jobs/:state', function(req, res) {
-        res.status(200).send(Object.keys(db.jobs))
+        res.status(200).send()
     })
 
-    app.put('/jobs/:id', function(req, res) {
-        res.status(200).send(Object.keys(db.jobs))
+    app.post('/jobs', function(req, res) {
+        store.lockAutoRelease('jobs', function() {
+            var id = db.jobIdCounter++
+            var job = req.body
+            var allocation = _getAllocation(job.numNodes, job.numGpus, _getEmptyClusterAllocation())
+            if (allocation) {
+                db.jobs[id] = {
+                    id: id,
+                    origin: job.origin,
+                    hash: job.hash,
+                    diff: job.diff,
+                    description: job.description || (req.user.id + ' - ' + new Date().toISOString()),
+                    resources: job.resources
+                }
+                db.schedule.push(id)
+                res.status(200).send({ id: id })
+            } else {
+                res.status(406).send()
+            }
+        })
     })
 
-    app.get('/jobs/:id/info', function(req, res) {
-        res.status(200).send(Object.keys(db.jobs))
+    app.get('/jobs/:id', function(req, res) {
+        res.status(200).send()
     })
 
     app.get('/jobs/:id/watch', function(req, res) {
-        res.status(200).send(Object.keys(db.jobs))
+        res.status(200).send()
     })
 
     app.delete('/jobs/:id', function(req, res) {
-        res.status(200).send(Object.keys(db.jobs))
+        res.status(200).send()
     })
 }

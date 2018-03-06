@@ -1,15 +1,17 @@
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
+const store = require('./store.js')
 
 var exports = module.exports = {}
+var db = store.root
 
-exports.initDb = function(db) {
+exports.initDb = function() {
     if (!db.users) {
         db.users = {}
     }
 }
 
-exports.initApp = function(app, db) {
+exports.initApp = function(app) {
     app.get('/users/:id/exists', function(req, res) {
         res.status(db.users[req.params.id] ? 200 : 404).send()
     })
