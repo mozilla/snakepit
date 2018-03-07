@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const store = require('./store.js')
+const config = require('./config.js')
 
 var exports = module.exports = {}
 var db = store.root
@@ -77,7 +78,7 @@ exports.initApp = function(app) {
                     res.status(200).send()
                 }
                 if (user.password) {
-                    bcrypt.hash(user.password, app.get('config').hashRounds || 10, function(err, hash) {
+                    bcrypt.hash(user.password, config.hashRounds || 10, function(err, hash) {
                         if(err) {
                             res.status(500).send()
                         } else {
@@ -102,7 +103,7 @@ exports.initApp = function(app) {
                     jwt.sign(
                         { user: id },
                         app.get('tokenSecret'),
-                        { expiresIn: app.get('config').tokenTTL },
+                        { expiresIn: config.tokenTTL },
                         function(err, token) {
                             if (err) {
                                 res.status(500).send()

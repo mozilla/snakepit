@@ -8,7 +8,7 @@ const NAME_SYMBOL = Symbol('name')
 const DB_PATH = process.env.SNAKEPIT_DB || 'db.json'
 
 var rawRoot = (fs.existsSync(DB_PATH) && fs.statSync(DB_PATH).isFile()) ? JSON.parse(fs.readFileSync(DB_PATH).toString()) : {}
-var dirty = false
+var storeLog = []
 var locks = {}
 var callbackIdCounter = 0
 var callbacks = {}
@@ -74,7 +74,6 @@ var observer = {
         if (this != 'skip') {
             _broadcast({ storeOperation: 'set', path: path, args: [name, value] })
         }
-        dirty = true
         return Reflect.set(target, name, value)
     },
     deleteProperty: function(target, name) {
@@ -83,7 +82,6 @@ var observer = {
         if (this != 'skip') {
             _broadcast({ storeOperation: 'deleteProperty', path: path, args: [name] })
         }
-        dirty = true
         return Reflect.deleteProperty(...arguments)
     }
 }
@@ -103,6 +101,7 @@ function _handle_message(msg, sender) {
     if (msg.storeOperation) {
         observer[msg.storeOperation].apply('skip', [_getObject(msg.path)].concat(msg.args))
         if (cluster.isMaster) {
+            storeLog.push(msg)
             _broadcast(msg, sender)
         }
     } else if (msg.askLock) {
@@ -148,31 +147,38 @@ function _lock(target, callback, sync) {
     _send(null, { askLock: target, id: callbackIdCounter })
 }
 
+function _writeDb() {
+    if (storeLog.length > 0) {
+        fs.writeFile(DB_PATH, JSON.stringify(rawRoot, null, '\t'), function(err) {
+            if(err)
+                return console.err(err);
+            //log('Wrote db!')
+            storeLog = []
+        })
+    }
+}
+
 function _tickOn() {
     setTimeout(_tick, 1000)
 }
 
 function _tick() {
     //console.log('Tick...')
-    if (dirty) {
-        fs.writeFile(DB_PATH, JSON.stringify(rawRoot, null, '\t'), function(err) {
-            if(err)
-                return console.err(err);
-            //log('Wrote db!')
-            dirty = false
-        })
-    }
+    _writeDb()
     _tickOn()
 }
 
 if (cluster.isMaster) {
-    cluster.on('fork', worker => worker.on('message', msg => _handle_message(msg, worker)))
+    cluster.on('fork', worker => {
+        worker.on('message', msg => _handle_message(msg, worker))
+        storeLog.forEach(msg => worker.send(msg))
+    })
     cluster.on('exit', function(worker, code, signal) {
-        for (lockName in locks) {
+        for (let lockName in locks) {
             if (locks.hasOwnProperty(lockName)) {
-                var waiting = locks[lockName]
+                let waiting = locks[lockName]
                 if (waiting && waiting.length > 0) {
-                    var first = waiting[0]
+                    let first = waiting[0]
                     locks[lockName] = waiting = waiting.filter(entry => entry.sender == worker)
                     if (waiting.length > 0 && first != waiting[0]) {
                         _send(waiting[0].sender, { gotLock: lockName, id: waiting[0].id })
@@ -182,8 +188,9 @@ if (cluster.isMaster) {
         }
     })
     _tickOn()
-} else
+} else {
     process.on('message', _handle_message)
+}
 
 exports.root = new Proxy(rawRoot, observer)
 

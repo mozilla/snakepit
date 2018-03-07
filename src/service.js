@@ -2,7 +2,8 @@ const fs = require('fs')
 const path = require('path')
 const cluster = require('cluster')
 const cpus = require('os').cpus().length
-const modules = 'user node job'.split(' ').map(name => require('./' + name + '.js'))
+const config = require('./config.js')
+const modules = 'users nodes jobs'.split(' ').map(name => require('./' + name + '.js'))
 
 function readConfigFile(name) {
     var filename = path.join('config', name)
@@ -17,10 +18,11 @@ if (cluster.isMaster) {
             process.exit(100) // Preventing fork-loop on startup problems
         }
         var worker = cluster.fork();
-        console.log('Worker ' + deadWorker.process.pid + ' died.');
-        console.log('Worker ' + worker.process.pid + ' born.');
+        console.log('Worker ' + deadWorker.process.pid + ' died.')
+        console.log('Worker ' + worker.process.pid + ' born.')
     })
-    modules.forEach(module => module.initDb())
+    modules.forEach(module => (module.initDb || Function)())
+    modules.forEach(module => (module.tick || Function)())
 } else {
     try {
         const url = require('url')
@@ -29,16 +31,13 @@ if (cluster.isMaster) {
         const morgan = require('morgan')
         const bodyParser = require('body-parser')
 
-        const config = JSON.parse(readConfigFile('snakepit.config'))
-
         var app = express()
         app.set('tokenSecret', readConfigFile('token-secret.txt'))
-        app.set('config', config)
         app.use(bodyParser.urlencoded({ extended: false }))
         app.use(bodyParser.json())
         app.use(morgan('dev'))
 
-        modules.forEach(module => module.initApp(app))
+        modules.forEach(module => (module.initApp || Function)(app))
 
         var credentials = {
             key: readConfigFile('key.pem'),
