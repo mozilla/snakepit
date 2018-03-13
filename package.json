@@ -33,6 +33,7 @@
   "dependencies": {
     "bcrypt": "^1.0.3",
     "body-parser": "^1.18.2",
+    "combined-stream": "^1.0.6",
     "commander": "^2.14.1",
     "express": "^4.16.2",
     "jsonwebtoken": "^8.1.1",

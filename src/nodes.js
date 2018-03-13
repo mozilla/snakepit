@@ -1,6 +1,8 @@
 const fs = require('fs')
+const stream = require('stream')
 const path = require('path')
-const { exec, execFile, spawn } = require('child_process')
+const CombinedStream = require('combined-stream')
+const { spawn } = require('child_process')
 const store = require('./store.js')
 
 var exports = module.exports = {}
@@ -9,29 +11,50 @@ var db = store.root
 
 const STATE_UNKNOWN = exports.STATE_UNKNOWN = 0
 const STATE_OFFLINE = exports.STATE_OFFLINE = 1
-const STATE_ACTIVE = exports.STATE_ACTIVE = 2
+const STATE_ONLINE = exports.STATE_ONLINE = 2
 
-function _runScript(node, scriptName, callback) {
+function _runScript(node, scriptName, env, callback) {
+    if (typeof env == 'function') {
+        callback = env
+        env = {}
+    }
     let scriptPath = path.join(__dirname, '..', 'scripts', scriptName)
-    let address = node.user + '@' + node.address
-    console.log('Running script "' + scriptPath + '" on "' + address + '"')
-    p = execFile(
-        'ssh', 
-        [address, '-p', node.port, 'bash -s'], 
-        null, 
-        callback
-    )
-    fs.createReadStream(scriptPath).pipe(p.stdin)
+    fs.readFile(scriptPath, function read(err, content) {
+        if (!err) {
+            env = env || {}
+            let address = node.user + '@' + node.address
+            console.log('Running script "' + scriptPath + '" on "' + address + '"')
+            p = spawn('ssh', [address, '-p', node.port, 'bash -s'])
+            let stdout = []
+            p.stdout.on('data', data => stdout.push(data))
+            let stderr = []
+            p.stderr.on('data', data => stderr.push(data))
+            p.on('close', code => callback(code, stdout.join('\n'), stderr.join('\n')))
+            var stdinStream = new stream.Readable()
+            Object.keys(env).forEach(name => stdinStream.push('export ' + name + '=' + env[name] + '\n'))
+            stdinStream.push(content + '\n')
+            stdinStream.push(null)
+            stdinStream.pipe(p.stdin)
+        }
+    })
 }
 
 function _checkAvailability(node, callback) {
     _runScript(node, 'available.sh', (err, stdout, stderr) => {
         console.log(stdout)
         if (err) {
-            console.error(stderr)
-            callback(false)
+            console.error(err)
+            callback()
         } else {
-            callback(true)
+            var resources = {}
+            stdout.split('\n').forEach(line => {
+                let [type, model] = line.split(':')
+                if (type && model) {
+                    resources[type] = resources[type] || []
+                    resources[type].push({ model: model, index: resources[type].length })
+                }
+            })
+            callback(resources)
         }
     })
 }
@@ -52,13 +75,20 @@ exports.initApp = function(app) {
                 id: id,
                 address: node.address || dbnode.address,
                 port: node.port || dbnode.port || 22,
-                gpus: node.hasOwnProperty('gpus') ? node.gpus : dbnode.gpus,
                 user: node.user || dbnode.user || 'pitmaster',
-                state: STATE_UNKNOWN
+                state: STATE_ONLINE
             }
             if (newnode.address) {
-                _checkAvailability(newnode, available => {
-                    if (available) {
+                _checkAvailability(newnode, resources => {
+                    if (resources) {
+                        if (node.cvd) {
+                            console.log(node.cvd)
+                            Object.keys(resources).forEach(type => {
+                                resources[type] = resources[type]
+                                    .filter(resource => type != 'cuda' || node.cvd.includes(resource.index))
+                            })
+                        }
+                        newnode.resources = resources
                         db.nodes[id] = newnode
                         res.status(200).send()
                     } else {

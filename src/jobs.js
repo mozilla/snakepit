@@ -18,9 +18,10 @@ exports.initDb = function() {
 
 function _getRunningJobs() {
     var jobs = []
-    for (let [id, node] of Object.entries(db.nodes)) {
+    Object.keys(db.nodes).forEach(id => {
+        let node = db.nodes[id]
         if (node.state >= nodes.STATE_ACTIVE) {
-            let gpuCounter = numGpus 
+            let gpuCounter = numGpus
             gpuReservation = []
             for(let gpu = 0; gpu < node.gpus.length; gpu++) {
                 if (node.gpus[gpu].job == 0 || state == 0) {
@@ -37,16 +38,17 @@ function _getRunningJobs() {
             }
             gpuCounter = numGpus
         }
-    }
+    })
     return jobs
 }
 
 function _reserve(numNodes, numGpus, state) {
     let reservation = []
     let nodeCounter = numNodes
-    for (let [id, node] of Object.entries(db.nodes)) {
+    Object.keys(db.nodes).forEach(id => {
+        let node = db.nodes[id]
         if (node.state >= state) {
-            let gpuCounter = numGpus 
+            let gpuCounter = numGpus
             gpuReservation = []
             for(let gpu = 0; gpu < node.gpus.length; gpu++) {
                 if (node.gpus[gpu].job == 0 || state == 0) {
@@ -63,7 +65,7 @@ function _reserve(numNodes, numGpus, state) {
             }
             gpuCounter = numGpus
         }
-    }
+    })
     return false
 }
 
@@ -120,5 +122,5 @@ exports.initApp = function(app) {
 }
 
 exports.tick = function() {
-    
+
 }
