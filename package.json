@@ -4,7 +4,8 @@
   "description": "Machine learning job scheduler",
   "main": "app.js",
   "scripts": {
-    "start": "node src/service.js"
+    "start": "node src/service.js",
+    "postinstall": "node node_modules/pegjs/bin/pegjs src/clusterParser.pegjs"
   },
   "repository": {
     "type": "git",
@@ -33,11 +34,11 @@
   "dependencies": {
     "bcrypt": "^1.0.3",
     "body-parser": "^1.18.2",
-    "combined-stream": "^1.0.6",
     "commander": "^2.14.1",
     "express": "^4.16.2",
     "jsonwebtoken": "^8.1.1",
     "morgan": "^1.9.0",
+    "pegjs": "^0.10.0",
     "process": "^0.11.10",
     "readable-stream": "^2.3.5",
     "request": "^2.83.0"

@@ -17,10 +17,11 @@ exports.initApp = function(app) {
 
     app.put('/aliases/:id', function(req, res) {
         if (req.user.admin) {
-            if (req.body && req.body.model) {
+            console.log(req.body)
+            if (req.body && req.body.name) {
                 db.aliases[req.params.id] = {
                     id: req.params.id,
-                    model: req.body.model
+                    name: req.body.name
                 }
                 res.status(200).send()
             } else {
