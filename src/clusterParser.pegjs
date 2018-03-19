@@ -1,4 +1,4 @@
-start 
+start
   = cluster
 
 cluster
@@ -21,7 +21,7 @@ resourceGroup
   / solo:resource { return { count: 1, name: solo } }
 
 resource
-  = chars:[a-zA-Z]+[a-zA-Z0-9]* { return chars.join(""); }
+  = chars:[a-zA-Z]+ alpha:[a-zA-Z0-9]* { return chars.join("") + alpha.join(""); }
 
 integer
   = digits:[0-9]+ { return parseInt(digits.join(""), 10); }

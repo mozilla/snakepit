@@ -27,7 +27,7 @@ function _getRunningJobs() {
                 if (resource.job) {
                     jobs[resource.job] = db.jobs[resource.job]
                 }
-            })      
+            })
         }
     })
     return jobs
@@ -87,21 +87,26 @@ function _reserveProcessOnNode(node, reservation, resourceList) {
                 let nodeResources = node.resources[resourceType]
                 for(let resourceIndex = 0; resourceIndex < nodeResources.length && resourceCounter > 0; resourceIndex++) {
                     let nodeResource = nodeResources[resourceIndex]
-                    if (nodeResource.name == name && 
-                        !_isReserved(reservation, node.id, resourceType, resourceIndex) && 
-                        (!nodeResource.job || state == 0)) {
-                        _reserve(nodeReservation, node.id, resourceType, resourceIndex)
+                    console.log(resource.name, name, nodeResource)
+                    if (nodeResource.name == name &&
+                        !_isReserved(reservation, node.id, resourceType, nodeResource.index) &&
+                        (!nodeResource.job || state == 0)
+                    ) {
+                        _reserve(nodeReservation, node.id, resourceType, nodeResource.index)
                         resourceCounter--
                     }
                 }
             }
         })
+        if (resourceCounter > 0) {
+            return null
+        }
     }
     return nodeReservation
 }
 
 function _reserveProcess(reservation, resourceList, state) {
-    Object.keys(db.nodes).forEach(nodeId => {
+    for (nodeId of Object.keys(db.nodes)) {
         let node = db.nodes[nodeId]
         if (node.state >= state) {
             let nodeReservation = _reserveProcessOnNode(node, reservation, resourceList)
@@ -109,13 +114,13 @@ function _reserveProcess(reservation, resourceList, state) {
                 return nodeReservation
             }
         }
-    })
+    }
     return null
 }
 
 function _reserveCluster(clusterRequest, state) {
     let reservation = {}
-    clusterRequest.forEach(processRequest => {
+    for(let processRequest of clusterRequest) {
         for(let i=0; i<processRequest.count; i++) {
             let processReservation = _reserveProcess(reservation, processRequest.process, state)
             if (processReservation) {
@@ -124,7 +129,7 @@ function _reserveCluster(clusterRequest, state) {
                 return null
             }
         }
-    })
+    }
     return reservation
 }
 
@@ -172,7 +177,9 @@ exports.initApp = function(app) {
                 res.status(400).send({ message: 'Problem parsing allocation' })
                 return
             }
+            console.log(JSON.stringify(clusterRequest))
             let reservation = _reserveCluster(clusterRequest, nodes.STATE_UNKNOWN)
+            console.log(reservation)
             if (reservation) {
                 db.jobs[id] = {
                     id: id,
