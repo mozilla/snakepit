@@ -7,20 +7,27 @@ const store = require('./store.js')
 
 var exports = module.exports = {}
 
+const nodeStates = {
+    UNKNOWN: 0,
+    OFFLINE: 1,
+    ONLINE:  2
+}
+
+exports.nodeStates = nodeStates
+
+
 var db = store.root
 
-const STATE_UNKNOWN = exports.STATE_UNKNOWN = 0
-const STATE_OFFLINE = exports.STATE_OFFLINE = 1
-const STATE_ONLINE = exports.STATE_ONLINE = 2
-
-function _runScript(node, scriptName, env, callback) {
+function _runScriptOnNode(node, scriptName, env, callback) {
     if (typeof env == 'function') {
         callback = env
         env = {}
     }
     let scriptPath = path.join(__dirname, '..', 'scripts', scriptName)
     fs.readFile(scriptPath, function read(err, content) {
-        if (!err) {
+        if (err) {
+            callback(1, '', 'Problem reading script "' + scriptPath + '"')
+        } else {
             env = env || {}
             let address = node.user + '@' + node.address
             console.log('Running script "' + scriptPath + '" on "' + address + '"')
@@ -40,24 +47,27 @@ function _runScript(node, scriptName, env, callback) {
 }
 
 function _checkAvailability(node, callback) {
-    _runScript(node, 'available.sh', (err, stdout, stderr) => {
+    _runScriptOnNode(node, 'available.sh', (err, stdout, stderr) => {
         console.log(stdout)
         if (err) {
             console.error(err)
             callback()
         } else {
-            var resources = {}
+            var resources = []
+            var types = {}
             stdout.split('\n').forEach(line => {
                 let [type, model] = line.split(':')
                 if (type && model) {
-                    resources[type] = resources[type] || []
-                    resources[type].push({ model: model, index: resources[type].length })
+                    types[type] = (type in types) ? types[type] + 1 : 0
+                    resources.push({ type: type, model: model, index: types[type] })
                 }
             })
             callback(resources)
         }
     })
 }
+
+exports.runScriptOnNode = _runScriptOnNode
 
 exports.initDb = function() {
     if (!db.nodes) {
@@ -76,7 +86,7 @@ exports.initApp = function(app) {
                 address: node.address || dbnode.address,
                 port: node.port || dbnode.port || 22,
                 user: node.user || dbnode.user || 'pitmaster',
-                state: STATE_ONLINE
+                state: nodeStates.ONLINE
             }
             if (newnode.address) {
                 _checkAvailability(newnode, resources => {
