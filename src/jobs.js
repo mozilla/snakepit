@@ -16,8 +16,9 @@ const jobStates = {
     PREPARING: 1,
     STARTING: 2,
     RUNNING: 3,
-    DONE: 4,
-    FAILED: 5
+    STOPPING: 4,
+    DONE: 5,
+    FAILED: 6
 }
 
 exports.jobStates = jobStates
@@ -226,11 +227,13 @@ function _startJob(job, reservations, callback) {
                     resource.pid = pid
                 }
             } else {
-
+                job.state = jobStates.STOPPING
             }
         })
     }, () => {
-        job.state = jobStates.RUNNING
+        if (job.state == jobStates.STARTING) {
+            job.state = jobStates.RUNNING
+        }
         callback()
     })
 }
@@ -331,10 +334,14 @@ exports.tick = function() {
         })
     }, () => {
         store.lockAsyncRelease('jobs', release => {
+            let goon = () => {
+                release()
+                setTimeout(1000, exports.tick)
+            }
             let processes = _getJobProcesses()
             let toStop = []
             for(let jobId of Object.keys(processes)) {
-                let stop = false
+                let job = db.jobs[jobId]
                 let toStopForJob = []
                 let jobProcesses = processes[jobId]
                 for(let nodeId of Object.keys(jobProcesses)) {
@@ -345,24 +352,36 @@ exports.tick = function() {
                             if (realNodeProcesses[pid]) {
                                 toStopForJob.push({ node: nodeId, pid: pid })
                             } else {
+                                job.state = jobStates.STOPPING
                                 _freeProcess(pid)
-                                stop = true
                             }
                         }
                     } else {
-                        stop = true
+                        job.state = jobStates.STOPPING
                     }
                 }
-                if (stop && toStopForJob.length > 0) {
+                if (job.state == jobStates.STOPPING && toStopForJob.length > 0) {
                     toStop = toStop.concat(toStopForJob)
                 }
             }
             _runForEach(toStop, proc => {
                 runScriptOnNode(db.nodes[proc.node], 'kill.sh', { PID: proc.pid }, (code, stdout, stderr) => {})
             }, () => {
-
-                release()
-                setTimeout(1000, exports.tick)
+                if (db.schedule.length > 0) {
+                    let job = db.jobs[db.schedule[0]]
+                    if (job) {
+                        let reservations = _reserveCluster(job.clusterRequest, nodeStates.ONLINE)
+                        if (reservations) {
+                            db.schedule.shift()
+                            _startJob(job, reservations, goon)
+                        } else {
+                            goon()
+                        }
+                    } else {
+                        db.schedule.shift()
+                        goon()
+                    }
+                }
             })
         })
     })

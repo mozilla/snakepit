@@ -1,8 +1,8 @@
 const fs = require('fs')
-const stream = require('stream')
 const path = require('path')
-const CombinedStream = require('combined-stream')
 const { spawn } = require('child_process')
+const stream = require('stream')
+const CombinedStream = require('combined-stream')
 const store = require('./store.js')
 
 var exports = module.exports = {}
