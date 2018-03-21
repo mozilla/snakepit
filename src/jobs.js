@@ -3,7 +3,6 @@ const path = require('path')
 const { spawn } = require('child_process')
 const stream = require('stream')
 const CombinedStream = require('combined-stream')
-const quote = require('shell-quote').quote
 const store = require('./store.js')
 const config = require('./config.js')
 const { nodeStates, runScriptOnNode } = require('./nodes.js')
@@ -50,7 +49,7 @@ function _quote(str) {
 }
 
 function _runScript(scriptName, env, callback) {
-    if (typeof env == 'function') {
+    if (typeof env == 'function') {killing
         callback = env
         env = {}
     }
@@ -79,7 +78,7 @@ function _runScript(scriptName, env, callback) {
 function _forEachResource(callback) {
     for (let nodeId of Object.keys(db.nodes)) {
         let node = db.nodes[nodeId]
-        for (let resource in node.resources) {
+        for (let resource of node.resources) {
             callback(node, resource)
         }
     }
@@ -98,6 +97,7 @@ function _getRunningJobs() {
 function _getJobProcesses() {
     var jobs = {}
     _forEachResource((node, resource) => {
+        //console.log('Checking resource ' + resource.name + ' (' + resource.index + ') on node ' + node.id)
         if (resource.job && resource.pid && node.state >= nodeStates.ONLINE) {
             let job = jobs[resource.job] = jobs[resource.job] || {}
             let jobnode = job[node.id] = job[node.id] || {}
@@ -111,6 +111,7 @@ function _freeProcess(pid) {
     let job = 0
     _forEachResource((node, resource) => {
         if (resource.pid == pid) {
+            console.log('Freeing resource ' + resource.name + ' for PID ' + pid + ' on node "' + node.id + '"')
             job = resource.job
             resource.pid = 0
             resource.job = 0
@@ -390,7 +391,13 @@ exports.tick = function() {
             }
             _runForEach(toStop, proc => {
                 console.log(proc)
-                runScriptOnNode(db.nodes[proc.node], 'kill.sh', { PID: proc.pid }, (code, stdout, stderr) => {})
+                runScriptOnNode(db.nodes[proc.node], 'kill.sh', { PID: proc.pid }, (code, stdout, stderr) => {
+                    if (code == 0) {
+                        console.log('Ended PID: ' + proc.pid)
+                    } else {
+                        console.log('Problem ending PID: ' + proc.pid)
+                    }
+                })
             }, () => {
                 if (db.schedule.length > 0) {
                     let job = db.jobs[db.schedule[0]]
