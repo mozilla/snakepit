@@ -30,7 +30,7 @@ function _runScriptOnNode(node, scriptName, env, callback) {
         } else {
             env = env || {}
             let address = node.user + '@' + node.address
-            console.log('Running script "' + scriptPath + '" on "' + address + '"')
+            //console.log('Running script "' + scriptPath + '" on "' + address + '"')
             p = spawn('ssh', [address, '-p', node.port, 'bash -s'])
             let stdout = []
             p.stdout.on('data', data => stdout.push(data))
@@ -56,10 +56,10 @@ function _checkAvailability(node, callback) {
             var resources = []
             var types = {}
             stdout.split('\n').forEach(line => {
-                let [type, model] = line.split(':')
-                if (type && model) {
+                let [type, name] = line.split(':')
+                if (type && name) {
                     types[type] = (type in types) ? types[type] + 1 : 0
-                    resources.push({ type: type, model: model, index: types[type] })
+                    resources.push({ type: type, name: name, index: types[type] })
                 }
             })
             callback(resources)

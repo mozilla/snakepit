@@ -14,7 +14,9 @@ fi
 JOB_DIR="$JOBS_DIR/$JOB_NAME"
 mkdir -p "$JOB_DIR"
 JOB_SRC_DIR="$JOB_DIR/src"
-git -C "$CACHE_REPO" archive --format=tar --prefix=src/ HEAD | (cd "$JOB_DIR" && tar xf -)
+git -C "$CACHE_REPO" archive --format=tar --prefix=src/ $HASH | (cd "$JOB_DIR" && tar xf -)
 if [ -n "$DIFF" ]; then
-    echo $DIFF | git -C "$JOB_SRC_DIR" apply >/dev/null
+    echo "$DIFF"
+    cd "$JOB_SRC_DIR"
+    echo "$DIFF" | patch -p0
 fi

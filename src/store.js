@@ -22,14 +22,16 @@ function log(msg) {
 
 function _broadcast(msg, skip_worker) {
     //log('sending message:' + JSON.stringify(msg))
-    if (cluster.isMaster)
+    if (cluster.isMaster) {
+        storeLog.push(msg)
         for(var wid in cluster.workers) {
             var worker = cluster.workers[wid]
             if (worker !== skip_worker)
                 worker.send(msg)
         }
-    else
+    } else {
         process.send(msg)
+    }
 }
 
 function _getPath(obj) {
@@ -70,7 +72,7 @@ var observer = {
             value = JSON.parse(value_str)
             _parentify(value, target, name)
         }
-        //log('Setting property "' + name + '" of object "' + path + '" to value "' + value_str + '"')
+        log('Setting property "' + name + '" of object "' + path + '" to value "' + value_str + '"')
         if (this != 'skip') {
             _broadcast({ storeOperation: 'set', path: path, args: [name, value] })
         }
@@ -101,7 +103,6 @@ function _handle_message(msg, sender) {
     if (msg.storeOperation) {
         observer[msg.storeOperation].apply('skip', [_getObject(msg.path)].concat(msg.args))
         if (cluster.isMaster) {
-            storeLog.push(msg)
             _broadcast(msg, sender)
         }
     } else if (msg.askLock) {
@@ -149,11 +150,11 @@ function _lock(target, callback, sync) {
 
 function _writeDb() {
     if (storeLog.length > 0) {
+        storeLog = []
         fs.writeFile(DB_PATH, JSON.stringify(rawRoot, null, '\t'), function(err) {
             if(err)
                 return console.err(err);
-            //log('Wrote db!')
-            storeLog = []
+            log('Wrote db!')
         })
     }
 }

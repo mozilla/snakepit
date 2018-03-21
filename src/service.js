@@ -39,6 +39,11 @@ if (cluster.isMaster) {
 
         modules.forEach(module => (module.initApp || Function)(app))
 
+        app.use(function (err, req, res, next) {
+            console.error(err.stack)
+            res.status(500).send('Something broke!')
+        })
+
         var credentials = {
             key: readConfigFile('key.pem'),
             cert: readConfigFile('cert.pem')

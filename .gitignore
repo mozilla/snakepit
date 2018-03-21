@@ -2,6 +2,7 @@ data
 config
 src/clusterParser.js
 db.json
+db.bak
 
 # Logs
 logs

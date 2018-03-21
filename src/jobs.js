@@ -25,8 +25,8 @@ exports.jobStates = jobStates
 
 var db = store.root
 
-var cacheDir = config.cacheDir || path.join(__dirname, 'data', 'cache')
-var jobsDir = config.jobsDir || path.join(__dirname, 'data', 'jobs')
+var cacheDir = config.cacheDir || path.join(__dirname, '..', 'data', 'cache')
+var jobsDir = config.jobsDir || path.join(__dirname, '..', 'data', 'jobs')
 
 exports.initDb = function() {
     if (!db.jobIdCounter) {
@@ -40,6 +40,16 @@ exports.initDb = function() {
     }
 }
 
+function _quote(str) {
+    str = '' + str
+    str = str.replace(/\\/g, '\\\\')
+    str = str.replace(/\'/g, '\\\'')
+    str = str.replace(/(?:\r\n|\r|\n)/g, '\\n')
+    str = '$\'' + str + '\''
+    console.log(str)
+    return str
+}
+
 function _runScript(scriptName, env, callback) {
     if (typeof env == 'function') {
         callback = env
@@ -51,7 +61,7 @@ function _runScript(scriptName, env, callback) {
             callback(1, '', 'Problem reading script "' + scriptPath + '"')
         } else {
             env = env || {}
-            console.log('Running script "' + scriptPath + '"')
+            //console.log('Running script "' + scriptPath + '"')
             p = spawn('bash', ['-s'])
             let stdout = []
             p.stdout.on('data', data => stdout.push(data))
@@ -59,7 +69,7 @@ function _runScript(scriptName, env, callback) {
             p.stderr.on('data', data => stderr.push(data))
             p.on('close', code => callback(code, stdout.join('\n'), stderr.join('\n')))
             var stdinStream = new stream.Readable()
-            Object.keys(env).forEach(name => stdinStream.push('export ' + name + '=' + quote(env[name]) + '\n'))
+            Object.keys(env).forEach(name => stdinStream.push('export ' + name + '=' + _quote(env[name]) + '\n'))
             stdinStream.push(content + '\n')
             stdinStream.push(null)
             stdinStream.pipe(p.stdin)
@@ -122,8 +132,8 @@ function _freeProcess(pid) {
 
 function _isReserved(reservations, nodeId, resourceIndex) {
     return reservations.reduce(
-        false,
-        (result, reservation) => result || (reservation.node == nodeId && reservation.includes(resourceIndex))
+        (result, reservation) => result || (reservation.node == nodeId && reservation.includes(resourceIndex)),
+        false
     )
 }
 
@@ -137,10 +147,10 @@ function _reserveProcessOnNode(node, reservations, resourceList) {
         let name = db.aliases[resource.name] ? db.aliases[resource.name].name : resource.name
         for(let resourceIndex = 0; resourceIndex < node.resources.length && resourceCounter > 0; resourceIndex++) {
             let nodeResource = node.resources[resourceIndex]
-            console.log(resource.name, name, nodeResource)
+            console.log(JSON.stringify(nodeResource))
             if (nodeResource.name == name &&
                 !_isReserved(reservations, node.id, resourceIndex) &&
-                (!nodeResource.job || state == 0)
+                !nodeResource.job
             ) {
                 nodeReservation.resources.push(resourceIndex)
                 resourceCounter--
@@ -154,7 +164,7 @@ function _reserveProcessOnNode(node, reservations, resourceList) {
 }
 
 function _reserveProcess(reservations, resourceList, state) {
-    for (nodeId of Object.keys(db.nodes)) {
+    for (let nodeId of Object.keys(db.nodes)) {
         let node = db.nodes[nodeId]
         if (node.state >= state) {
             let nodeReservation = _reserveProcessOnNode(node, reservations, resourceList)
@@ -170,7 +180,7 @@ function _reserveCluster(clusterRequest, state) {
     let reservations = []
     for(let processRequest of clusterRequest) {
         for(let i=0; i<processRequest.count; i++) {
-            let processReservation = _reserveProcess(reservation, processRequest.process, state)
+            let processReservation = _reserveProcess(reservations, processRequest.process, state)
             if (processReservation) {
                 reservations.push(processReservation)
             } else {
@@ -182,7 +192,7 @@ function _reserveCluster(clusterRequest, state) {
 }
 
 function _getJobDir(job) {
-    return path.join(jobsDir, job.id)
+    return path.join(jobsDir, '' + job.id)
 }
 
 function _prepareJob(job) {
@@ -191,6 +201,7 @@ function _prepareJob(job) {
         JOBS_DIR:  jobsDir,
         JOB_NAME:  job.id,
         ORIGIN:    job.origin,
+        HASH:      job.hash,
         DIFF:      job.diff
     }, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
@@ -200,6 +211,8 @@ function _prepareJob(job) {
             } else {
                 job.state = jobStates.FAILED
                 job.result = stderr
+                console.log(stdout)
+                console.log(stderr)
             }
         })
     })
@@ -208,6 +221,7 @@ function _prepareJob(job) {
 function _startJob(job, reservations, callback) {
     job.state = jobStates.STARTING
     _runForEach(reservations, (reservation, done) => {
+        let processIndex = reservations.indexOf(reservation)
         let cudaIndices = []
         let node = db.nodes[reservation.node]
         for(let resourceIndex in reservation.resources) {
@@ -217,11 +231,20 @@ function _startJob(job, reservations, callback) {
             }
         }
         runScriptOnNode(node, 'run.sh', {
-            JOB_DIR: _getJobDir(job),
+            JOB_NUMBER:           job.id,
+            JOB_DIR:              _getJobDir(job),
+            PROCESS_INDEX:        processIndex,
             CUDA_VISIBLE_DEVICES: cudaIndices.join(',')
         }, (code, stdout, stderr) => {
             if (code == 0) {
-                for(let resourceIndex in reservation.resources) {
+                let pid = 0
+                stdout.split('\n').forEach(line => {
+                    let [key, value] = line.split(':')
+                    if (key == 'pid' && value) {
+                        pid = Number(value)
+                    }
+                })
+                for(let resourceIndex of reservation.resources) {
                     let resource = node.resources[resourceIndex]
                     resource.job = job.id
                     resource.pid = pid
@@ -229,6 +252,7 @@ function _startJob(job, reservations, callback) {
             } else {
                 job.state = jobStates.STOPPING
             }
+            done()
         })
     }, () => {
         if (job.state == jobStates.STARTING) {
@@ -266,7 +290,9 @@ exports.initApp = function(app) {
                     clusterRequest: clusterRequest,
                     state: jobStates.PREPARING
                 }
+                console.log('added job')
                 res.status(200).send({ id: id })
+                console.log('preparing job')
                 _prepareJob(db.jobs[id])
             } else {
                 res.status(406).send()
@@ -311,7 +337,7 @@ function _runForEach(col, fun, callback) {
         }
     }
     if (col.length > 0) {
-        for(let item in col) {
+        for(let item of col) {
             fun(item, done)
         }
     } else {
@@ -319,12 +345,12 @@ function _runForEach(col, fun, callback) {
     }
 }
 
-
 exports.tick = function() {
     let realProcesses = {}
-    _runForEach(Object.values(db.nodes), (node, done) => {
+    let currentNodes = Object.keys(db.nodes).map(k => db.nodes[k])
+    _runForEach(currentNodes, (node, done) => {
         runScriptOnNode(node, 'pids.sh', { RUN_USER: node.user }, (code, stdout, stderr) => {
-            let pids = realProcesses[node.id] = []
+            let pids = realProcesses[node.id] = {}
             for(let line of stdout.split('\n')) {
                 if(line.startsWith('pid:')) {
                     pids[Number(line.substr(4))] = true
@@ -336,7 +362,7 @@ exports.tick = function() {
         store.lockAsyncRelease('jobs', release => {
             let goon = () => {
                 release()
-                setTimeout(1000, exports.tick)
+                setTimeout(exports.tick, 1000)
             }
             let processes = _getJobProcesses()
             let toStop = []
@@ -365,6 +391,7 @@ exports.tick = function() {
                 }
             }
             _runForEach(toStop, proc => {
+                console.log(proc)
                 runScriptOnNode(db.nodes[proc.node], 'kill.sh', { PID: proc.pid }, (code, stdout, stderr) => {})
             }, () => {
                 if (db.schedule.length > 0) {
@@ -381,6 +408,8 @@ exports.tick = function() {
                         db.schedule.shift()
                         goon()
                     }
+                } else {
+                    goon()
                 }
             })
         })
