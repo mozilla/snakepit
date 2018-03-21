@@ -46,7 +46,6 @@ function _quote(str) {
     str = str.replace(/\'/g, '\\\'')
     str = str.replace(/(?:\r\n|\r|\n)/g, '\\n')
     str = '$\'' + str + '\''
-    console.log(str)
     return str
 }
 
@@ -147,7 +146,6 @@ function _reserveProcessOnNode(node, reservations, resourceList) {
         let name = db.aliases[resource.name] ? db.aliases[resource.name].name : resource.name
         for(let resourceIndex = 0; resourceIndex < node.resources.length && resourceCounter > 0; resourceIndex++) {
             let nodeResource = node.resources[resourceIndex]
-            console.log(JSON.stringify(nodeResource))
             if (nodeResource.name == name &&
                 !_isReserved(reservations, node.id, resourceIndex) &&
                 !nodeResource.job
@@ -331,7 +329,7 @@ exports.initApp = function(app) {
 function _runForEach(col, fun, callback) {
     let counter = col.length
     let done = () => {
-        counter --
+        counter--
         if (counter == 0) {
             callback()
         }

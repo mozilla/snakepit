@@ -72,7 +72,7 @@ var observer = {
             value = JSON.parse(value_str)
             _parentify(value, target, name)
         }
-        log('Setting property "' + name + '" of object "' + path + '" to value "' + value_str + '"')
+        //log('Setting property "' + name + '" of object "' + path + '" to value "' + value_str + '"')
         if (this != 'skip') {
             _broadcast({ storeOperation: 'set', path: path, args: [name, value] })
         }
@@ -154,7 +154,7 @@ function _writeDb() {
         fs.writeFile(DB_PATH, JSON.stringify(rawRoot, null, '\t'), function(err) {
             if(err)
                 return console.err(err);
-            log('Wrote db!')
+            //log('Wrote db!')
         })
     }
 }
