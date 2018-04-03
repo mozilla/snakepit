@@ -11,8 +11,8 @@ const parseClusterRequest = require('./clusterParser.js').parse
 var exports = module.exports = {}
 
 const jobStates = {
-    WAITING: 0,
-    PREPARING: 1,
+    PREPARING: 0,
+    WAITING: 1,
     STARTING: 2,
     RUNNING: 3,
     STOPPING: 4,
@@ -49,7 +49,7 @@ function _quote(str) {
 }
 
 function _runScript(scriptName, env, callback) {
-    if (typeof env == 'function') {killing
+    if (typeof env == 'function') {
         callback = env
         env = {}
     }
@@ -132,12 +132,12 @@ function _freeProcess(pid) {
 
 function _isReserved(reservations, nodeId, resourceIndex) {
     return reservations.reduce(
-        (result, reservation) => result || (reservation.node == nodeId && reservation.includes(resourceIndex)),
+        (result, reservation) => result || (reservation.node == nodeId && reservation.resources.includes(resourceIndex)),
         false
     )
 }
 
-function _reserveProcessOnNode(node, reservations, resourceList) {
+function _reserveProcessOnNode(node, reservations, resourceList, simulation) {
     var nodeReservation = { node: node.id, resources: [] }
     if (!node || !node.resources) {
         return null
@@ -149,7 +149,7 @@ function _reserveProcessOnNode(node, reservations, resourceList) {
             let nodeResource = node.resources[resourceIndex]
             if (nodeResource.name == name &&
                 !_isReserved(reservations, node.id, resourceIndex) &&
-                !nodeResource.job
+                (!nodeResource.job || simulation)
             ) {
                 nodeReservation.resources.push(resourceIndex)
                 resourceCounter--
@@ -162,11 +162,11 @@ function _reserveProcessOnNode(node, reservations, resourceList) {
     return nodeReservation
 }
 
-function _reserveProcess(reservations, resourceList, state) {
+function _reserveProcess(reservations, resourceList, simulation) {
     for (let nodeId of Object.keys(db.nodes)) {
         let node = db.nodes[nodeId]
-        if (node.state >= state) {
-            let nodeReservation = _reserveProcessOnNode(node, reservations, resourceList)
+        if (node.state == nodeStates.ONLINE || simulation) {
+            let nodeReservation = _reserveProcessOnNode(node, reservations, resourceList, simulation)
             if (nodeReservation) {
                 return nodeReservation
             }
@@ -175,11 +175,11 @@ function _reserveProcess(reservations, resourceList, state) {
     return null
 }
 
-function _reserveCluster(clusterRequest, state) {
+function _reserveCluster(clusterRequest, simulation) {
     let reservations = []
     for(let processRequest of clusterRequest) {
         for(let i=0; i<processRequest.count; i++) {
-            let processReservation = _reserveProcess(reservations, processRequest.process, state)
+            let processReservation = _reserveProcess(reservations, processRequest.process, simulation)
             if (processReservation) {
                 reservations.push(processReservation)
             } else {
@@ -188,6 +188,61 @@ function _reserveCluster(clusterRequest, state) {
         }
     }
     return reservations
+}
+
+function _summarizeClusterReservation(reservations) {
+    let nodes = {}
+    for(let processReservation of reservations) {
+        let node = nodes[processReservation.node]
+        if (node) {
+            node.resources = node.resources.concat(processReservation.resources)
+        } else {
+            nodes[processReservation.node] = {
+                id: processReservation.node,
+                resources: [].concat(processReservation.resources)
+            }
+        }
+    }
+    console.log(JSON.stringify(nodes))
+    let summary = ''
+    for (let nodeId of Object.keys(nodes)) {
+        let node = nodes[nodeId]
+        let resources = node.resources
+        resources.sort()
+        if (summary != '') {
+            summary += ' + '
+        }
+        summary += nodeId
+        summary += '['
+        let range = null
+        let addRange = () => summary += range.start == range.stop ? range.start : (range.start + '-' + range.stop)
+        let lastType = null
+        for(let resourceIndex of node.resources) {
+            let dbresource = db.nodes[nodeId].resources[resourceIndex]
+            if (lastType != dbresource.type) {
+                if (range) {
+                    addRange()
+                    summary += ' + '
+                }
+                summary += dbresource.type + ' '
+                lastType = dbresource.type
+                range = { start: dbresource.index, stop: dbresource.index }
+            } else {
+                if (range.stop + 1 < dbresource.index) {
+                    addRange()
+                    summary += ','
+                    range = { start: dbresource.index, stop: dbresource.index }
+                } else {
+                    range.stop = dbresource.index
+                }
+            }
+        }
+        if (range) {
+            addRange()
+        }
+        summary += ']'
+    }
+    return summary
 }
 
 function _getJobDir(job) {
@@ -217,10 +272,11 @@ function _prepareJob(job) {
     })
 }
 
-function _startJob(job, reservations, callback) {
+function _startJob(job, clusterReservation, callback) {
     job.state = jobStates.STARTING
-    _runForEach(reservations, (reservation, done) => {
-        let processIndex = reservations.indexOf(reservation)
+    job.clusterReservation = _summarizeClusterReservation(clusterReservation)
+    _runForEach(clusterReservation, (reservation, done) => {
+        let processIndex = clusterReservation.indexOf(reservation)
         let cudaIndices = []
         let node = db.nodes[reservation.node]
         for(let resourceIndex in reservation.resources) {
@@ -262,10 +318,6 @@ function _startJob(job, reservations, callback) {
 }
 
 exports.initApp = function(app) {
-    app.get('/jobs/:state', function(req, res) {
-        res.status(200).send()
-    })
-
     app.post('/jobs', function(req, res) {
         store.lockAutoRelease('jobs', function() {
             let id = db.jobIdCounter++
@@ -278,7 +330,7 @@ exports.initApp = function(app) {
                 res.status(400).send({ message: 'Problem parsing allocation' })
                 return
             }
-            if (_reserveCluster(clusterRequest, nodeStates.UNKNOWN)) {
+            if (_reserveCluster(clusterRequest, true)) {
                 db.jobs[id] = {
                     id: id,
                     user: req.user.id,
@@ -286,7 +338,7 @@ exports.initApp = function(app) {
                     hash: job.hash,
                     diff: job.diff,
                     description: job.description || (req.user.id + ' - ' + new Date().toISOString()),
-                    clusterRequest: clusterRequest,
+                    clusterRequest: job.clusterRequest,
                     state: jobStates.PREPARING
                 }
                 console.log('added job')
@@ -307,23 +359,67 @@ exports.initApp = function(app) {
         res.status(200).send()
     })
 
-    app.delete('/jobs/:id', function(req, res) {
-        var id = Number(req.params.id)
-        var dbjob = db.jobs[id]
-        if (dbjob) {
-            if (req.user.id == dbjob.id || req.user.admin) {
-                delete db.jobs[id]
-                let scheduleIndex = db.schedule.indexOf(id)
-                if (scheduleIndex >= 0) {
-                    db.schedule.splice(scheduleIndex, 1)
+    app.post('/jobs/:id/stop', function(req, res) {
+        store.lockAutoRelease('jobs', function() {
+            var id = Number(req.params.id)
+            var dbjob = db.jobs[id]
+            if (dbjob) {
+                if (req.user.id == dbjob.user || req.user.admin) {
+                    if (dbjob.state == jobStates.STARTING || dbjob.state == jobStates.RUNNING) {
+                        dbjob.state = jobStates.STOPPING
+                        res.status(200).send()
+                    } else {
+                        res.status(412).send()
+                    }
+                } else {
+                    res.status(403).send()
                 }
-                res.status(200).send()
             } else {
-                res.status(403).send()
+                res.status(404).send()
             }
-        } else {
-            res.status(404).send()
+        })
+    })
+
+    app.delete('/jobs/:id', function(req, res) {
+        store.lockAutoRelease('jobs', function() {
+            var id = Number(req.params.id)
+            var dbjob = db.jobs[id]
+            if (dbjob) {
+                if (req.user.id == dbjob.user || req.user.admin) {
+                    if (dbjob.state >= jobStates.DONE) {
+                        delete db.jobs[id]
+                        let scheduleIndex = db.schedule.indexOf(id)
+                        if (scheduleIndex >= 0) {
+                            db.schedule.splice(scheduleIndex, 1)
+                        }
+                        res.status(200).send()
+                    } else {
+                        res.status(412).send()
+                    }
+                } else {
+                    res.status(403).send()
+                }
+            } else {
+                res.status(404).send()
+            }
+        })
+    })
+
+    app.get('/jobs', function(req, res) {
+        let jobs = []
+        for (let jobId of Object.keys(db.jobs)) {
+            let dbjob = db.jobs[jobId]
+            jobs.push({
+                id: dbjob.id,
+                user: dbjob.user,
+                description: dbjob.description,
+                clusterRequest: dbjob.clusterRequest,
+                clusterReservation: dbjob.clusterReservation,
+                state: dbjob.state,
+                schedulePosition: db.schedule.indexOf(dbjob.id)
+            })
         }
+        res.status(200).send(jobs)
     })
 }
 
@@ -389,7 +485,7 @@ exports.tick = function() {
                     toStop = toStop.concat(toStopForJob)
                 }
             }
-            _runForEach(toStop, proc => {
+            _runForEach(toStop, (proc, done) => {
                 console.log(proc)
                 runScriptOnNode(db.nodes[proc.node], 'kill.sh', { PID: proc.pid }, (code, stdout, stderr) => {
                     if (code == 0) {
@@ -397,15 +493,17 @@ exports.tick = function() {
                     } else {
                         console.log('Problem ending PID: ' + proc.pid)
                     }
+                    done()
                 })
             }, () => {
                 if (db.schedule.length > 0) {
                     let job = db.jobs[db.schedule[0]]
                     if (job) {
-                        let reservations = _reserveCluster(job.clusterRequest, nodeStates.ONLINE)
-                        if (reservations) {
+                        let clusterRequest = parseClusterRequest(job.clusterRequest)
+                        let clusterReservation = _reserveCluster(clusterRequest, false)
+                        if (clusterReservation) {
                             db.schedule.shift()
-                            _startJob(job, reservations, goon)
+                            _startJob(job, clusterReservation, goon)
                         } else {
                             goon()
                         }

@@ -1,1 +1,1 @@
-ps -u root -o pid= | sed 's/^ *//;s/ *$//' | sed 's/.*/pid:&/'
+ps -o pid= | sed 's/^ *//;s/ *$//' | sed 's/.*/pid:&/'
