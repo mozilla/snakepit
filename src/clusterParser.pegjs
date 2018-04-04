@@ -2,7 +2,7 @@ start
   = cluster
 
 cluster
-  = left:processGroup "," right:cluster { return left.concat(right); }
+  = left:processGroup "," right:cluster { return [left].concat(right); }
   / solo:processGroup { return [solo]; }
 
 processGroup
@@ -13,7 +13,7 @@ process
   = "[" solo:resourceList "]" { return solo }
 
 resourceList
-  = left:resourceGroup "," right:resourceList { return left.concat(right); }
+  = left:resourceGroup "," right:resourceList { return [left].concat(right); }
   / solo:resourceGroup { return [solo]; }
 
 resourceGroup

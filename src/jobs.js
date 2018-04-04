@@ -1,8 +1,11 @@
 const fs = require('fs')
+const readline = require('readline')
 const path = require('path')
 const { spawn } = require('child_process')
 const stream = require('stream')
 const CombinedStream = require('combined-stream')
+const { MultiRange } = require('multi-integer-range')
+
 const store = require('./store.js')
 const config = require('./config.js')
 const { nodeStates, runScriptOnNode } = require('./nodes.js')
@@ -19,6 +22,8 @@ const jobStates = {
     DONE: 5,
     FAILED: 6
 }
+
+const POLL_INTERVAL = 100
 
 exports.jobStates = jobStates
 
@@ -108,13 +113,13 @@ function _getJobProcesses() {
 }
 
 function _freeProcess(pid) {
-    let job = 0
+    let job  = 0
     _forEachResource((node, resource) => {
         if (resource.pid == pid) {
             console.log('Freeing resource ' + resource.name + ' for PID ' + pid + ' on node "' + node.id + '"')
             job = resource.job
-            resource.pid = 0
-            resource.job = 0
+            delete resource.pid
+            delete resource.job
         }
     })
     if (job > 0) {
@@ -130,14 +135,14 @@ function _freeProcess(pid) {
     }
 }
 
-function _isReserved(reservations, nodeId, resourceIndex) {
-    return reservations.reduce(
+function _isReserved(clusterReservation, nodeId, resourceIndex) {
+    return clusterReservation.reduce(
         (result, reservation) => result || (reservation.node == nodeId && reservation.resources.includes(resourceIndex)),
         false
     )
 }
 
-function _reserveProcessOnNode(node, reservations, resourceList, simulation) {
+function _reserveProcessOnNode(node, clusterReservation, resourceList, simulation) {
     var nodeReservation = { node: node.id, resources: [] }
     if (!node || !node.resources) {
         return null
@@ -148,7 +153,7 @@ function _reserveProcessOnNode(node, reservations, resourceList, simulation) {
         for(let resourceIndex = 0; resourceIndex < node.resources.length && resourceCounter > 0; resourceIndex++) {
             let nodeResource = node.resources[resourceIndex]
             if (nodeResource.name == name &&
-                !_isReserved(reservations, node.id, resourceIndex) &&
+                !_isReserved(clusterReservation, node.id, resourceIndex) &&
                 (!nodeResource.job || simulation)
             ) {
                 nodeReservation.resources.push(resourceIndex)
@@ -162,11 +167,11 @@ function _reserveProcessOnNode(node, reservations, resourceList, simulation) {
     return nodeReservation
 }
 
-function _reserveProcess(reservations, resourceList, simulation) {
+function _reserveProcess(clusterReservation, resourceList, simulation) {
     for (let nodeId of Object.keys(db.nodes)) {
         let node = db.nodes[nodeId]
         if (node.state == nodeStates.ONLINE || simulation) {
-            let nodeReservation = _reserveProcessOnNode(node, reservations, resourceList, simulation)
+            let nodeReservation = _reserveProcessOnNode(node, clusterReservation, resourceList, simulation)
             if (nodeReservation) {
                 return nodeReservation
             }
@@ -176,69 +181,47 @@ function _reserveProcess(reservations, resourceList, simulation) {
 }
 
 function _reserveCluster(clusterRequest, simulation) {
-    let reservations = []
+    let clusterReservation = []
     for(let processRequest of clusterRequest) {
         for(let i=0; i<processRequest.count; i++) {
-            let processReservation = _reserveProcess(reservations, processRequest.process, simulation)
+            let processReservation = _reserveProcess(clusterReservation, processRequest.process, simulation)
             if (processReservation) {
-                reservations.push(processReservation)
+                clusterReservation.push(processReservation)
             } else {
                 return null
             }
         }
     }
-    return reservations
+    return clusterReservation
 }
 
-function _summarizeClusterReservation(reservations) {
+function _summarizeClusterReservation(clusterReservation) {
     let nodes = {}
-    for(let processReservation of reservations) {
-        let node = nodes[processReservation.node]
-        if (node) {
-            node.resources = node.resources.concat(processReservation.resources)
-        } else {
-            nodes[processReservation.node] = {
-                id: processReservation.node,
-                resources: [].concat(processReservation.resources)
-            }
-        }
+    for(let processReservation of clusterReservation) {
+        nodes[processReservation.node] = (nodes[processReservation.node] || [])
+            .concat(processReservation.resources)
     }
-    console.log(JSON.stringify(nodes))
     let summary = ''
-    for (let nodeId of Object.keys(nodes)) {
-        let node = nodes[nodeId]
-        let resources = node.resources
-        resources.sort()
+    for(let nodeId of Object.keys(nodes)) {
+        let nodeResources = nodes[nodeId]
+        let dbnode = db.nodes[nodeId]
         if (summary != '') {
             summary += ' + '
         }
-        summary += nodeId
-        summary += '['
-        let range = null
-        let addRange = () => summary += range.start == range.stop ? range.start : (range.start + '-' + range.stop)
-        let lastType = null
-        for(let resourceIndex of node.resources) {
-            let dbresource = db.nodes[nodeId].resources[resourceIndex]
-            if (lastType != dbresource.type) {
-                if (range) {
-                    addRange()
+        summary += nodeId + '['
+        let first = true
+        for(let type of dbnode.resources.map(r => r.type).filter((v, i, a) => a.indexOf(v) === i)) {
+            let resources = nodeResources.filter(ri => dbnode.resources[ri].type == type)
+                .map(ri => dbnode.resources[ri].index)
+            if (resources.length > 0) {
+                if (!first) {
                     summary += ' + '
                 }
-                summary += dbresource.type + ' '
-                lastType = dbresource.type
-                range = { start: dbresource.index, stop: dbresource.index }
-            } else {
-                if (range.stop + 1 < dbresource.index) {
-                    addRange()
-                    summary += ','
-                    range = { start: dbresource.index, stop: dbresource.index }
-                } else {
-                    range.stop = dbresource.index
-                }
+                summary += type + ' ' + new MultiRange(resources.join(',')).getRanges()
+                    .map(range => range[0] == range[1] ? range[0] : range[0] + '-' + range[1])
+                    .join(',')
+                first = false
             }
-        }
-        if (range) {
-            addRange()
         }
         summary += ']'
     }
@@ -317,6 +300,30 @@ function _startJob(job, clusterReservation, callback) {
     })
 }
 
+function _createJobDescription(dbjob) {
+    return {
+        id: dbjob.id,
+        user: dbjob.user,
+        description: dbjob.description,
+        clusterRequest: dbjob.clusterRequest,
+        clusterReservation: dbjob.clusterReservation,
+        state: dbjob.state,
+        schedulePosition: db.schedule.indexOf(dbjob.id),
+        numProcesses: dbjob.numProcesses
+    }
+}
+
+function _getJobDescription(jobId, user, extended) {
+    let dbjob = db.jobs[jobId]
+    let job = dbjob ? _createJobDescription(dbjob) : null
+    if (job && extended && user == dbjob.user) {
+        job.origin = dbjob.origin
+        job.hash = dbjob.hash
+        job.diff = dbjob.diff
+    }
+    return job
+}
+
 exports.initApp = function(app) {
     app.post('/jobs', function(req, res) {
         store.lockAutoRelease('jobs', function() {
@@ -330,20 +337,20 @@ exports.initApp = function(app) {
                 res.status(400).send({ message: 'Problem parsing allocation' })
                 return
             }
-            if (_reserveCluster(clusterRequest, true)) {
+            let simulatedReservation = _reserveCluster(clusterRequest, true)
+            if (simulatedReservation) {
                 db.jobs[id] = {
                     id: id,
                     user: req.user.id,
                     origin: job.origin,
                     hash: job.hash,
                     diff: job.diff,
-                    description: job.description || (req.user.id + ' - ' + new Date().toISOString()),
+                    description: ('' + job.description).substring(0,20),
                     clusterRequest: job.clusterRequest,
+                    numProcesses: simulatedReservation.length,
                     state: jobStates.PREPARING
                 }
-                console.log('added job')
                 res.status(200).send({ id: id })
-                console.log('preparing job')
                 _prepareJob(db.jobs[id])
             } else {
                 res.status(406).send()
@@ -351,12 +358,78 @@ exports.initApp = function(app) {
         })
     })
 
-    app.get('/jobs/:id', function(req, res) {
-        res.status(200).send()
+    app.get('/jobs', function(req, res) {
+        res.status(200).send(Object.keys(db.jobs))
     })
 
-    app.get('/jobs/:id/watch', function(req, res) {
-        res.status(200).send()
+    app.get('/status', function(req, res) {
+        let jobs = Object.keys(db.jobs).map(k => db.jobs[k])
+        let running = jobs.filter(j => j.state >= jobStates.STARTING && j.state <= jobStates.STOPPING).sort((a,b) => a.id - b.id)
+        let waiting = jobs.filter(j => j.state == jobStates.WAITING).sort((a,b) => db.schedule.indexof(a.id) - db.schedule.indexof(b.id))
+        waiting = waiting.concat(jobs.filter(j => j.state == jobStates.PREPARING))
+        let done = jobs.filter(j => j.state >= jobStates.DONE).sort((a,b) => b.id - a.id).slice(0, 20)
+        res.status(200).send({
+            running: running.map(j => _createJobDescription(j)),
+            waiting: waiting.map(j => _createJobDescription(j)),
+            done:    done   .map(j => _createJobDescription(j))
+        })
+    })
+
+    app.get('/jobs/:id', function(req, res) {
+        let id = Number(req.params.id)
+        let job = _getJobDescription(id, req.user.id, true)
+        if (job) {
+            res.status(200).send(job)
+        } else {
+            res.status(404).send()
+        }
+    })
+
+    app.get('/jobs/:id/processes/:proc/log', function(req, res) {
+        let id = Number(req.params.id)
+        let dbjob = db.jobs[id]
+        let proc = Number(req.params.proc)
+        if (dbjob && proc < dbjob.numProcesses) {
+            if (req.user.id == dbjob.user || req.user.admin) {
+                res.writeHead(200, {
+                    'Connection': 'keep-alive',
+                    'Content-Type': 'text/plain',
+                    'Cache-Control': 'no-cache'
+                })
+                let logPath = path.join(_getJobDir(dbjob), 'process_' + proc + '.log')
+                let written = 0
+                let writeStream = cb => {
+                    let stream = fs.createReadStream(logPath, { start: written })
+                    stream.on('data', chunk => {
+                        res.write(chunk)
+                        written += chunk.length
+                    })
+                    stream.on('end', cb)
+                }
+                let poll = () => {
+                    if (dbjob.state <= jobStates.STOPPING) {
+                        if (fs.existsSync(logPath)) {
+                            fs.stat(logPath, (err, stats) => {
+                                if (!err && stats.size > written) {
+                                    writeStream(() => setTimeout(poll, POLL_INTERVAL))
+                                } else  {
+                                    setTimeout(poll, POLL_INTERVAL)
+                                }
+                            })
+                        } else {
+                            setTimeout(poll, POLL_INTERVAL)
+                        }
+                    } else if (fs.existsSync(logPath)) {
+                        writeStream(res.end.bind(res))
+                    }
+                }
+                poll()
+            } else {
+                res.status(403).send()
+            }
+        } else {
+            res.status(404).send()
+        }
     })
 
     app.post('/jobs/:id/stop', function(req, res) {
@@ -403,23 +476,6 @@ exports.initApp = function(app) {
                 res.status(404).send()
             }
         })
-    })
-
-    app.get('/jobs', function(req, res) {
-        let jobs = []
-        for (let jobId of Object.keys(db.jobs)) {
-            let dbjob = db.jobs[jobId]
-            jobs.push({
-                id: dbjob.id,
-                user: dbjob.user,
-                description: dbjob.description,
-                clusterRequest: dbjob.clusterRequest,
-                clusterReservation: dbjob.clusterReservation,
-                state: dbjob.state,
-                schedulePosition: db.schedule.indexOf(dbjob.id)
-            })
-        }
-        res.status(200).send(jobs)
     })
 }
 
@@ -486,7 +542,6 @@ exports.tick = function() {
                 }
             }
             _runForEach(toStop, (proc, done) => {
-                console.log(proc)
                 runScriptOnNode(db.nodes[proc.node], 'kill.sh', { PID: proc.pid }, (code, stdout, stderr) => {
                     if (code == 0) {
                         console.log('Ended PID: ' + proc.pid)
