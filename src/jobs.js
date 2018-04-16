@@ -14,13 +14,14 @@ const parseClusterRequest = require('./clusterParser.js').parse
 var exports = module.exports = {}
 
 const jobStates = {
-    PREPARING: 0,
-    WAITING: 1,
-    STARTING: 2,
-    RUNNING: 3,
-    STOPPING: 4,
-    DONE: 5,
-    FAILED: 6
+    NEW: 0,
+    PREPARING: 1,
+    WAITING: 2,
+    STARTING: 3,
+    RUNNING: 4,
+    STOPPING: 5,
+    DONE: 6,
+    FAILED: 7
 }
 
 const POLL_INTERVAL = 100
@@ -38,6 +39,12 @@ exports.initDb = function() {
     }
     if (!db.jobs) {
         db.jobs = {}
+    }
+    for (let jobId of Object.keys(db.jobs)) {
+        let job = db.jobs[jobId]
+        if (job.state == jobStates.PREPARING) {
+            _prepareJob(job)
+        }
     }
     if (!db.schedule) {
         db.schedule = []
@@ -116,7 +123,7 @@ function _freeProcess(pid) {
     let job  = 0
     _forEachResource((node, resource) => {
         if (resource.pid == pid) {
-            console.log('Freeing resource ' + resource.name + ' for PID ' + pid + ' on node "' + node.id + '"')
+            //console.log('Freeing resource ' + resource.name + ' for PID ' + pid + ' on node "' + node.id + '"')
             job = resource.job
             delete resource.pid
             delete resource.job
@@ -130,7 +137,7 @@ function _freeProcess(pid) {
             }
         })
         if (counter == 0) {
-            db.jobs[job].state = jobStates.DONE
+            _setJobState(db.jobs[job], jobStates.DONE)
         }
     }
 }
@@ -232,7 +239,14 @@ function _getJobDir(job) {
     return path.join(jobsDir, '' + job.id)
 }
 
+function _setJobState(job, state) {
+    job.state = state
+    job.stateChanges = job.stateChanges || {}
+    job.stateChanges[state] = new Date().toISOString()
+}
+
 function _prepareJob(job) {
+    _setJobState(job, jobStates.PREPARING)
     _runScript('prepare.sh', {
         CACHE_DIR: cacheDir,
         JOBS_DIR:  jobsDir,
@@ -243,20 +257,20 @@ function _prepareJob(job) {
     }, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
             if (code == 0 && fs.existsSync(_getJobDir(job))) {
-                job.state = jobStates.WAITING
+                _setJobState(job, jobStates.WAITING)
                 db.schedule.push(job.id)
             } else {
-                job.state = jobStates.FAILED
+                _setJobState(job, jobStates.FAILED)
                 job.result = stderr
-                console.log(stdout)
-                console.log(stderr)
+                console.error(stdout)
+                console.error(stderr)
             }
         })
     })
 }
 
 function _startJob(job, clusterReservation, callback) {
-    job.state = jobStates.STARTING
+    _setJobState(job, jobStates.STARTING)
     job.clusterReservation = _summarizeClusterReservation(clusterReservation)
     _runForEach(clusterReservation, (reservation, done) => {
         let processIndex = clusterReservation.indexOf(reservation)
@@ -288,19 +302,38 @@ function _startJob(job, clusterReservation, callback) {
                     resource.pid = pid
                 }
             } else {
-                job.state = jobStates.STOPPING
+                _setJobState(job, jobStates.STOPPING)
             }
             done()
         })
     }, () => {
         if (job.state == jobStates.STARTING) {
-            job.state = jobStates.RUNNING
+            _setJobState(job, jobStates.RUNNING)
         }
         callback()
     })
 }
 
+function _getDuration(date1, date2) {
+    let delta = Math.abs(date2 - date1) / 1000
+    let days = Math.floor(delta / 86400)
+    delta -= days * 86400
+    let hours = Math.floor(delta / 3600) % 24
+    delta -= hours * 3600
+    let minutes = Math.floor(delta / 60) % 60
+    delta -= minutes * 60
+    let seconds = Math.floor(delta % 60)
+    return {
+        days: days,
+        hours: hours,
+        minutes: minutes,
+        seconds: seconds
+    }
+}
+
 function _createJobDescription(dbjob) {
+    let stateChange = new Date(dbjob.stateChanges[dbjob.state])
+    let duration = _getDuration(new Date(), stateChange)
     return {
         id: dbjob.id,
         user: dbjob.user,
@@ -308,6 +341,7 @@ function _createJobDescription(dbjob) {
         clusterRequest: dbjob.clusterRequest,
         clusterReservation: dbjob.clusterReservation,
         state: dbjob.state,
+        since: duration,
         schedulePosition: db.schedule.indexOf(dbjob.id),
         numProcesses: dbjob.numProcesses
     }
@@ -316,10 +350,13 @@ function _createJobDescription(dbjob) {
 function _getJobDescription(jobId, user, extended) {
     let dbjob = db.jobs[jobId]
     let job = dbjob ? _createJobDescription(dbjob) : null
-    if (job && extended && user == dbjob.user) {
-        job.origin = dbjob.origin
-        job.hash = dbjob.hash
-        job.diff = dbjob.diff
+    if (job && extended) {
+        job.stateChanges = dbjob.stateChanges
+        if(user == dbjob.user) {
+            job.origin = dbjob.origin
+            job.hash = dbjob.hash
+            job.diff = dbjob.diff
+        }
     }
     return job
 }
@@ -333,13 +370,12 @@ exports.initApp = function(app) {
             try {
                 clusterRequest = parseClusterRequest(job.clusterRequest)
             } catch (ex) {
-                console.log(ex)
                 res.status(400).send({ message: 'Problem parsing allocation' })
                 return
             }
             let simulatedReservation = _reserveCluster(clusterRequest, true)
             if (simulatedReservation) {
-                db.jobs[id] = {
+                let dbjob = {
                     id: id,
                     user: req.user.id,
                     origin: job.origin,
@@ -347,13 +383,14 @@ exports.initApp = function(app) {
                     diff: job.diff,
                     description: ('' + job.description).substring(0,20),
                     clusterRequest: job.clusterRequest,
-                    numProcesses: simulatedReservation.length,
-                    state: jobStates.PREPARING
+                    numProcesses: simulatedReservation.length
                 }
+                _setJobState(dbjob, jobStates.NEW)
+                db.jobs[id] = dbjob
                 res.status(200).send({ id: id })
                 _prepareJob(db.jobs[id])
             } else {
-                res.status(406).send()
+                res.status(406).send({ message: 'Cluster cannot fulfill resource request' })
             }
         })
     })
@@ -439,10 +476,10 @@ exports.initApp = function(app) {
             if (dbjob) {
                 if (req.user.id == dbjob.user || req.user.admin) {
                     if (dbjob.state == jobStates.STARTING || dbjob.state == jobStates.RUNNING) {
-                        dbjob.state = jobStates.STOPPING
+                        _setJobState(dbjob, jobStates.STOPPING)
                         res.status(200).send()
                     } else {
-                        res.status(412).send()
+                        res.status(412).send({ message: 'Only starting or running jobs can be stopped' })
                     }
                 } else {
                     res.status(403).send()
@@ -467,7 +504,7 @@ exports.initApp = function(app) {
                         }
                         res.status(200).send()
                     } else {
-                        res.status(412).send()
+                        res.status(412).send({ message: 'Only failed or done jobs can be deleted' })
                     }
                 } else {
                     res.status(403).send()
@@ -529,12 +566,12 @@ exports.tick = function() {
                             if (realNodeProcesses[pid]) {
                                 toStopForJob.push({ node: nodeId, pid: pid })
                             } else {
-                                job.state = jobStates.STOPPING
+                                _setJobState(job, jobStates.STOPPING)
                                 _freeProcess(pid)
                             }
                         }
                     } else {
-                        job.state = jobStates.STOPPING
+                        _setJobState(job, jobStates.STOPPING)
                     }
                 }
                 if (job.state == jobStates.STOPPING && toStopForJob.length > 0) {

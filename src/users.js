@@ -23,23 +23,23 @@ exports.initApp = function(app) {
             jwt.verify(token, app.get('tokenSecret'), function(err, decoded) {
                 if (err) {
                     if (err.name == 'TokenExpiredError') {
-                        res.status(401).json({ message: 'Token expired.' })
+                        res.status(401).json({ message: 'Token expired' })
                     } else {
-                        res.status(400).json({ message: 'Invalid token.' })
+                        res.status(400).json({ message: 'Invalid token' })
                     }
                 } else {
                     req.user = db.users[decoded.user]
                     if (req.user) {
                         callback()
                     } else {
-                        res.status(401).json({ message: 'Token for non-existent user.' })
+                        res.status(401).json({ message: 'Token for non-existent user' })
                     }
                 }
             })
         } else if (!needsUser) {
             callback()
         } else {
-            res.status(401).json({ message: 'No token provided.' })
+            res.status(401).json({ message: 'No token provided' })
         }
     }
 
