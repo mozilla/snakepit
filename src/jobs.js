@@ -261,9 +261,7 @@ function _prepareJob(job) {
                 db.schedule.push(job.id)
             } else {
                 _setJobState(job, jobStates.FAILED)
-                job.result = stderr
-                console.error(stdout)
-                console.error(stderr)
+                job.error = stderr
             }
         })
     })
@@ -402,7 +400,7 @@ exports.initApp = function(app) {
     app.get('/status', function(req, res) {
         let jobs = Object.keys(db.jobs).map(k => db.jobs[k])
         let running = jobs.filter(j => j.state >= jobStates.STARTING && j.state <= jobStates.STOPPING).sort((a,b) => a.id - b.id)
-        let waiting = jobs.filter(j => j.state == jobStates.WAITING).sort((a,b) => db.schedule.indexof(a.id) - db.schedule.indexof(b.id))
+        let waiting = jobs.filter(j => j.state == jobStates.WAITING).sort((a,b) => db.schedule.indexOf(a.id) - db.schedule.indexOf(b.id))
         waiting = waiting.concat(jobs.filter(j => j.state == jobStates.PREPARING))
         let done = jobs.filter(j => j.state >= jobStates.DONE).sort((a,b) => b.id - a.id).slice(0, 20)
         res.status(200).send({
