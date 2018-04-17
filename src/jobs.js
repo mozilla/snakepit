@@ -274,7 +274,7 @@ function _startJob(job, clusterReservation, callback) {
         let processIndex = clusterReservation.indexOf(reservation)
         let cudaIndices = []
         let node = db.nodes[reservation.node]
-        for(let resourceIndex in reservation.resources) {
+        for(let resourceIndex of reservation.resources) {
             let resource = node.resources[resourceIndex]
             if (resource.type == 'cuda') {
                 cudaIndices.push(resource.index)
