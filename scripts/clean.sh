@@ -6,5 +6,5 @@ for dir in $JOB_DATA_DIR/*; do
         fusermount -u $dir
     fi
 done
-rm -rf "$JOB_DIR/groups"
+rm -rf "$JOB_DIR/data"
 
