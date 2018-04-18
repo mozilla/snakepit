@@ -4,6 +4,7 @@ const { spawn } = require('child_process')
 const stream = require('stream')
 const CombinedStream = require('combined-stream')
 const store = require('./store.js')
+const { getAlias } = require('./aliases.js')
 
 var exports = module.exports = {}
 
@@ -120,7 +121,28 @@ exports.initApp = function(app) {
     app.get('/nodes/:id', function(req, res) {
         var node = db.nodes[req.params.id]
         if (node) {
-            res.status(200).json(node)
+            res.status(200).json({
+                id:        node.id,
+                address:   node.address,
+                port:      node.port,
+                user:      node.user,
+                state:     node.state,
+                resources: node.resources.map(r => {
+                    let resource = {
+                        type:  r.type,
+                        name:  r.name,
+                        index: r.index
+                    }
+                    let alias = getAlias(r.name)
+                    if (alias) {
+                        resource.alias = alias
+                    }
+                    if (r.groups) {
+                        resource.groups = r.groups
+                    }
+                    return resource
+                })
+            })
         } else {
             res.status(404).send()
         }

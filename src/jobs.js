@@ -9,6 +9,7 @@ const { MultiRange } = require('multi-integer-range')
 const store = require('./store.js')
 const config = require('./config.js')
 const { nodeStates, runScriptOnNode } = require('./nodes.js')
+const { canAccess } = require('./groups.js')
 const parseClusterRequest = require('./clusterParser.js').parse
 
 var exports = module.exports = {}
@@ -20,8 +21,9 @@ const jobStates = {
     STARTING: 3,
     RUNNING: 4,
     STOPPING: 5,
-    DONE: 6,
-    FAILED: 7
+    CLEANING: 6,
+    DONE: 7,
+    FAILED: 8
 }
 
 const POLL_INTERVAL = 100
@@ -30,6 +32,7 @@ exports.jobStates = jobStates
 
 var db = store.root
 
+var dataRootDir = config.dataRootDir || path.join(__dirname, '..', 'data', 'groups')
 var cacheDir = config.cacheDir || path.join(__dirname, '..', 'data', 'cache')
 var jobsDir = config.jobsDir || path.join(__dirname, '..', 'data', 'jobs')
 
@@ -44,6 +47,8 @@ exports.initDb = function() {
         let job = db.jobs[jobId]
         if (job.state == jobStates.PREPARING) {
             _prepareJob(job)
+        } else if (job.state == jobStates.CLEANING) {
+            _cleanJob(job)
         }
     }
     if (!db.schedule) {
@@ -137,7 +142,7 @@ function _freeProcess(pid) {
             }
         })
         if (counter == 0) {
-            _setJobState(db.jobs[job], jobStates.DONE)
+            _cleanJob(db.jobs[job])
         }
     }
 }
@@ -149,7 +154,7 @@ function _isReserved(clusterReservation, nodeId, resourceIndex) {
     )
 }
 
-function _reserveProcessOnNode(node, clusterReservation, resourceList, simulation) {
+function _reserveProcessOnNode(node, clusterReservation, resourceList, user, simulation) {
     var nodeReservation = { node: node.id, resources: [] }
     if (!node || !node.resources) {
         return null
@@ -161,7 +166,8 @@ function _reserveProcessOnNode(node, clusterReservation, resourceList, simulatio
             let nodeResource = node.resources[resourceIndex]
             if (nodeResource.name == name &&
                 !_isReserved(clusterReservation, node.id, resourceIndex) &&
-                (!nodeResource.job || simulation)
+                (!nodeResource.job || simulation) &&
+                canAccess(user, nodeResource)
             ) {
                 nodeReservation.resources.push(resourceIndex)
                 resourceCounter--
@@ -174,11 +180,11 @@ function _reserveProcessOnNode(node, clusterReservation, resourceList, simulatio
     return nodeReservation
 }
 
-function _reserveProcess(clusterReservation, resourceList, simulation) {
+function _reserveProcess(clusterReservation, resourceList, user, simulation) {
     for (let nodeId of Object.keys(db.nodes)) {
         let node = db.nodes[nodeId]
         if (node.state == nodeStates.ONLINE || simulation) {
-            let nodeReservation = _reserveProcessOnNode(node, clusterReservation, resourceList, simulation)
+            let nodeReservation = _reserveProcessOnNode(node, clusterReservation, resourceList, user, simulation)
             if (nodeReservation) {
                 return nodeReservation
             }
@@ -187,11 +193,11 @@ function _reserveProcess(clusterReservation, resourceList, simulation) {
     return null
 }
 
-function _reserveCluster(clusterRequest, simulation) {
+function _reserveCluster(clusterRequest, user, simulation) {
     let clusterReservation = []
     for(let processRequest of clusterRequest) {
         for(let i=0; i<processRequest.count; i++) {
-            let processReservation = _reserveProcess(clusterReservation, processRequest.process, simulation)
+            let processReservation = _reserveProcess(clusterReservation, processRequest.process, user, simulation)
             if (processReservation) {
                 clusterReservation.push(processReservation)
             } else {
@@ -245,22 +251,42 @@ function _setJobState(job, state) {
     job.stateChanges[state] = new Date().toISOString()
 }
 
+function _getJobContext(job) {
+    let groups = db.users[job.user].groups
+    groups = (groups ? groups.join(' ') + ' ' : '') + 'public'
+    return {
+        USER_GROUPS: groups,
+        DATA_DIR:    dataRootDir,
+        CACHE_DIR:   cacheDir,
+        JOBS_DIR:    jobsDir,
+        JOB_NAME:    job.id,
+        ORIGIN:      job.origin,
+        HASH:        job.hash,
+        DIFF:        job.diff
+    }
+}
+
 function _prepareJob(job) {
     _setJobState(job, jobStates.PREPARING)
-    _runScript('prepare.sh', {
-        CACHE_DIR: cacheDir,
-        JOBS_DIR:  jobsDir,
-        JOB_NAME:  job.id,
-        ORIGIN:    job.origin,
-        HASH:      job.hash,
-        DIFF:      job.diff
-    }, (code, stdout, stderr) => {
+    _runScript('prepare.sh', _getJobContext(job), (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
             if (code == 0 && fs.existsSync(_getJobDir(job))) {
                 _setJobState(job, jobStates.WAITING)
                 db.schedule.push(job.id)
             } else {
                 _setJobState(job, jobStates.FAILED)
+                job.error = stderr
+            }
+        })
+    })
+}
+
+function _cleanJob(job) {
+    _setJobState(job, jobStates.CLEANING)
+    _runScript('clean.sh', _getJobContext(job), (code, stdout, stderr) => {
+        store.lockAutoRelease('jobs', () => {
+            _setJobState(job, jobStates.DONE)
+            if (code > 0) {
                 job.error = stderr
             }
         })
@@ -350,6 +376,9 @@ function _getJobDescription(jobId, user, extended) {
     let job = dbjob ? _createJobDescription(dbjob) : null
     if (job && extended) {
         job.stateChanges = dbjob.stateChanges
+        if (dbjob.error) {
+            job.error = dbjob.error.trim()
+        }
         if(user == dbjob.user) {
             job.origin = dbjob.origin
             job.hash = dbjob.hash
@@ -371,7 +400,7 @@ exports.initApp = function(app) {
                 res.status(400).send({ message: 'Problem parsing allocation' })
                 return
             }
-            let simulatedReservation = _reserveCluster(clusterRequest, true)
+            let simulatedReservation = _reserveCluster(clusterRequest, req.user, true)
             if (simulatedReservation) {
                 let dbjob = {
                     id: id,
@@ -399,10 +428,14 @@ exports.initApp = function(app) {
 
     app.get('/status', function(req, res) {
         let jobs = Object.keys(db.jobs).map(k => db.jobs[k])
-        let running = jobs.filter(j => j.state >= jobStates.STARTING && j.state <= jobStates.STOPPING).sort((a,b) => a.id - b.id)
-        let waiting = jobs.filter(j => j.state == jobStates.WAITING).sort((a,b) => db.schedule.indexOf(a.id) - db.schedule.indexOf(b.id))
+        let running = jobs
+            .filter(j => j.state >= jobStates.STARTING && j.state <= jobStates.STOPPING)
+            .sort((a,b) => a.id - b.id)
+        let waiting = jobs
+            .filter(j => j.state == jobStates.WAITING)
+            .sort((a,b) => db.schedule.indexOf(a.id) - db.schedule.indexOf(b.id))
         waiting = waiting.concat(jobs.filter(j => j.state == jobStates.PREPARING))
-        let done = jobs.filter(j => j.state >= jobStates.DONE).sort((a,b) => b.id - a.id).slice(0, 20)
+        let done = jobs.filter(j => j.state >= jobStates.CLEANING).sort((a,b) => b.id - a.id).slice(0, 20)
         res.status(200).send({
             running: running.map(j => _createJobDescription(j)),
             waiting: waiting.map(j => _createJobDescription(j)),
@@ -531,6 +564,31 @@ function _runForEach(col, fun, callback) {
     }
 }
 
+exports.resimulateWaitingJobs = function() {
+    let jobs = []
+    for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
+        if (job.state >= jobStates.PREPARING && job.state <= jobStates.WAITING) {
+            let clusterRequest = parseClusterRequest(job.clusterRequest)
+            let clusterReservation = _reserveCluster(clusterRequest, db.users[job.user], true)
+            if (!clusterReservation) {
+                jobs.push(job)
+            }
+        }
+    }
+    if (jobs.length > 0) {
+        store.lockAutoRelease('jobs', function() {
+            for (let job of jobs) {
+                _setJobState(job, jobStates.FAILED)
+                job.error = 'Cluster cannot fulfill resource request anymore'
+                let index = db.schedule.indexOf(job.id)
+                if (index >= 0) {
+                    db.schedule.splice(index, 1)
+                }
+            }
+        })
+    }
+}
+
 exports.tick = function() {
     let realProcesses = {}
     let currentNodes = Object.keys(db.nodes).map(k => db.nodes[k])
@@ -590,7 +648,7 @@ exports.tick = function() {
                     let job = db.jobs[db.schedule[0]]
                     if (job) {
                         let clusterRequest = parseClusterRequest(job.clusterRequest)
-                        let clusterReservation = _reserveCluster(clusterRequest, false)
+                        let clusterReservation = _reserveCluster(clusterRequest, db.users[job.user], false)
                         if (clusterReservation) {
                             db.schedule.shift()
                             _startJob(job, clusterReservation, goon)

@@ -145,6 +145,7 @@ exports.initApp = function(app) {
                     id: dbuser.id,
                     fullname: dbuser.fullname,
                     email: dbuser.email,
+                    groups: dbuser.groups,
                     admin: dbuser.admin ? 'yes' : 'no'
                 })
             } else {

@@ -40,3 +40,11 @@ exports.initApp = function(app) {
         }
     })
 }
+
+exports.getAlias = function(name) {
+    for(let alias of Object.keys(db.aliases)) {
+        if (db.aliases[alias].name == name) {
+            return alias
+        }
+    }
+}
