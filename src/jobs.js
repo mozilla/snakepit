@@ -92,85 +92,79 @@ function _runScript(scriptName, env, callback) {
     })
 }
 
-function _forEachResource(callback) {
-    for (let nodeId of Object.keys(db.nodes)) {
-        let node = db.nodes[nodeId]
-        for (let resource of node.resources) {
-            callback(node, resource)
-        }
-    }
-}
-
-function _getRunningJobs() {
-    var jobs = {}
-    _forEachResource((node, resource) => {
-        if (resource.job) {
-            jobs[resource.job] = db.jobs[resource.job]
-        }
-    })
-    return jobs
-}
-
 function _getJobProcesses() {
     var jobs = {}
-    _forEachResource((node, resource) => {
-        //console.log('Checking resource ' + resource.name + ' (' + resource.index + ') on node ' + node.id)
-        if (resource.job && resource.pid && node.state >= nodeStates.ONLINE) {
-            let job = jobs[resource.job] = jobs[resource.job] || {}
-            let jobnode = job[node.id] = job[node.id] || {}
-            jobnode[resource.pid] = true
+    for (let nodeId of Object.keys(db.nodes)) {
+        let node = db.nodes[nodeId]
+        for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
+            //console.log('Checking resource ' + resource.name + ' (' + resource.index + ') on node ' + node.id)
+            if (resource.job && resource.pid && node.state >= nodeStates.ONLINE) {
+                let job = jobs[resource.job] = jobs[resource.job] || {}
+                let jobnode = job[node.id] = job[node.id] || {}
+                jobnode[resource.pid] = true
+            }
         }
-    })
+    }
     return jobs
 }
 
-function _freeProcess(pid) {
-    let job  = 0
-    _forEachResource((node, resource) => {
+function _freeProcess(nodeId, pid) {
+    let job = 0
+    let node = db.nodes[nodeId]
+    for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
         if (resource.pid == pid) {
             //console.log('Freeing resource ' + resource.name + ' for PID ' + pid + ' on node "' + node.id + '"')
             job = resource.job
             delete resource.pid
             delete resource.job
         }
-    })
+    }
     if (job > 0) {
         let counter = 0
-        _forEachResource((node, resource) => {
+        for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
             if (resource.job == job) {
                 counter++
             }
-        })
+        }
         if (counter == 0) {
             _cleanJob(db.jobs[job])
         }
     }
 }
 
-function _isReserved(clusterReservation, nodeId, resourceIndex) {
+function _isReserved(clusterReservation, nodeId, resourceId) {
     return clusterReservation.reduce(
-        (result, reservation) => result || (reservation.node == nodeId && reservation.resources.includes(resourceIndex)),
+        (result, reservation) =>
+            result || (
+                reservation.node == nodeId &&
+                reservation.resources.hasOwnProperty(resourceId)
+            ),
         false
     )
 }
 
 function _reserveProcessOnNode(node, clusterReservation, resourceList, user, simulation) {
-    var nodeReservation = { node: node.id, resources: [] }
+    var nodeReservation = { node: node.id, resources: {} }
     if (!node || !node.resources) {
         return null
     }
     for (let resource of resourceList) {
         let resourceCounter = resource.count
         let name = db.aliases[resource.name] ? db.aliases[resource.name].name : resource.name
-        for(let resourceIndex = 0; resourceIndex < node.resources.length && resourceCounter > 0; resourceIndex++) {
-            let nodeResource = node.resources[resourceIndex]
-            if (nodeResource.name == name &&
-                !_isReserved(clusterReservation, node.id, resourceIndex) &&
-                (!nodeResource.job || simulation) &&
-                canAccess(user, nodeResource)
-            ) {
-                nodeReservation.resources.push(resourceIndex)
-                resourceCounter--
+        for(let resourceId of Object.keys(node.resources)) {
+            if (resourceCounter > 0) {
+                let nodeResource = node.resources[resourceId]
+                if (nodeResource.name == name &&
+                    !_isReserved(clusterReservation, node.id, resourceId) &&
+                    (!nodeResource.job || simulation) &&
+                    canAccess(user, nodeResource)
+                ) {
+                    nodeReservation.resources[resourceId] = {
+                        type: nodeResource.type,
+                        index: nodeResource.index
+                    }
+                    resourceCounter--
+                }
             }
         }
         if (resourceCounter > 0) {
@@ -211,26 +205,35 @@ function _reserveCluster(clusterRequest, user, simulation) {
 function _summarizeClusterReservation(clusterReservation) {
     let nodes = {}
     for(let processReservation of clusterReservation) {
-        nodes[processReservation.node] = (nodes[processReservation.node] || [])
-            .concat(processReservation.resources)
+        nodes[processReservation.node] =
+            Object.assign(
+                nodes[processReservation.node] || {},
+                processReservation.resources
+            )
     }
     let summary = ''
     for(let nodeId of Object.keys(nodes)) {
         let nodeResources = nodes[nodeId]
-        let dbnode = db.nodes[nodeId]
         if (summary != '') {
             summary += ' + '
         }
         summary += nodeId + '['
         let first = true
-        for(let type of dbnode.resources.map(r => r.type).filter((v, i, a) => a.indexOf(v) === i)) {
-            let resources = nodeResources.filter(ri => dbnode.resources[ri].type == type)
-                .map(ri => dbnode.resources[ri].index)
-            if (resources.length > 0) {
+        for(let type of
+            Object.keys(nodeResources)
+            .map(r => nodeResources[r].type)
+            .filter((v, i, a) => a.indexOf(v) === i) // make unique
+        ) {
+            let resourceIndices =
+                Object.keys(nodeResources)
+                .map(r => nodeResources[r])
+                .filter(r => r.type == type)
+                .map(r => r.index)
+            if (resourceIndices.length > 0) {
                 if (!first) {
                     summary += ' + '
                 }
-                summary += type + ' ' + new MultiRange(resources.join(',')).getRanges()
+                summary += type + ' ' + new MultiRange(resourceIndices.join(',')).getRanges()
                     .map(range => range[0] == range[1] ? range[0] : range[0] + '-' + range[1])
                     .join(',')
                 first = false
@@ -300,8 +303,8 @@ function _startJob(job, clusterReservation, callback) {
         let processIndex = clusterReservation.indexOf(reservation)
         let cudaIndices = []
         let node = db.nodes[reservation.node]
-        for(let resourceIndex of reservation.resources) {
-            let resource = node.resources[resourceIndex]
+        for(let resourceId of Object.keys(reservation.resources)) {
+            let resource = reservation.resources[resourceId]
             if (resource.type == 'cuda') {
                 cudaIndices.push(resource.index)
             }
@@ -320,8 +323,8 @@ function _startJob(job, clusterReservation, callback) {
                         pid = Number(value)
                     }
                 })
-                for(let resourceIndex of reservation.resources) {
-                    let resource = node.resources[resourceIndex]
+                for(let resourceId of Object.keys(reservation.resources)) {
+                    let resource = node.resources[resourceId]
                     resource.job = job.id
                     resource.pid = pid
                 }
@@ -623,7 +626,7 @@ exports.tick = function() {
                                 toStopForJob.push({ node: nodeId, pid: pid })
                             } else {
                                 _setJobState(job, jobStates.STOPPING)
-                                _freeProcess(pid)
+                                _freeProcess(nodeId, pid)
                             }
                         }
                     } else {

@@ -60,7 +60,7 @@ function _checkAvailability(node, callback) {
                 let [type, name] = line.split(':')
                 if (type && name) {
                     types[type] = (type in types) ? types[type] + 1 : 0
-                    resources.push({ type: type, name: name, index: types[type] })
+                    resources.push({ type: type, index: types[type], name: name })
                 }
             })
             callback(resources)
@@ -93,13 +93,15 @@ exports.initApp = function(app) {
                 _checkAvailability(newnode, resources => {
                     if (resources) {
                         if (node.cvd) {
-                            console.log(node.cvd)
-                            Object.keys(resources).forEach(type => {
-                                resources[type] = resources[type]
-                                    .filter(resource => type != 'cuda' || node.cvd.includes(resource.index))
-                            })
+                            resources = resources.filter(resource =>
+                                type != 'cuda' ||
+                                node.cvd.includes(resource.index)
+                            )
                         }
-                        newnode.resources = resources
+                        newnode.resources = {}
+                        for(let resource of resources) {
+                            newnode.resources[resource.type + resource.index] = resource
+                        }
                         db.nodes[id] = newnode
                         res.status(200).send()
                     } else {
@@ -127,18 +129,19 @@ exports.initApp = function(app) {
                 port:      node.port,
                 user:      node.user,
                 state:     node.state,
-                resources: node.resources.map(r => {
+                resources: Object.keys(node.resources).map(resourceId => {
+                    let dbResource = node.resources[resourceId]
                     let resource = {
-                        type:  r.type,
-                        name:  r.name,
-                        index: r.index
+                        type:  dbResource.type,
+                        name:  dbResource.name,
+                        index: dbResource.index
                     }
-                    let alias = getAlias(r.name)
+                    let alias = getAlias(dbResource.name)
                     if (alias) {
                         resource.alias = alias
                     }
                     if (r.groups) {
-                        resource.groups = r.groups
+                        resource.groups = dbResource.groups
                     }
                     return resource
                 })
