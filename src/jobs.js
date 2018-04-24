@@ -46,9 +46,9 @@ exports.initDb = function() {
     for (let jobId of Object.keys(db.jobs)) {
         let job = db.jobs[jobId]
         if (job.state == jobStates.PREPARING) {
-            _prepareJob(job)
+            _cleanJob(job, false)
         } else if (job.state == jobStates.CLEANING) {
-            _cleanJob(job)
+            _cleanJob(job, true)
         } else {
             _checkRunning(job)
         }
@@ -132,7 +132,7 @@ function _checkRunning(job) {
         }
     }
     if (counter == 0) {
-        _cleanJob(job)
+        _cleanJob(job, true)
     }
 }
 
@@ -305,7 +305,7 @@ function _setJobState(job, state) {
     job.stateChanges[state] = new Date().toISOString()
 }
 
-function _getJobContext(job) {
+function _getPreparationEnv(job) {
     let groups = db.users[job.user].groups
     groups = (groups ? groups.join(' ') + ' ' : '') + 'public'
     return {
@@ -313,16 +313,13 @@ function _getJobContext(job) {
         DATA_DIR:    dataRootDir,
         CACHE_DIR:   cacheDir,
         JOBS_DIR:    jobsDir,
-        JOB_NAME:    job.id,
-        ORIGIN:      job.origin,
-        HASH:        job.hash,
-        DIFF:        job.diff
+        JOB_NAME:    job.id
     }
 }
 
-function _prepareJob(job) {
+function _runPreparation(job, env) {
     _setJobState(job, jobStates.PREPARING)
-    _runScript('prepare.sh', _getJobContext(job), (code, stdout, stderr) => {
+    _runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
             if (code == 0 && fs.existsSync(_getJobDir(job))) {
                 _setJobState(job, jobStates.WAITING)
@@ -335,11 +332,27 @@ function _prepareJob(job) {
     })
 }
 
-function _cleanJob(job) {
+function _prepareJobByGit(job, origin, hash, diff) {
+    let env = _getPreparationEnv(job)
+    Object.assign(env, {
+        ORIGIN: origin,
+        HASH:   hash,
+        DIFF:   diff
+    })
+    _runPreparation(job, env)
+}
+
+function _prepareJobByArchive(job, archive) {
+    let env = _getPreparationEnv(job)
+    env.ARCHIVE = archive
+    _runPreparation(job, env)
+}
+
+function _cleanJob(job, success) {
     _setJobState(job, jobStates.CLEANING)
-    _runScript('clean.sh', _getJobContext(job), (code, stdout, stderr) => {
+    _runScript('clean.sh', _getPreparationEnv(job), (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
-            _setJobState(job, jobStates.DONE)
+            _setJobState(job, success ? jobStates.DONE : jobStates.FAILED)
             if (code > 0) {
                 job.error = stderr
             }
@@ -501,12 +514,20 @@ exports.initApp = function(app) {
             }
             let simulatedReservation = _reserveCluster(clusterRequest, req.user, true)
             if (simulatedReservation) {
+                let provisioning
+                if (job.origin) {
+                    provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
+                    if (job.diff) {
+                        provisioning += ' plus ' +
+                            (job.diff + '').split('\n').length + ' LoC diff'
+                    }
+                } else if (job.archive) {
+                    provisioning = 'Archive (' + fs.statSync(archive).size + ' bytes)'
+                }
                 let dbjob = {
                     id: id,
                     user: req.user.id,
-                    origin: job.origin,
-                    hash: job.hash,
-                    diff: job.diff,
+                    provisioning: provisioning,
                     description: ('' + job.description).substring(0,20),
                     clusterRequest: job.clusterRequest,
                     numProcesses: simulatedReservation.length
@@ -514,7 +535,11 @@ exports.initApp = function(app) {
                 _setJobState(dbjob, jobStates.NEW)
                 db.jobs[id] = dbjob
                 res.status(200).send({ id: id })
-                _prepareJob(db.jobs[id])
+                if (job.origin) {
+                    _prepareJobByGit(db.jobs[id], job.origin, job.hash, job.diff)
+                } else if (job.archive) {
+                    _prepareJobByArchive(db.jobs[id], archive)
+                }
             } else {
                 res.status(406).send({ message: 'Cluster cannot fulfill resource request' })
             }
