@@ -49,6 +49,8 @@ exports.initDb = function() {
             _prepareJob(job)
         } else if (job.state == jobStates.CLEANING) {
             _cleanJob(job)
+        } else {
+            _checkRunning(job)
         }
     }
     if (!db.schedule) {
@@ -108,27 +110,50 @@ function _getJobProcesses() {
     return jobs
 }
 
+function _checkRunning(job) {
+    let counter = 0
+    let clusterReservation = job.clusterReservation
+    if (!clusterReservation ||
+        job.state < jobStates.STARTING ||
+        job.state > jobStates.STOPPING) {
+        return
+    }
+    for(let groupReservation of clusterReservation) {
+        for(let processReservation of groupReservation) {
+            let node = db.nodes[processReservation.node]
+            if (node) {
+                for(let resource of Object.keys(processReservation.resources)
+                    .map(k => node.resources[k])) {
+                    if (resource && resource.job == job.id) {
+                        counter++
+                    }
+                }
+            }
+        }
+    }
+    if (counter == 0) {
+        _cleanJob(job)
+    }
+}
+
 function _freeProcess(nodeId, pid) {
     let job = 0
     let node = db.nodes[nodeId]
-    for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
+    for (let resourceId of Object.keys(node.resources)) {
+        let resource = node.resources[resourceId]
         if (resource.pid == pid) {
             //console.log('Freeing resource ' + resource.name + ' for PID ' + pid + ' on node "' + node.id + '"')
             job = resource.job
-            delete resource.pid
-            delete resource.job
-        }
-    }
-    if (job > 0) {
-        let counter = 0
-        for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
-            if (resource.job == job) {
-                counter++
+            if (resource.type == 'port') {
+                delete node.resources[resourceId]
+            } else {
+                delete resource.pid
+                delete resource.job
             }
         }
-        if (counter == 0) {
-            _cleanJob(db.jobs[job])
-        }
+    }
+    if (job > 0 && db.jobs[job]) {
+        _checkRunning(db.jobs[job])
     }
 }
 
@@ -150,20 +175,36 @@ function _reserveProcessOnNode(node, clusterReservation, resourceList, user, sim
     }
     for (let resource of resourceList) {
         let resourceCounter = resource.count
-        let name = db.aliases[resource.name] ? db.aliases[resource.name].name : resource.name
-        for(let resourceId of Object.keys(node.resources)) {
-            if (resourceCounter > 0) {
+        if (resource.name == 'port') {
+            for(let port = 1024; resourceCounter > 0 && port < 65536; port++) {
+                resourceId = 'port' + port
                 let nodeResource = node.resources[resourceId]
-                if (nodeResource.name == name &&
-                    !_isReserved(clusterReservation, node.id, resourceId) &&
-                    (!nodeResource.job || simulation) &&
-                    canAccess(user, nodeResource)
+                if (!_isReserved(clusterReservation, node.id, resourceId) &&
+                    (!nodeResource || !nodeResource.job || simulation)
                 ) {
                     nodeReservation.resources[resourceId] = {
-                        type: nodeResource.type,
-                        index: nodeResource.index
+                        type: 'port',
+                        index: port
                     }
                     resourceCounter--
+                }
+            }
+        } else {
+            let name = db.aliases[resource.name] ? db.aliases[resource.name].name : resource.name
+            for(let resourceId of Object.keys(node.resources)) {
+                if (resourceCounter > 0) {
+                    let nodeResource = node.resources[resourceId]
+                    if (nodeResource.name == name &&
+                        !_isReserved(clusterReservation, node.id, resourceId) &&
+                        (!nodeResource.job || simulation) &&
+                        canAccess(user, nodeResource)
+                    ) {
+                        nodeReservation.resources[resourceId] = {
+                            type: nodeResource.type,
+                            index: nodeResource.index
+                        }
+                        resourceCounter--
+                    }
                 }
             }
         }
@@ -189,27 +230,37 @@ function _reserveProcess(clusterReservation, resourceList, user, simulation) {
 
 function _reserveCluster(clusterRequest, user, simulation) {
     let clusterReservation = []
-    for(let processRequest of clusterRequest) {
-        for(let i=0; i<processRequest.count; i++) {
-            let processReservation = _reserveProcess(clusterReservation, processRequest.process, user, simulation)
+    for(let groupIndex = 0; groupIndex < clusterRequest.length; groupIndex++) {
+        let groupRequest = clusterRequest[groupIndex]
+        let groupReservation = []
+        for(let processIndex = 0; processIndex < groupRequest.count; processIndex++) {
+            let processReservation = _reserveProcess(clusterReservation, groupRequest.process, user, simulation)
             if (processReservation) {
-                clusterReservation.push(processReservation)
+                processReservation.groupIndex = groupIndex
+                processReservation.processIndex = processIndex
+                groupReservation.push(processReservation)
             } else {
                 return null
             }
         }
+        clusterReservation.push(groupReservation)
     }
     return clusterReservation
 }
 
 function _summarizeClusterReservation(clusterReservation) {
+    if (!clusterReservation) {
+        return
+    }
     let nodes = {}
-    for(let processReservation of clusterReservation) {
-        nodes[processReservation.node] =
-            Object.assign(
-                nodes[processReservation.node] || {},
-                processReservation.resources
-            )
+    for(let groupReservation of clusterReservation) {
+        for(let processReservation of groupReservation) {
+            nodes[processReservation.node] =
+                Object.assign(
+                    nodes[processReservation.node] || {},
+                    processReservation.resources
+                )
+        }
     }
     let summary = ''
     for(let nodeId of Object.keys(nodes)) {
@@ -296,25 +347,59 @@ function _cleanJob(job) {
     })
 }
 
+function _buildJobEnv(job, clusterReservation) {
+    let jobEnv = {
+        JOB_NUMBER: job.id,
+        JOB_DIR:    _getJobDir(job),
+        NUM_GROUPS: clusterReservation.length
+    }
+    for(let gIndex = 0; gIndex < clusterReservation.length; gIndex++) {
+        let groupReservation = clusterReservation[gIndex]
+        jobEnv['NUM_PROCESSES_GROUP' + gIndex] = groupReservation.length
+        for(let pIndex = 0; pIndex < groupReservation.length; pIndex++) {
+            let processReservation = groupReservation[pIndex]
+            let node = db.nodes[processReservation.node]
+            let portCount = 0
+            for(let resourceId of Object.keys(processReservation.resources)) {
+                let resource = processReservation.resources[resourceId]
+                if (resource.type == 'port') {
+                    jobEnv[
+                        'HOST_GROUP' + processReservation.groupIndex +
+                        '_PROCESS' + processReservation.processIndex +
+                        '_PORT' + portCount
+                    ] = node.address + ':' + resource.index
+                    portCount++
+                }
+            }
+            jobEnv['NUM_PORTS_PER_PROCESS_GROUP' + gIndex] = portCount
+        }
+    }
+    return jobEnv
+}
+
 function _startJob(job, clusterReservation, callback) {
     _setJobState(job, jobStates.STARTING)
-    job.clusterReservation = _summarizeClusterReservation(clusterReservation)
-    _runForEach(clusterReservation, (reservation, done) => {
-        let processIndex = clusterReservation.indexOf(reservation)
+    job.clusterReservation = clusterReservation
+    let jobEnv = _buildJobEnv(job, clusterReservation)
+    _runForEach([].concat.apply([], clusterReservation), (reservation, done) => {
         let cudaIndices = []
+        let ports = []
         let node = db.nodes[reservation.node]
         for(let resourceId of Object.keys(reservation.resources)) {
             let resource = reservation.resources[resourceId]
             if (resource.type == 'cuda') {
                 cudaIndices.push(resource.index)
+            } else if (resource.type == 'port') {
+                ports.push(resource.index)
             }
         }
-        runScriptOnNode(node, 'run.sh', {
-            JOB_NUMBER:           job.id,
-            JOB_DIR:              _getJobDir(job),
-            PROCESS_INDEX:        processIndex,
+        let processEnv = Object.assign({
+            GROUP_INDEX:          reservation.groupIndex,
+            PROCESS_INDEX:        reservation.processIndex,
+            PORTS:                ports.join(','),
             CUDA_VISIBLE_DEVICES: cudaIndices.join(',')
-        }, (code, stdout, stderr) => {
+        }, jobEnv)
+        runScriptOnNode(node, 'run.sh', processEnv, (code, stdout, stderr) => {
             if (code == 0) {
                 let pid = 0
                 stdout.split('\n').forEach(line => {
@@ -325,8 +410,19 @@ function _startJob(job, clusterReservation, callback) {
                 })
                 for(let resourceId of Object.keys(reservation.resources)) {
                     let resource = node.resources[resourceId]
-                    resource.job = job.id
-                    resource.pid = pid
+                    let resourceReservation = reservation.resources[resourceId]
+                    if (!resource && resourceReservation.type == 'port') {
+                        node.resources[resourceId] = {
+                            type: 'port',
+                            index: resourceReservation.index,
+                            job: job.id,
+                            pid: pid
+                        }
+                    } else {
+                        resource.job = job.id
+                        resource.pid = pid
+                    }
+
                 }
             } else {
                 _setJobState(job, jobStates.STOPPING)
@@ -366,7 +462,7 @@ function _createJobDescription(dbjob) {
         user: dbjob.user,
         description: dbjob.description,
         clusterRequest: dbjob.clusterRequest,
-        clusterReservation: dbjob.clusterReservation,
+        clusterReservation: _summarizeClusterReservation(dbjob.clusterReservation),
         state: dbjob.state,
         since: duration,
         schedulePosition: db.schedule.indexOf(dbjob.id),
