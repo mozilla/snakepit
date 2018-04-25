@@ -1,42 +1,42 @@
 set -e
 
-JOB_DIR="$JOBS_DIR/$JOB_NAME"
-mkdir -p "$JOB_DIR"
-mkdir -p "$JOB_DIR/tmp"
-mkdir -p "$JOB_DIR/keep"
+job_dir="$DATA_ROOT/jobs/$JOB_NUMBER"
+mkdir -p "$job_dir"
+mkdir -p "$job_dir/tmp"
+mkdir -p "$job_dir/keep"
 
-JOB_DATA_DIR="$JOB_DIR/data"
-mkdir -p "$JOB_DATA_DIR"
+job_data_dir="$job_dir/data"
+mkdir -p "$job_data_dir"
 for group in $USER_GROUPS; do
-    data_group_dir="$DATA_DIR/$group"
+    data_group_dir="$DATA_ROOT/groups/$group"
     if [ -d "$data_group_dir" ]; then
-        job_data_group_dir="$JOB_DATA_DIR/$group"
+        job_data_group_dir="$job_data_dir/$group"
         mkdir -p "$job_data_group_dir"
         bindfs -n -r "$data_group_dir" "$job_data_group_dir"
     fi
 done
 
-JOB_SRC_DIR="$JOB_DIR/src"
+job_src_dir="$job_dir/src"
 
 if [ -n "$ORIGIN" ]; then
-    mkdir -p "$CACHE_DIR"
-    CACHE_ENTRY=`echo -n $ORIGIN | md5sum | cut -f1 -d" "`
-    CACHE_REPO="$CACHE_DIR/$CACHE_ENTRY"
+    mkdir -p "$DATA_ROOT/cache"
+    cache_entry=`echo -n $ORIGIN | md5sum | cut -f1 -d" "`
+    cache_repo="$DATA_ROOT/cache/$cache_entry"
 
-    if [ -d "$CACHE_REPO" ]; then
-        git -C "$CACHE_REPO" fetch --all >/dev/null
-        touch "$CACHE_REPO"
+    if [ -d "$cache_repo" ]; then
+        git -C "$cache_repo" fetch --all >/dev/null
+        touch "$cache_repo"
     else
-        git clone $ORIGIN "$CACHE_REPO" >/dev/null
+        git clone $ORIGIN "$cache_repo" >/dev/null
     fi
 
-    git -C "$CACHE_REPO" archive --format=tar --prefix=src/ $HASH | (cd "$JOB_DIR" && tar xf -)
+    git -C "$cache_repo" archive --format=tar --prefix=src/ $HASH | (cd "$job_dir" && tar xf -)
     if [ -n "$DIFF" ]; then
-        cd "$JOB_SRC_DIR"
+        cd "$job_src_dir"
         echo "$DIFF" | patch -p0
     fi
 elif [ -n "$ARCHIVE" ]; then
-    tar -xzf "$ARCHIVE" -C "$JOB_SRC_DIR"
+    tar -xzf "$ARCHIVE" -C "$job_src_dir"
     rm "$ARCHIVE"
 fi
 

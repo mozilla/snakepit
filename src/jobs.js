@@ -1,15 +1,16 @@
 const fs = require('fs')
-const readline = require('readline')
 const path = require('path')
-const { spawn } = require('child_process')
 const stream = require('stream')
+const multer = require('multer')
+const readline = require('readline')
 const CombinedStream = require('combined-stream')
+const { spawn, execSync } = require('child_process')
 const { MultiRange } = require('multi-integer-range')
 
 const store = require('./store.js')
 const config = require('./config.js')
-const { nodeStates, runScriptOnNode } = require('./nodes.js')
 const { canAccess } = require('./groups.js')
+const { nodeStates, runScriptOnNode } = require('./nodes.js')
 const parseClusterRequest = require('./clusterParser.js').parse
 
 var exports = module.exports = {}
@@ -26,15 +27,39 @@ const jobStates = {
     FAILED: 8
 }
 
-const POLL_INTERVAL = 100
-
 exports.jobStates = jobStates
 
 var db = store.root
+var pollInterval = config.pollInterval || 1000
+var dataRoot = config.dataRoot || path.join(__dirname, '..', 'data')
+var upload = multer({ dest: path.join(dataRoot, 'uploads') })
 
-var dataRootDir = config.dataRootDir || path.join(__dirname, '..', 'data', 'groups')
-var cacheDir = config.cacheDir || path.join(__dirname, '..', 'data', 'cache')
-var jobsDir = config.jobsDir || path.join(__dirname, '..', 'data', 'jobs')
+function _runScript(scriptName, env, callback) {
+    if (typeof env == 'function') {
+        callback = env
+        env = {}
+    }
+    let scriptPath = path.join(__dirname, '..', 'scripts', scriptName)
+    fs.readFile(scriptPath, function read(err, content) {
+        if (err) {
+            callback(1, '', 'Problem reading script "' + scriptPath + '"')
+        } else {
+            env = env || {}
+            //console.log('Running script "' + scriptPath + '"')
+            p = spawn('bash', ['-s'])
+            let stdout = []
+            p.stdout.on('data', data => stdout.push(data))
+            let stderr = []
+            p.stderr.on('data', data => stderr.push(data))
+            p.on('close', code => callback(code, stdout.join('\n'), stderr.join('\n')))
+            var stdinStream = new stream.Readable()
+            Object.keys(env).forEach(name => stdinStream.push('export ' + name + '=' + _quote(env[name]) + '\n'))
+            stdinStream.push(content + '\n')
+            stdinStream.push(null)
+            stdinStream.pipe(p.stdin)
+        }
+    })
+}
 
 exports.initDb = function() {
     if (!db.jobIdCounter) {
@@ -65,33 +90,6 @@ function _quote(str) {
     str = str.replace(/(?:\r\n|\r|\n)/g, '\\n')
     str = '$\'' + str + '\''
     return str
-}
-
-function _runScript(scriptName, env, callback) {
-    if (typeof env == 'function') {
-        callback = env
-        env = {}
-    }
-    let scriptPath = path.join(__dirname, '..', 'scripts', scriptName)
-    fs.readFile(scriptPath, function read(err, content) {
-        if (err) {
-            callback(1, '', 'Problem reading script "' + scriptPath + '"')
-        } else {
-            env = env || {}
-            //console.log('Running script "' + scriptPath + '"')
-            p = spawn('bash', ['-s'])
-            let stdout = []
-            p.stdout.on('data', data => stdout.push(data))
-            let stderr = []
-            p.stderr.on('data', data => stderr.push(data))
-            p.on('close', code => callback(code, stdout.join('\n'), stderr.join('\n')))
-            var stdinStream = new stream.Readable()
-            Object.keys(env).forEach(name => stdinStream.push('export ' + name + '=' + _quote(env[name]) + '\n'))
-            stdinStream.push(content + '\n')
-            stdinStream.push(null)
-            stdinStream.pipe(p.stdin)
-        }
-    })
 }
 
 function _getJobProcesses() {
@@ -296,7 +294,7 @@ function _summarizeClusterReservation(clusterReservation) {
 }
 
 function _getJobDir(job) {
-    return path.join(jobsDir, '' + job.id)
+    return path.join(jobsDir, 'jobs', '' + job.id)
 }
 
 function _setJobState(job, state) {
@@ -309,11 +307,9 @@ function _getPreparationEnv(job) {
     let groups = db.users[job.user].groups
     groups = (groups ? groups.join(' ') + ' ' : '') + 'public'
     return {
+        DATA_ROOT:   dataRoot,
         USER_GROUPS: groups,
-        DATA_DIR:    dataRootDir,
-        CACHE_DIR:   cacheDir,
-        JOBS_DIR:    jobsDir,
-        JOB_NAME:    job.id
+        JOB_NUMBER:  job.id
     }
 }
 
@@ -362,6 +358,7 @@ function _cleanJob(job, success) {
 
 function _buildJobEnv(job, clusterReservation) {
     let jobEnv = {
+        DATA_ROOT:  dataRoot,
         JOB_NUMBER: job.id,
         JOB_DIR:    _getJobDir(job),
         NUM_GROUPS: clusterReservation.length
@@ -518,7 +515,7 @@ exports.initApp = function(app) {
                 if (job.origin) {
                     provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
                     if (job.diff) {
-                        provisioning += ' plus ' +
+                        provisioning += ' with ' +
                             (job.diff + '').split('\n').length + ' LoC diff'
                     }
                 } else if (job.archive) {
@@ -603,13 +600,13 @@ exports.initApp = function(app) {
                         if (fs.existsSync(logPath)) {
                             fs.stat(logPath, (err, stats) => {
                                 if (!err && stats.size > written) {
-                                    writeStream(() => setTimeout(poll, POLL_INTERVAL))
+                                    writeStream(() => setTimeout(poll, pollInterval))
                                 } else  {
-                                    setTimeout(poll, POLL_INTERVAL)
+                                    setTimeout(poll, pollInterval)
                                 }
                             })
                         } else {
-                            setTimeout(poll, POLL_INTERVAL)
+                            setTimeout(poll, pollInterval)
                         }
                     } else if (fs.existsSync(logPath)) {
                         writeStream(res.end.bind(res))

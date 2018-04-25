@@ -1,10 +1,10 @@
 const fs = require('fs')
 const path = require('path')
+const yaml = require('js-yaml')
 
-var filename = path.join(__dirname, '..', 'config', 'snakepit.config')
+var filename = path.join(__dirname, '..', 'config', 'snakepit.conf')
 try {
-    module.exports = JSON.parse(fs.readFileSync(filename, 'utf8'))
+    module.exports = yaml.safeLoad(fs.readFileSync(filename, 'utf8'));
 } catch (err) {
-    console.error('Unable to load configuration from ""' + filename + '"')
+    console.error(err);
 }
-

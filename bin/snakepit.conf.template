@@ -1,0 +1,25 @@
+# SnakePit daemon configuration file
+
+# Name of the daemon owner. Also used for SSHing into nodes.
+# It has to exist and be assigned to the same UID on all nodes.
+# The "sudo" command should be configured on each node to
+# allow non-interactive impersonation as the "runUser"
+# (see next setting).
+daemonUser: snakepit
+
+# Name of the job running user. Has to exist on all nodes.
+# Should not be sudoer and not the same as the "daemonUser".
+# This prevents jobs from accessing other job directories
+# or group data of foreign groups.
+runUser: snake
+
+# Polling interval for querying node states in ms
+pollInterval: 1000
+
+# Time till a user token expires.
+# After this time-span users have to again provide their password.
+tokenTTL: 1d
+
+# Complexity of user password hashing.
+hashRounds: 10
+

@@ -1,10 +1,9 @@
-JOB_DIR="$JOBS_DIR/$JOB_NAME"
-rm -rf "$JOB_DIR/tmp"
-JOB_DATA_DIR="$JOB_DIR/data"
-for dir in $JOB_DATA_DIR/*; do
+job_dir="$DATA_ROOT/jobs/$JOB_NUMBER"
+rm -rf "$job_dir/tmp"
+job_groups_dir="$job_dir/groups"
+for dir in $job_groups_dir/*; do
     if [[ -d $dir ]]; then
         fusermount -u $dir
     fi
 done
-rm -rf "$JOB_DIR/data"
-
+rm -rf "$job_dir/groups"
