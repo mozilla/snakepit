@@ -1,8 +1,13 @@
 const store = require('./store.js')
-//const { resimulateWaitingJobs } = require('./jobs.js')
+const { EventEmitter } = require('events')
+//const { emitRestricted } = require('./jobs.js')
 
-var exports = module.exports = {}
+var exports = module.exports = new EventEmitter()
 var db = store.root
+
+function emitRestricted() {
+    exports.emit('restricted')
+}
 
 function _addGroup(entity, req, res) {
     if (req.user.admin) {
@@ -91,7 +96,7 @@ exports.initApp = function(app) {
 
     app.delete('/users/:user/groups/:group', function(req, res) {
         _removeGroup(db.users[req.params.user], req, res)
-        resimulateWaitingJobs()
+        emitRestricted()
     })
 
     app.put('/nodes/:node/resources/:resource/groups/:group', function(req, res) {
@@ -100,7 +105,7 @@ exports.initApp = function(app) {
 
     app.delete('/nodes/:node/resources/:resource/groups/:group', function(req, res) {
         _removeGroup(_getResource(req), req, res)
-        resimulateWaitingJobs()
+        emitRestricted()
     })
 
     app.put('/nodes/:node/groups/:group', function(req, res) {
@@ -144,7 +149,7 @@ exports.initApp = function(app) {
         } else {
             res.status(403).send()
         }
-        resimulateWaitingJobs()
+        emitRestricted()
     })
 }
 

@@ -140,7 +140,7 @@ exports.initApp = function(app) {
                     if (alias) {
                         resource.alias = alias
                     }
-                    if (r.groups) {
+                    if (dbResource.groups) {
                         resource.groups = dbResource.groups
                     }
                     return resource

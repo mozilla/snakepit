@@ -9,7 +9,7 @@ const { MultiRange } = require('multi-integer-range')
 
 const store = require('./store.js')
 const config = require('./config.js')
-const { canAccess } = require('./groups.js')
+const groupsModule = require('./groups.js')
 const { nodeStates, runScriptOnNode } = require('./nodes.js')
 const parseClusterRequest = require('./clusterParser.js').parse
 
@@ -167,7 +167,7 @@ function _isReserved(clusterReservation, nodeId, resourceId) {
 }
 
 function _reserveProcessOnNode(node, clusterReservation, resourceList, user, simulation) {
-    var nodeReservation = { node: node.id, resources: {} }
+    var nodeReservation = { node: simulation ? '<node>' : node.id, resources: {} }
     if (!node || !node.resources) {
         return null
     }
@@ -195,7 +195,7 @@ function _reserveProcessOnNode(node, clusterReservation, resourceList, user, sim
                     if (nodeResource.name == name &&
                         !_isReserved(clusterReservation, node.id, resourceId) &&
                         (!nodeResource.job || simulation) &&
-                        canAccess(user, nodeResource)
+                        groupsModule.canAccess(user, nodeResource)
                     ) {
                         nodeReservation.resources[resourceId] = {
                             type: nodeResource.type,
@@ -294,7 +294,7 @@ function _summarizeClusterReservation(clusterReservation) {
 }
 
 function _getJobDir(job) {
-    return path.join(jobsDir, 'jobs', '' + job.id)
+    return path.join(dataRoot, 'jobs', '' + job.id)
 }
 
 function _setJobState(job, state) {
@@ -475,8 +475,7 @@ function _createJobDescription(dbjob) {
         clusterReservation: _summarizeClusterReservation(dbjob.clusterReservation),
         state: dbjob.state,
         since: duration,
-        schedulePosition: db.schedule.indexOf(dbjob.id),
-        numProcesses: dbjob.numProcesses
+        schedulePosition: db.schedule.indexOf(dbjob.id)
     }
 }
 
@@ -527,7 +526,7 @@ exports.initApp = function(app) {
                     provisioning: provisioning,
                     description: ('' + job.description).substring(0,20),
                     clusterRequest: job.clusterRequest,
-                    numProcesses: simulatedReservation.length
+                    clusterReservation: simulatedReservation
                 }
                 _setJobState(dbjob, jobStates.NEW)
                 db.jobs[id] = dbjob
@@ -574,18 +573,23 @@ exports.initApp = function(app) {
         }
     })
 
-    app.get('/jobs/:id/processes/:proc/log', function(req, res) {
+    app.get('/jobs/:id/groups/:group/processes/:proc/log', function(req, res) {
         let id = Number(req.params.id)
         let dbjob = db.jobs[id]
+        let group = Number(req.params.group)
         let proc = Number(req.params.proc)
-        if (dbjob && proc < dbjob.numProcesses) {
+        if (dbjob && 
+            dbjob.clusterReservation &&
+            group < dbjob.clusterReservation.length &&
+            proc < dbjob.clusterReservation[group].length
+        ) {
             if (req.user.id == dbjob.user || req.user.admin) {
                 res.writeHead(200, {
                     'Connection': 'keep-alive',
                     'Content-Type': 'text/plain',
                     'Cache-Control': 'no-cache'
                 })
-                let logPath = path.join(_getJobDir(dbjob), 'process_' + proc + '.log')
+                let logPath = path.join(_getJobDir(dbjob), 'process_' + group + '_' + proc + '.log')
                 let written = 0
                 let writeStream = cb => {
                     let stream = fs.createReadStream(logPath, { start: written })
@@ -685,7 +689,7 @@ function _runForEach(col, fun, callback) {
     }
 }
 
-exports.resimulateWaitingJobs = function() {
+groupsModule.on('restricted', function() {
     let jobs = []
     for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
         if (job.state >= jobStates.PREPARING && job.state <= jobStates.WAITING) {
@@ -708,7 +712,7 @@ exports.resimulateWaitingJobs = function() {
             }
         })
     }
-}
+})
 
 exports.tick = function() {
     let realProcesses = {}

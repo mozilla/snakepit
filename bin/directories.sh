@@ -28,6 +28,7 @@ chmod -R 700 "$root_dir/uploads"
 
 mkdir -p "$root_dir/jobs"
 chmod 700 "$root_dir/jobs"
+shopt -s nullglob
 for entry in "$root_dir/jobs/"* ; do
     chmod -R 755 "$entry"
 done

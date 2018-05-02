@@ -5,12 +5,12 @@ mkdir -p "$job_dir"
 mkdir -p "$job_dir/tmp"
 mkdir -p "$job_dir/keep"
 
-job_data_dir="$job_dir/data"
-mkdir -p "$job_data_dir"
+job_groups_dir="$job_dir/groups"
+mkdir -p "$job_groups_dir"
 for group in $USER_GROUPS; do
     data_group_dir="$DATA_ROOT/groups/$group"
     if [ -d "$data_group_dir" ]; then
-        job_data_group_dir="$job_data_dir/$group"
+        job_data_group_dir="$job_groups_dir/$group"
         mkdir -p "$job_data_group_dir"
         bindfs -n -r "$data_group_dir" "$job_data_group_dir"
     fi
