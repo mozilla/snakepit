@@ -69,7 +69,7 @@ exports.initApp = function(app) {
         if (req.user.admin) {
             let groups = {}
             for (let node of Object.keys(db.nodes).map(k => db.nodes[k])) {
-                for (let resource of node.resources) {
+                for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
                     if (resource.groups) {
                         for (let group of resource.groups) {
                             groups[group] = true
@@ -113,7 +113,7 @@ exports.initApp = function(app) {
             let node = db.nodes[req.params.node]
             if (node) {
                 let group = req.params.group
-                for (let resource of node.resources) {
+                for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
                     if (resource.groups) {
                         if (!resource.groups.includes(group)) {
                             resource.groups.push(group)
@@ -136,7 +136,7 @@ exports.initApp = function(app) {
             let node = db.nodes[req.params.node]
             if (node) {
                 let group = req.params.group
-                for (let resource of node.resources) {
+                for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
                     let index = resource.groups ? resource.groups.indexOf(group) : -1
                     if (index >= 0) {
                         _removeGroupByIndex(resource, index)
