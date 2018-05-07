@@ -123,15 +123,13 @@ function _checkRunning(job) {
                 for(let resource of Object.keys(processReservation.resources)
                     .map(k => node.resources[k])) {
                     if (resource && resource.job == job.id) {
-                        counter++
+                        return
                     }
                 }
             }
         }
     }
-    if (counter == 0) {
-        _cleanJob(job, true)
-    }
+    _cleanJob(job, true)
 }
 
 function _freeProcess(nodeId, pid) {
@@ -578,7 +576,7 @@ exports.initApp = function(app) {
         let dbjob = db.jobs[id]
         let group = Number(req.params.group)
         let proc = Number(req.params.proc)
-        if (dbjob && 
+        if (dbjob &&
             dbjob.clusterReservation &&
             group < dbjob.clusterReservation.length &&
             proc < dbjob.clusterReservation[group].length
