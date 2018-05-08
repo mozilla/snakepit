@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const stream = require('stream')
 const multer = require('multer')
+const cluster = require('cluster')
 const readline = require('readline')
 const CombinedStream = require('combined-stream')
 const { spawn, execSync } = require('child_process')
@@ -33,6 +34,13 @@ var db = store.root
 var pollInterval = config.pollInterval || 1000
 var dataRoot = config.dataRoot || path.join(__dirname, '..', 'data')
 var upload = multer({ dest: path.join(dataRoot, 'uploads') })
+var utilization = {}
+
+process.on('message', msg => {
+    if (msg.utilization) {
+        utilization = msg.utilization
+    }
+})
 
 function _runScript(scriptName, env, callback) {
     if (typeof env == 'function') {
@@ -154,7 +162,7 @@ function _freeProcess(nodeId, pid) {
 }
 
 function _isReserved(clusterReservation, nodeId, resourceId) {
-    return clusterReservation.reduce(
+    return [].concat.apply([], clusterReservation).reduce(
         (result, reservation) =>
             result || (
                 reservation.node == nodeId &&
@@ -165,7 +173,7 @@ function _isReserved(clusterReservation, nodeId, resourceId) {
 }
 
 function _reserveProcessOnNode(node, clusterReservation, resourceList, user, simulation) {
-    var nodeReservation = { node: simulation ? '<node>' : node.id, resources: {} }
+    var nodeReservation = { node: node.id, resources: {} }
     if (!node || !node.resources) {
         return null
     }
@@ -229,9 +237,11 @@ function _reserveCluster(clusterRequest, user, simulation) {
     for(let groupIndex = 0; groupIndex < clusterRequest.length; groupIndex++) {
         let groupRequest = clusterRequest[groupIndex]
         let groupReservation = []
+        clusterReservation.push(groupReservation)
         for(let processIndex = 0; processIndex < groupRequest.count; processIndex++) {
             let processReservation = _reserveProcess(clusterReservation, groupRequest.process, user, simulation)
             if (processReservation) {
+
                 processReservation.groupIndex = groupIndex
                 processReservation.processIndex = processIndex
                 groupReservation.push(processReservation)
@@ -239,7 +249,6 @@ function _reserveCluster(clusterRequest, user, simulation) {
                 return null
             }
         }
-        clusterReservation.push(groupReservation)
     }
     return clusterReservation
 }
@@ -430,7 +439,6 @@ function _startJob(job, clusterReservation, callback) {
                         resource.job = job.id
                         resource.pid = pid
                     }
-
                 }
             } else {
                 _setJobState(job, jobStates.STOPPING)
@@ -465,6 +473,32 @@ function _getDuration(date1, date2) {
 function _createJobDescription(dbjob) {
     let stateChange = new Date(dbjob.stateChanges[dbjob.state])
     let duration = _getDuration(new Date(), stateChange)
+    let utilComp = 0
+    let utilCompCount = 0
+    let utilMem = 0
+    let utilMemCount = 0
+    if (dbjob.clusterReservation) {
+        for(let groupReservation of dbjob.clusterReservation) {
+            for(let processReservation of groupReservation) {
+                let nodeUtilization = utilization[processReservation.node]
+                if (nodeUtilization && processReservation.resources) {
+                    for (let resourceId of Object.keys(processReservation.resources)) {
+                        let resourceUtilization = nodeUtilization[resourceId]
+                        if (resourceUtilization) {
+                            if (resourceUtilization.hasOwnProperty('comp')) {
+                                utilComp += resourceUtilization.comp
+                                utilCompCount++
+                            }
+                            if (resourceUtilization.hasOwnProperty('mem')) {
+                                utilMem += resourceUtilization.mem
+                                utilMemCount++
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     return {
         id: dbjob.id,
         user: dbjob.user,
@@ -473,7 +507,9 @@ function _createJobDescription(dbjob) {
         clusterReservation: _summarizeClusterReservation(dbjob.clusterReservation),
         state: dbjob.state,
         since: duration,
-        schedulePosition: db.schedule.indexOf(dbjob.id)
+        schedulePosition: db.schedule.indexOf(dbjob.id),
+        utilComp: utilComp / utilCompCount,
+        utilMem: utilMem / utilMemCount
     }
 }
 
@@ -714,18 +750,29 @@ groupsModule.on('restricted', function() {
 
 exports.tick = function() {
     let realProcesses = {}
+    let utilization = {}
     let currentNodes = Object.keys(db.nodes).map(k => db.nodes[k])
     _runForEach(currentNodes, (node, done) => {
         runScriptOnNode(node, 'pids.sh', { RUN_USER: node.user }, (code, stdout, stderr) => {
             let pids = realProcesses[node.id] = {}
+            let nodeUtilization = utilization[node.id] = {}
             for(let line of stdout.split('\n')) {
                 if(line.startsWith('pid:')) {
                     pids[Number(line.substr(4))] = true
+                } else if (line.startsWith('util:')) {
+                    let values = line.substr(5).split(',')
+                    nodeUtilization[values[0]] = {
+                        comp: Number(values[1]),
+                        mem: Number(values[2])
+                    }
                 }
             }
             done()
         })
     }, () => {
+        for(let worker of Object.keys(cluster.workers).map(k => cluster.workers[k])) {
+            worker.send({ utilization: utilization })
+        }
         store.lockAsyncRelease('jobs', release => {
             let goon = () => {
                 release()
