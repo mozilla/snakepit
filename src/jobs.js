@@ -201,7 +201,7 @@ function _reserveProcessOnNode(node, clusterReservation, resourceList, user, sim
                     if (nodeResource.name == name &&
                         !_isReserved(clusterReservation, node.id, resourceId) &&
                         (!nodeResource.job || simulation) &&
-                        groupsModule.canAccess(user, nodeResource)
+                        groupsModule.canAccessResource(user, nodeResource)
                     ) {
                         nodeReservation.resources[resourceId] = {
                             type: nodeResource.type,
@@ -501,8 +501,9 @@ function _createJobDescription(dbjob) {
     }
     return {
         id: dbjob.id,
-        user: dbjob.user,
         description: dbjob.description,
+        user: dbjob.user,
+        groups: dbjob.groups,
         clusterRequest: dbjob.clusterRequest,
         clusterReservation: _summarizeClusterReservation(dbjob.clusterReservation),
         state: dbjob.state,
@@ -521,10 +522,8 @@ function _getJobDescription(jobId, user, extended) {
         if (dbjob.error) {
             job.error = dbjob.error.trim()
         }
-        if(user == dbjob.user) {
-            job.origin = dbjob.origin
-            job.hash = dbjob.hash
-            job.diff = dbjob.diff
+        if(groupsModule.canAccessJob(user, dbjob)) {
+            job.provisioning = dbjob.provisioning
         }
     }
     return job
@@ -561,6 +560,9 @@ exports.initApp = function(app) {
                     description: ('' + job.description).substring(0,20),
                     clusterRequest: job.clusterRequest,
                     clusterReservation: simulatedReservation
+                }
+                if (!job.private) {
+                    dbjob.groups = req.user.autoshare
                 }
                 _setJobState(dbjob, jobStates.NEW)
                 db.jobs[id] = dbjob
@@ -599,7 +601,7 @@ exports.initApp = function(app) {
 
     app.get('/jobs/:id', function(req, res) {
         let id = Number(req.params.id)
-        let job = _getJobDescription(id, req.user.id, true)
+        let job = _getJobDescription(id, req.user, true)
         if (job) {
             res.status(200).send(job)
         } else {
@@ -617,7 +619,7 @@ exports.initApp = function(app) {
             group < dbjob.clusterReservation.length &&
             proc < dbjob.clusterReservation[group].length
         ) {
-            if (req.user.id == dbjob.user || req.user.admin) {
+            if (groupsModule.canAccessJob(req.user, dbjob)) {
                 res.writeHead(200, {
                     'Connection': 'keep-alive',
                     'Content-Type': 'text/plain',
@@ -664,7 +666,7 @@ exports.initApp = function(app) {
             var id = Number(req.params.id)
             var dbjob = db.jobs[id]
             if (dbjob) {
-                if (req.user.id == dbjob.user || req.user.admin) {
+                if (groupsModule.canAccessJob(req.user, dbjob)) {
                     if (dbjob.state == jobStates.STARTING || dbjob.state == jobStates.RUNNING) {
                         _setJobState(dbjob, jobStates.STOPPING)
                         res.status(200).send()
@@ -685,7 +687,7 @@ exports.initApp = function(app) {
             var id = Number(req.params.id)
             var dbjob = db.jobs[id]
             if (dbjob) {
-                if (req.user.id == dbjob.user || req.user.admin) {
+                if (groupsModule.canAccessJob(req.user, dbjob)) {
                     if (dbjob.state >= jobStates.DONE) {
                         delete db.jobs[id]
                         let scheduleIndex = db.schedule.indexOf(id)

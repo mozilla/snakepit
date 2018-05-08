@@ -10,8 +10,8 @@ function emitRestricted() {
 }
 
 function _addGroup(entity, req, res) {
-    if (req.user.admin) {
-        if (entity) {
+    if (entity) {
+        if (req.user.admin || req.user.id == entity.user) {
             let group = req.params.group
             if (entity.groups) {
                 let index = entity.groups.indexOf(group)
@@ -26,10 +26,10 @@ function _addGroup(entity, req, res) {
                 res.status(200).send()
             }
         } else {
-            res.status(404).send()
+            res.status(403).send()
         }
     } else {
-        res.status(403).send()
+        res.status(404).send()
     }
 }
 
@@ -41,8 +41,8 @@ function _removeGroupByIndex(entity, index) {
 }
 
 function _removeGroup(entity, req, res) {
-    if (req.user.admin) {
-        if (entity) {
+    if (entity) {
+        if (req.user.admin || req.user.id == entity.user) {
             let group = req.params.group
             let index = entity.groups ? entity.groups.indexOf(group) : -1
             if (index >= 0) {
@@ -52,10 +52,10 @@ function _removeGroup(entity, req, res) {
                 res.status(400).send('Not in group')
             }
         } else {
-            res.status(404).send()
+            res.status(403).send()
         }
     } else {
-        res.status(403).send()
+        res.status(404).send()
     }
 }
 
@@ -64,26 +64,25 @@ function _getResource(req) {
     return node && node.resources[req.params.resource]
 }
 
+function _getGroups(groups, collection) {
+    for (let entity of Object.keys(collection).map(k => collection[k])) {
+        if (entity.groups) {
+            for (let group of entity.groups) {
+                groups[group] = true
+            }
+        }
+    }
+}
+
 exports.initApp = function(app) {
     app.get('/groups', function(req, res) {
         if (req.user.admin) {
             let groups = {}
             for (let node of Object.keys(db.nodes).map(k => db.nodes[k])) {
-                for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
-                    if (resource.groups) {
-                        for (let group of resource.groups) {
-                            groups[group] = true
-                        }
-                    }
-                }
+                _getGroups(groups, node.resources || {})
             }
-            for (let user of Object.keys(db.users).map(k => db.users[k])) {
-                if (user.groups) {
-                    for (let group of user.groups) {
-                        groups[group] = true
-                    }
-                }
-            }
+            _getGroups(groups, db.users)
+            _getGroups(groups, db.jobs)
             res.status(200).json(Object.keys(groups))
         } else {
             res.status(403).send()
@@ -96,6 +95,15 @@ exports.initApp = function(app) {
 
     app.delete('/users/:user/groups/:group', function(req, res) {
         _removeGroup(db.users[req.params.user], req, res)
+        emitRestricted()
+    })
+
+    app.put('/jobs/:job/groups/:group', function(req, res) {
+        _addGroup(db.jobs[req.params.job], req, res)
+    })
+
+    app.delete('/jobs/:job/groups/:group', function(req, res) {
+        _removeGroup(db.jobs[req.params.job], req, res)
         emitRestricted()
     })
 
@@ -153,7 +161,7 @@ exports.initApp = function(app) {
     })
 }
 
-exports.canAccess = function (user, resource) {
+exports.canAccessResource = function (user, resource) {
     if (resource.groups) {
         if (user.groups) {
             for (let group of user.groups) {
@@ -165,4 +173,18 @@ exports.canAccess = function (user, resource) {
         return false
     }
     return true
+}
+
+exports.canAccessJob = function (user, job) {
+    if (user.admin || user.id == job.user) {
+        return true
+    }
+    if (job.groups && user.groups) {
+        for (let group of user.groups) {
+            if (job.groups.includes(group)) {
+                return true
+            }
+        }
+    }
+    return false
 }

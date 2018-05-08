@@ -47,7 +47,7 @@ exports.initApp = function(app) {
         var id = req.params.id
         var user = req.body
         authorize(req, res, false, function() {
-            if (db.users[id] && req.user && req.user.id !== id && !req.user.admin) {
+            if (db.users[id] && (!req.user || (req.user && req.user.id !== id && !req.user.admin))) {
                 res.status(403).send()
             } else {
                 var dbuser = db.users[id] || {}
@@ -72,6 +72,7 @@ exports.initApp = function(app) {
                         fullname: user.fullname || dbuser.fullname,
                         email: user.email || dbuser.email,
                         password: hash,
+                        autoshare: user.autoshare || dbuser.autoshare,
                         admin: admin
                     }
                     db.users[id] = newuser
@@ -146,6 +147,7 @@ exports.initApp = function(app) {
                     fullname: dbuser.fullname,
                     email: dbuser.email,
                     groups: dbuser.groups,
+                    autoshare: dbuser.autoshare,
                     admin: dbuser.admin ? 'yes' : 'no'
                 })
             } else {
