@@ -3,7 +3,12 @@ set -e
 job_dir="$DATA_ROOT/jobs/$JOB_NUMBER"
 mkdir -p "$job_dir"
 mkdir -p "$job_dir/tmp"
-mkdir -p "$job_dir/keep"
+
+if [ -n "$CONTINUE_JOB_NUMBER" ]; then
+    cp -r "$DATA_ROOT/jobs/$CONTINUE_JOB_NUMBER/keep" "$job_dir/keep"
+else
+    mkdir -p "$job_dir/keep"
+fi
 
 job_groups_dir="$job_dir/groups"
 mkdir -p "$job_groups_dir"

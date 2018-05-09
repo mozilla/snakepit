@@ -23,3 +23,5 @@ tokenTTL: 1d
 # Complexity of user password hashing.
 hashRounds: 10
 
+# Max number of processes per node
+maxProcesses: 10

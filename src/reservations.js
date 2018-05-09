@@ -1,6 +1,7 @@
 const { MultiRange } = require('multi-integer-range')
 
 const store = require('./store.js')
+const config = require('./config.js')
 const groupsModule = require('./groups.js')
 const { nodeStates } = require('./nodes.js')
 
@@ -24,23 +25,32 @@ function _reserveProcessOnNode(node, clusterReservation, resourceList, user, sim
     if (!node || !node.resources) {
         return null
     }
-    for (let resource of resourceList) {
-        let resourceCounter = resource.count
-        if (resource.name == 'port') {
-            for(let port = 1024; resourceCounter > 0 && port < 65536; port++) {
-                resourceId = 'port' + port
-                let nodeResource = node.resources[resourceId]
-                if (!_isReserved(clusterReservation, node.id, resourceId) &&
-                    (!nodeResource || !nodeResource.job || simulation)
-                ) {
-                    nodeReservation.resources[resourceId] = {
-                        type: 'port',
-                        index: port
-                    }
-                    resourceCounter--
+    var resourceCounter = 1
+    let reserveNumeric = function(type, minIndex, maxIndex, numResources) {
+        for(let i = minIndex; resourceCounter > 0 && i <= maxIndex; i++) {
+            let resourceId = type + i
+            let nodeResource = node.resources[resourceId]
+            if (!_isReserved(clusterReservation, node.id, resourceId) &&
+                (!nodeResource || !nodeResource.job || simulation)
+            ) {
+                nodeReservation.resources[resourceId] = {
+                    type: 'num:' + type,
+                    index: i
                 }
+                resourceCounter--
             }
+        }
+    }
+    reserveNumeric('proc', 0, config.maxProcesses, 1)
+    if (resourceCounter > 0) {
+        return null
+    }
+    for (let resource of resourceList) {
+        resourceCounter = resource.count
+        if (resource.name == 'port') {
+            reserveNumeric('port', 1024, 65535, resource.count)
         } else {
+            let resourceCounter = resource.count
             let name = db.aliases[resource.name] ? db.aliases[resource.name].name : resource.name
             for(let resourceId of Object.keys(node.resources)) {
                 if (resourceCounter > 0) {
@@ -88,7 +98,6 @@ exports.reserveCluster = function(clusterRequest, user, simulation) {
         for(let processIndex = 0; processIndex < groupRequest.count; processIndex++) {
             let processReservation = _reserveProcess(clusterReservation, groupRequest.process, user, simulation)
             if (processReservation) {
-
                 processReservation.groupIndex = groupIndex
                 processReservation.processIndex = processIndex
                 groupReservation.push(processReservation)

@@ -113,7 +113,7 @@ function _freeProcess(nodeId, pid) {
         if (resource.pid == pid) {
             //console.log('Freeing resource ' + resource.name + ' for PID ' + pid + ' on node "' + node.id + '"')
             job = resource.job
-            if (resource.type == 'port') {
+            if (resource.type.startsWith('num:')) {
                 delete node.resources[resourceId]
             } else {
                 delete resource.pid
@@ -136,14 +136,18 @@ function _setJobState(job, state) {
     job.stateChanges[state] = new Date().toISOString()
 }
 
-function _getPreparationEnv(job) {
+function _getPreparationEnv(job, continueJob) {
     let groups = db.users[job.user].groups
     groups = (groups ? groups.join(' ') + ' ' : '') + 'public'
-    return {
-        DATA_ROOT:   dataRoot,
+    let env = {
+        DATA_ROOT: dataRoot,
         USER_GROUPS: groups,
-        JOB_NUMBER:  job.id
+        JOB_NUMBER: job.id
     }
+    if (continueJob) {
+        env.CONTINUE_JOB_NUMBER = continueJob
+    }
+    return env
 }
 
 function _runPreparation(job, env) {
@@ -161,8 +165,8 @@ function _runPreparation(job, env) {
     })
 }
 
-function _prepareJobByGit(job, origin, hash, diff) {
-    let env = _getPreparationEnv(job)
+function _prepareJobByGit(job, continueJob, origin, hash, diff) {
+    let env = _getPreparationEnv(job, continueJob)
     Object.assign(env, {
         ORIGIN: origin,
         HASH:   hash,
@@ -171,8 +175,8 @@ function _prepareJobByGit(job, origin, hash, diff) {
     _runPreparation(job, env)
 }
 
-function _prepareJobByArchive(job, archive) {
-    let env = _getPreparationEnv(job)
+function _prepareJobByArchive(job, continueJob, archive) {
+    let env = _getPreparationEnv(job, continueJob)
     env.ARCHIVE = archive
     _runPreparation(job, env)
 }
@@ -205,7 +209,7 @@ function _buildJobEnv(job, clusterReservation) {
             let portCount = 0
             for(let resourceId of Object.keys(processReservation.resources)) {
                 let resource = processReservation.resources[resourceId]
-                if (resource.type == 'port') {
+                if (resource.type == 'num:port') {
                     jobEnv[
                         'HOST_GROUP' + processReservation.groupIndex +
                         '_PROCESS' + processReservation.processIndex +
@@ -232,7 +236,7 @@ function _startJob(job, clusterReservation, callback) {
             let resource = reservation.resources[resourceId]
             if (resource.type == 'cuda') {
                 cudaIndices.push(resource.index)
-            } else if (resource.type == 'port') {
+            } else if (resource.type == 'num:port') {
                 ports.push(resource.index)
             }
         }
@@ -254,9 +258,9 @@ function _startJob(job, clusterReservation, callback) {
                 for(let resourceId of Object.keys(reservation.resources)) {
                     let resource = node.resources[resourceId]
                     let resourceReservation = reservation.resources[resourceId]
-                    if (!resource && resourceReservation.type == 'port') {
+                    if (!resource && resourceReservation.type.startsWith('num:')) {
                         node.resources[resourceId] = {
-                            type: 'port',
+                            type: resourceReservation.type,
                             index: resourceReservation.index,
                             job: job.id,
                             pid: pid
@@ -350,6 +354,17 @@ exports.initApp = function(app) {
                 res.status(400).send({ message: 'Problem parsing allocation' })
                 return
             }
+            if (job.continueJob) {
+                let continueJob = db.jobs[job.continueJob]
+                if (!continueJob) {
+                    res.status(404).send({ message: 'The job to continue is not existing' })
+                    return
+                }
+                if (!groupsModule.canAccessJob(req.user, db.jobs[job.continueJob])) {
+                    res.status(403).send({ message: 'Continuing provided job not allowed by current user' })
+                    return
+                }
+            }
             let simulatedReservation = reserveCluster(clusterRequest, req.user, true)
             if (simulatedReservation) {
                 let provisioning
@@ -377,9 +392,9 @@ exports.initApp = function(app) {
                 db.jobs[id] = dbjob
                 res.status(200).send({ id: id })
                 if (job.origin) {
-                    _prepareJobByGit(db.jobs[id], job.origin, job.hash, job.diff)
+                    _prepareJobByGit(db.jobs[id], job.continueJob, job.origin, job.hash, job.diff)
                 } else if (job.archive) {
-                    _prepareJobByArchive(db.jobs[id], archive)
+                    _prepareJobByArchive(db.jobs[id], job.continueJob, archive)
                 }
             } else {
                 res.status(406).send({ message: 'Cluster cannot fulfill resource request' })
