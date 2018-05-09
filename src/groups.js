@@ -1,11 +1,9 @@
 const store = require('./store.js')
 const { EventEmitter } = require('events')
-//const { emitRestricted } = require('./jobs.js')
-
 var exports = module.exports = new EventEmitter()
 var db = store.root
 
-function emitRestricted() {
+function _emitRestricted() {
     exports.emit('restricted')
 }
 
@@ -95,7 +93,7 @@ exports.initApp = function(app) {
 
     app.delete('/users/:user/groups/:group', function(req, res) {
         _removeGroup(db.users[req.params.user], req, res)
-        emitRestricted()
+        _emitRestricted()
     })
 
     app.put('/jobs/:job/groups/:group', function(req, res) {
@@ -104,7 +102,7 @@ exports.initApp = function(app) {
 
     app.delete('/jobs/:job/groups/:group', function(req, res) {
         _removeGroup(db.jobs[req.params.job], req, res)
-        emitRestricted()
+        _emitRestricted()
     })
 
     app.put('/nodes/:node/resources/:resource/groups/:group', function(req, res) {
@@ -113,7 +111,7 @@ exports.initApp = function(app) {
 
     app.delete('/nodes/:node/resources/:resource/groups/:group', function(req, res) {
         _removeGroup(_getResource(req), req, res)
-        emitRestricted()
+        _emitRestricted()
     })
 
     app.put('/nodes/:node/groups/:group', function(req, res) {
@@ -157,7 +155,7 @@ exports.initApp = function(app) {
         } else {
             res.status(403).send()
         }
-        emitRestricted()
+        _emitRestricted()
     })
 }
 
