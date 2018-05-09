@@ -1,6 +1,9 @@
 const fs = require('fs')
 const path = require('path')
+const zlib = require('zlib')
+const tar = require('tar-fs')
 const stream = require('stream')
+const rimraf = require('rimraf')
 const multer = require('multer')
 const cluster = require('cluster')
 
@@ -415,6 +418,21 @@ exports.initApp = function(app) {
         }
     })
 
+    app.get('/jobs/:id/targz', function(req, res) {
+        let dbjob = db.jobs[Number(req.params.id)]
+        if (dbjob) {
+            if (groupsModule.canAccessJob(req.user, dbjob)) {
+                let jobdir = _getJobDir(dbjob)
+                res.status(200).type('tar.gz')
+                tar.pack(jobdir).pipe(zlib.createGzip()).pipe(res)
+            } else {
+                res.status(403).send()
+            }
+        } else {
+            res.status(404).send()
+        }
+    })
+
     app.get('/jobs/:id/groups/:group/processes/:proc/log', function(req, res) {
         let id = Number(req.params.id)
         let dbjob = db.jobs[id]
@@ -495,12 +513,19 @@ exports.initApp = function(app) {
             if (dbjob) {
                 if (groupsModule.canAccessJob(req.user, dbjob)) {
                     if (dbjob.state >= jobStates.DONE) {
+                        let jobdir = _getJobDir(dbjob)
                         delete db.jobs[id]
                         let scheduleIndex = db.schedule.indexOf(id)
                         if (scheduleIndex >= 0) {
                             db.schedule.splice(scheduleIndex, 1)
                         }
-                        res.status(200).send()
+                        rimraf(jobdir, err => {
+                            if (err) {
+                                res.status(500).send()
+                            } else {
+                                res.status(200).send()
+                            }
+                        })
                     } else {
                         res.status(412).send({ message: 'Only failed or done jobs can be deleted' })
                     }
