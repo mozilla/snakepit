@@ -228,7 +228,8 @@ function _startJob(job, clusterReservation, callback) {
     _setJobState(job, jobStates.STARTING)
     job.clusterReservation = clusterReservation
     let jobEnv = _buildJobEnv(job, clusterReservation)
-    utils.runForEach([].concat.apply([], clusterReservation), (reservation, done) => {
+    let reservations = [].concat.apply([], clusterReservation)
+    utils.runForEach(reservations, (reservation, done) => {
         let cudaIndices = []
         let ports = []
         let node = db.nodes[reservation.node]

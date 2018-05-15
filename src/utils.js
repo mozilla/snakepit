@@ -76,3 +76,22 @@ exports.runScript = function(scriptName, env, callback) {
         }
     })
 }
+
+exports.getField = function(db, table, id, field, callback) {
+    db.get('SELECT $field AS Result FROM $table WHERE id==$id', { 
+        $table: table,
+        $id: id,
+        $field: field
+    }, (err, result) => {
+        callback(result && result.Result)
+    })
+}
+
+exports.exists = function(db, table, id, callback) {
+    db.get('SELECT COUNT(*) AS Result FROM $table WHERE id==$id', { 
+        $table: table,
+        $id: id
+    }, (err, result) => {
+        callback(result && result.Result > 0)
+    })
+}
