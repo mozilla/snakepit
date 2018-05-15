@@ -29,6 +29,20 @@ const jobStates = {
     FAILED: 8
 }
 
+const jobStateGroups = ['waiting', 'running', 'done']
+
+const jobStateToGroup = {
+    0: 'waiting',
+    1: 'waiting',
+    2: 'waiting',
+    3: 'running',
+    4: 'running',
+    5: 'running',
+    6: 'done',
+    7: 'done',
+    8: 'done'
+}
+
 exports.jobStates = jobStates
 
 var db = store.root
@@ -126,14 +140,41 @@ function _freeProcess(nodeId, pid) {
     }
 }
 
+function _buildJobDir(group, jobId) {
+    return path.join(dataRoot, 'jobs', group, '' + jobId)
+}
+
 function _getJobDir(job) {
-    return path.join(dataRoot, 'jobs', '' + job.id)
+    return _buildJobDir(jobStateToGroup[job.state], job.id)
+}
+
+function _loadJob(jobId) {
+    for(let stateGroup of jobStateGroups) {
+        let jobPath = path.join(_buildJobDir(stateGroup, jobId), 'meta.json')
+        if (fs.existsSync(jobPath)) {
+            return JSON.parse(fs.readFileSync(jobPath, 'utf8'))
+        }
+    }
+}
+
+function _saveJob(job) {
+    let jobPath = _getJobDir(job)
+    if (!fs.existsSync(jobPath)) {
+        fs.mkdirSync(jobPath)
+    }
+    fs.writeFileSync(path.join(jobPath, 'meta.json'), JSON.stringify(job), 'utf8')
 }
 
 function _setJobState(job, state) {
+    let origDir = _getJobDir(job)
     job.state = state
+    let newDir = _getJobDir(job)
+    if (origDir != newDir) {
+        fs.renameSync(origDir, newDir)
+    }
     job.stateChanges = job.stateChanges || {}
     job.stateChanges[state] = new Date().toISOString()
+    _saveJob(job)
 }
 
 function _getPreparationEnv(job, continueJob) {
@@ -142,7 +183,8 @@ function _getPreparationEnv(job, continueJob) {
     let env = {
         DATA_ROOT: dataRoot,
         USER_GROUPS: groups,
-        JOB_NUMBER: job.id
+        JOB_NUMBER: job.id,
+        JOB_DIR: _getJobDir(job)
     }
     if (continueJob) {
         env.CONTINUE_JOB_NUMBER = continueJob
@@ -328,7 +370,7 @@ function _createJobDescription(dbjob) {
 }
 
 function _getJobDescription(jobId, user, extended) {
-    let dbjob = db.jobs[jobId]
+    let dbjob = _loadJob(jobId)
     let job = dbjob ? _createJobDescription(dbjob) : null
     if (job && extended) {
         job.stateChanges = dbjob.stateChanges
@@ -355,12 +397,12 @@ exports.initApp = function(app) {
                 return
             }
             if (job.continueJob) {
-                let continueJob = db.jobs[job.continueJob]
+                let continueJob = _loadJob(job.continueJob)
                 if (!continueJob) {
                     res.status(404).send({ message: 'The job to continue is not existing' })
                     return
                 }
-                if (!groupsModule.canAccessJob(req.user, db.jobs[job.continueJob])) {
+                if (!groupsModule.canAccessJob(req.user, continueJob)) {
                     res.status(403).send({ message: 'Continuing provided job not allowed by current user' })
                     return
                 }
@@ -389,12 +431,11 @@ exports.initApp = function(app) {
                     dbjob.groups = req.user.autoshare
                 }
                 _setJobState(dbjob, jobStates.NEW)
-                db.jobs[id] = dbjob
                 res.status(200).send({ id: id })
                 if (job.origin) {
-                    _prepareJobByGit(db.jobs[id], job.continueJob, job.origin, job.hash, job.diff)
+                    _prepareJobByGit(dbjob, job.continueJob, job.origin, job.hash, job.diff)
                 } else if (job.archive) {
-                    _prepareJobByArchive(db.jobs[id], job.continueJob, archive)
+                    _prepareJobByArchive(dbjob, job.continueJob, archive)
                 }
             } else {
                 res.status(406).send({ message: 'Cluster cannot fulfill resource request' })
