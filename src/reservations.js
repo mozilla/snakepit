@@ -47,12 +47,13 @@ function _reserveProcessOnNode(node, clusterReservation, resourceList, user, sim
     }
     for (let resource of resourceList) {
         resourceCounter = resource.count
+        //console.log('Looking for ' + resource.count + ' x ' + resource.name)
         if (resource.name == 'port') {
             reserveNumeric('port', 1024, 65535, resource.count)
         } else {
-            let resourceCounter = resource.count
             let name = db.aliases[resource.name] ? db.aliases[resource.name].name : resource.name
             for(let resourceId of Object.keys(node.resources)) {
+                //console.log('Testing ' + resourceId)
                 if (resourceCounter > 0) {
                     let nodeResource = node.resources[resourceId]
                     if (nodeResource.name == name &&
