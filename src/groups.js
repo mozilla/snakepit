@@ -7,7 +7,11 @@ function _emitRestricted() {
     exports.emit('restricted')
 }
 
-function _addGroup(entity, req, res) {
+function _emitEntityChange(entityType, entity) {
+    exports.emit('changed', entityType, entity)
+}
+
+function _addGroup(entity, req, res, callback) {
     if (entity) {
         if (req.user.admin || req.user.id == entity.user) {
             let group = req.params.group
@@ -18,6 +22,7 @@ function _addGroup(entity, req, res) {
                 } else {
                     entity.groups.push(group)
                     res.status(200).send()
+                    callback && callback(entity)
                 }
             } else {
                 entity.groups = [ group ]
@@ -38,7 +43,7 @@ function _removeGroupByIndex(entity, index) {
     }
 }
 
-function _removeGroup(entity, req, res) {
+function _removeGroup(entity, req, res, callback) {
     if (entity) {
         if (req.user.admin || req.user.id == entity.user) {
             let group = req.params.group
@@ -46,6 +51,7 @@ function _removeGroup(entity, req, res) {
             if (index >= 0) {
                 _removeGroupByIndex(entity, index)
                 res.status(200).send()
+                callback && callback(entity)
             } else {
                 res.status(400).send('Not in group')
             }
@@ -88,30 +94,42 @@ exports.initApp = function(app) {
     })
 
     app.put('/users/:user/groups/:group', function(req, res) {
-        _addGroup(db.users[req.params.user], req, res)
+        _addGroup(db.users[req.params.user], req, res, entity => {
+            _emitEntityChange('user', entity)  
+        })
     })
 
     app.delete('/users/:user/groups/:group', function(req, res) {
-        _removeGroup(db.users[req.params.user], req, res)
-        _emitRestricted()
+        _removeGroup(db.users[req.params.user], req, res, entity => {
+            _emitEntityChange('user', entity)
+            _emitRestricted()
+        })
     })
 
     app.put('/jobs/:job/groups/:group', function(req, res) {
-        _addGroup(db.jobs[req.params.job], req, res)
+        _addGroup(db.jobs[req.params.job], req, res, entity => {
+            _emitEntityChange('job', entity)
+        })
     })
 
     app.delete('/jobs/:job/groups/:group', function(req, res) {
-        _removeGroup(db.jobs[req.params.job], req, res)
-        _emitRestricted()
+        _removeGroup(db.jobs[req.params.job], req, res, entity => {
+            _emitEntityChange('job', entity)
+            _emitRestricted()
+        })
     })
 
     app.put('/nodes/:node/resources/:resource/groups/:group', function(req, res) {
-        _addGroup(_getResource(req), req, res)
+        _addGroup(_getResource(req), req, res, entity => {
+            _emitEntityChange('resource', entity)
+        })
     })
 
     app.delete('/nodes/:node/resources/:resource/groups/:group', function(req, res) {
-        _removeGroup(_getResource(req), req, res)
-        _emitRestricted()
+        _removeGroup(_getResource(req), req, res, entity => {
+            _emitEntityChange('resource', entity)
+            _emitRestricted()
+        })
     })
 
     app.put('/nodes/:node/groups/:group', function(req, res) {
@@ -123,6 +141,7 @@ exports.initApp = function(app) {
                     if (resource.groups) {
                         if (!resource.groups.includes(group)) {
                             resource.groups.push(group)
+                            _emitEntityChange('resource', resource)
                         }
                     } else {
                         resource.groups = [ group ]
@@ -146,6 +165,7 @@ exports.initApp = function(app) {
                     let index = resource.groups ? resource.groups.indexOf(group) : -1
                     if (index >= 0) {
                         _removeGroupByIndex(resource, index)
+                        _emitEntityChange('resource', resource)
                     }
                 }
                 res.status(200).send()

@@ -6,6 +6,7 @@ const stream = require('stream')
 const rimraf = require('rimraf')
 const multer = require('multer')
 const cluster = require('cluster')
+const parseDuration = require('parse-duration')
 
 const store = require('./store.js')
 const utils = require('./utils.js')
@@ -26,13 +27,14 @@ const jobStates = {
     STOPPING: 5,
     CLEANING: 6,
     DONE: 7,
-    FAILED: 8
+    ARCHIVED: 8
 }
 
 exports.jobStates = jobStates
 
 var db = store.root
 var pollInterval = config.pollInterval || 1000
+var gracePeriod = parseDuration(config.gracePeriod)
 var dataRoot = config.dataRoot || path.join(__dirname, '..', 'data')
 var upload = multer({ dest: path.join(dataRoot, 'uploads') })
 var utilization = {}
@@ -53,9 +55,11 @@ exports.initDb = function() {
     for (let jobId of Object.keys(db.jobs)) {
         let job = db.jobs[jobId]
         if (job.state == jobStates.PREPARING) {
-            _cleanJob(job, false)
+            job.error = 'interrupted during preparation'
+            job.errorState = jobStates.PREPARING
+            _cleanJob(job)
         } else if (job.state == jobStates.CLEANING) {
-            _cleanJob(job, true)
+            _cleanJob(job)
         } else {
             _checkRunning(job)
         }
@@ -102,7 +106,7 @@ function _checkRunning(job) {
             }
         }
     }
-    _cleanJob(job, true)
+    _cleanJob(job)
 }
 
 function _freeProcess(nodeId, pid) {
@@ -126,14 +130,47 @@ function _freeProcess(nodeId, pid) {
     }
 }
 
+function _getJobsDir() {
+    return path.join(dataRoot, 'jobs')
+}
+
+function _getJobDirById(jobId) {
+    return path.join(_getJobsDir(), jobId + '')
+}
+
 function _getJobDir(job) {
-    return path.join(dataRoot, 'jobs', '' + job.id)
+    return _getJobDirById(job.id)
+}
+
+function _loadJob(jobId) {
+    let job = db.jobs[jobId]
+    if (job) {
+        return job
+    }
+    let jobPath = path.join(_getJobDirById(jobId), 'meta.json')
+    if (fs.existsSync(jobPath)) {
+        return JSON.parse(fs.readFileSync(jobPath, 'utf8'))
+    }
+}
+
+function _saveJob(job) {
+    let jobPath = _getJobDir(job)
+    if (!fs.existsSync(jobPath)) {
+        fs.mkdirSync(jobPath)
+    }
+    fs.writeFileSync(path.join(jobPath, 'meta.json'), JSON.stringify(job), 'utf8')
+}
+
+function _deleteJobDir(jobId, callback) {
+    let jobDir = _getJobDirById(jobId)
+    rimraf(jobDir, callback)
 }
 
 function _setJobState(job, state) {
     job.state = state
     job.stateChanges = job.stateChanges || {}
     job.stateChanges[state] = new Date().toISOString()
+    _saveJob(job)
 }
 
 function _getPreparationEnv(job, continueJob) {
@@ -142,7 +179,8 @@ function _getPreparationEnv(job, continueJob) {
     let env = {
         DATA_ROOT: dataRoot,
         USER_GROUPS: groups,
-        JOB_NUMBER: job.id
+        JOB_NUMBER: job.id,
+        JOB_DIR: _getJobDir(job)
     }
     if (continueJob) {
         env.CONTINUE_JOB_NUMBER = continueJob
@@ -155,11 +193,12 @@ function _runPreparation(job, env) {
     utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
             if (code == 0 && fs.existsSync(_getJobDir(job))) {
-                _setJobState(job, jobStates.WAITING)
                 db.schedule.push(job.id)
+                _setJobState(job, jobStates.WAITING)
             } else {
-                _setJobState(job, jobStates.FAILED)
                 job.error = stderr
+                job.errorState = jobStates.PREPARING
+                _setJobState(job, jobStates.DONE)
             }
         })
     })
@@ -185,10 +224,11 @@ function _cleanJob(job, success) {
     _setJobState(job, jobStates.CLEANING)
     utils.runScript('clean.sh', _getPreparationEnv(job), (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
-            _setJobState(job, success ? jobStates.DONE : jobStates.FAILED)
             if (code > 0) {
                 job.error = stderr
+                job.errorState = jobStates.CLEANING
             }
+            _setJobState(job, jobStates.DONE)
         })
     })
 }
@@ -318,7 +358,7 @@ function _createJobDescription(dbjob) {
         user: dbjob.user,
         groups: dbjob.groups,
         clusterRequest: dbjob.clusterRequest,
-        clusterReservation: summarizeClusterReservation(dbjob.clusterReservation),
+        clusterReservation: summarizeClusterReservation(dbjob.clusterReservation, true),
         state: dbjob.state,
         since: duration,
         schedulePosition: db.schedule.indexOf(dbjob.id),
@@ -328,7 +368,7 @@ function _createJobDescription(dbjob) {
 }
 
 function _getJobDescription(jobId, user, extended) {
-    let dbjob = db.jobs[jobId]
+    let dbjob = _loadJob(jobId)
     let job = dbjob ? _createJobDescription(dbjob) : null
     if (job && extended) {
         job.stateChanges = dbjob.stateChanges
@@ -355,13 +395,13 @@ exports.initApp = function(app) {
                 return
             }
             if (job.continueJob) {
-                let continueJob = db.jobs[job.continueJob]
+                let continueJob = _loadJob(job.continueJob)
                 if (!continueJob) {
                     res.status(404).send({ message: 'The job to continue is not existing' })
                     return
                 }
-                if (!groupsModule.canAccessJob(req.user, db.jobs[job.continueJob])) {
-                    res.status(403).send({ message: 'Continuing provided job not allowed by current user' })
+                if (!groupsModule.canAccessJob(req.user, continueJob)) {
+                    res.status(403).send({ message: 'Continuing provided job not allowed for current user' })
                     return
                 }
             }
@@ -403,7 +443,13 @@ exports.initApp = function(app) {
     })
 
     app.get('/jobs', function(req, res) {
-        res.status(200).send(Object.keys(db.jobs))
+        fs.readdir(_getJobsDir(), (err, files) => {
+            if (err || !files) {
+                res.status(500).send()
+            } else {
+                res.status(200).send(files.filter(v => !isNaN(parseInt(v, 10))))
+            }
+        })
     })
 
     app.get('/status', function(req, res) {
@@ -424,8 +470,7 @@ exports.initApp = function(app) {
     })
 
     app.get('/jobs/:id', function(req, res) {
-        let id = Number(req.params.id)
-        let job = _getJobDescription(id, req.user, true)
+        let job = _getJobDescription(req.params.id, req.user, true)
         if (job) {
             res.status(200).send(job)
         } else {
@@ -434,7 +479,7 @@ exports.initApp = function(app) {
     })
 
     app.get('/jobs/:id/targz', function(req, res) {
-        let dbjob = db.jobs[Number(req.params.id)]
+        let dbjob = _loadJob(req.params.id)
         if (dbjob) {
             if (groupsModule.canAccessJob(req.user, dbjob)) {
                 let jobdir = _getJobDir(dbjob)
@@ -449,8 +494,7 @@ exports.initApp = function(app) {
     })
 
     app.get('/jobs/:id/groups/:group/processes/:proc/log', function(req, res) {
-        let id = Number(req.params.id)
-        let dbjob = db.jobs[id]
+        let dbjob = _loadJob(req.params.id)
         let group = Number(req.params.group)
         let proc = Number(req.params.proc)
         if (dbjob &&
@@ -502,8 +546,7 @@ exports.initApp = function(app) {
 
     app.post('/jobs/:id/stop', function(req, res) {
         store.lockAutoRelease('jobs', function() {
-            var id = Number(req.params.id)
-            var dbjob = db.jobs[id]
+            let dbjob = _loadJob(req.params.id)
             if (dbjob) {
                 if (groupsModule.canAccessJob(req.user, dbjob)) {
                     if (dbjob.state == jobStates.STARTING || dbjob.state == jobStates.RUNNING) {
@@ -524,17 +567,18 @@ exports.initApp = function(app) {
     app.delete('/jobs/:id', function(req, res) {
         store.lockAutoRelease('jobs', function() {
             var id = Number(req.params.id)
-            var dbjob = db.jobs[id]
+            var dbjob = _loadJob(id)
             if (dbjob) {
                 if (groupsModule.canAccessJob(req.user, dbjob)) {
                     if (dbjob.state >= jobStates.DONE) {
-                        let jobdir = _getJobDir(dbjob)
-                        delete db.jobs[id]
+                        if (db.jobs[id]) {
+                            delete db.jobs[id]
+                        }
                         let scheduleIndex = db.schedule.indexOf(id)
                         if (scheduleIndex >= 0) {
                             db.schedule.splice(scheduleIndex, 1)
                         }
-                        rimraf(jobdir, err => {
+                        _deleteJobDir(id, err => {
                             if (err) {
                                 res.status(500).send()
                             } else {
@@ -542,7 +586,7 @@ exports.initApp = function(app) {
                             }
                         })
                     } else {
-                        res.status(412).send({ message: 'Only failed or done jobs can be deleted' })
+                        res.status(412).send({ message: 'Only done or archived jobs can be deleted' })
                     }
                 } else {
                     res.status(403).send()
@@ -568,14 +612,21 @@ groupsModule.on('restricted', function() {
     if (jobs.length > 0) {
         store.lockAutoRelease('jobs', function() {
             for (let job of jobs) {
-                _setJobState(job, jobStates.FAILED)
                 job.error = 'Cluster cannot fulfill resource request anymore'
+                job.errorState = job.state
+                _setJobState(job, jobStates.DONE)
                 let index = db.schedule.indexOf(job.id)
                 if (index >= 0) {
                     db.schedule.splice(index, 1)
                 }
             }
         })
+    }
+})
+
+groupsModule.on('changed', (type, entity) => {
+    if (type == 'job' && entity) {
+        _saveJob(entity)
     }
 })
 
@@ -644,6 +695,14 @@ exports.tick = function() {
                     done()
                 })
             }, () => {
+                for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
+                    let graceTime = new Date(job.stateChanges[job.state]).getTime() + gracePeriod
+                    let timeNow = Date.now()
+                    if (job.state == jobStates.DONE && graceTime < timeNow) {
+                        _setJobState(job, jobStates.ARCHIVED)
+                        delete db.jobs[job.id]
+                    }
+                }
                 if (db.schedule.length > 0) {
                     let job = db.jobs[db.schedule[0]]
                     if (job) {

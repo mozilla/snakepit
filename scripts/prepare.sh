@@ -1,16 +1,14 @@
 set -e
 
-job_dir="$DATA_ROOT/jobs/$JOB_NUMBER"
-mkdir -p "$job_dir"
-mkdir -p "$job_dir/tmp"
+mkdir "$JOB_DIR/tmp"
 
 if [ -n "$CONTINUE_JOB_NUMBER" ]; then
-    cp -r "$DATA_ROOT/jobs/$CONTINUE_JOB_NUMBER/keep" "$job_dir/keep"
+    cp -r "$DATA_ROOT/jobs/$CONTINUE_JOB_NUMBER/keep" "$JOB_DIR/keep"
 else
-    mkdir -p "$job_dir/keep"
+    mkdir "$JOB_DIR/keep"
 fi
 
-job_groups_dir="$job_dir/groups"
+job_groups_dir="$JOB_DIR/groups"
 mkdir -p "$job_groups_dir"
 for group in $USER_GROUPS; do
     data_group_dir="$DATA_ROOT/groups/$group"
@@ -21,7 +19,7 @@ for group in $USER_GROUPS; do
     fi
 done
 
-job_src_dir="$job_dir/src"
+job_src_dir="$JOB_DIR/src"
 
 if [ -n "$ORIGIN" ]; then
     mkdir -p "$DATA_ROOT/cache"
@@ -35,7 +33,7 @@ if [ -n "$ORIGIN" ]; then
         git clone $ORIGIN "$cache_repo" >/dev/null
     fi
 
-    git -C "$cache_repo" archive --format=tar --prefix=src/ $HASH | (cd "$job_dir" && tar xf -)
+    git -C "$cache_repo" archive --format=tar --prefix=src/ $HASH | (cd "$JOB_DIR" && tar xf -)
     if [ -n "$DIFF" ]; then
         cd "$job_src_dir"
         echo "$DIFF" | patch -p0

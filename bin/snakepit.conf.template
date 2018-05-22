@@ -23,5 +23,9 @@ tokenTTL: 1d
 # Complexity of user password hashing.
 hashRounds: 10
 
-# Max number of processes per node
+# Max number of processes per node.
 maxProcesses: 10
+
+# Grace period before jobs are moved from state DONE to ARCHIVED
+# add thus removed from status report.
+gracePeriod: 10s
