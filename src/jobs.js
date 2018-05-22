@@ -202,7 +202,7 @@ function _runPreparation(job, env) {
                 db.schedule.push(job.id)
                 _setJobState(job, jobStates.WAITING)
             } else {
-                job.error = stderr
+                job.error = 'Problem during preparation - exit code: ' + code + '\n' + stderr
                 job.errorState = jobStates.PREPARING
                 _setJobState(job, jobStates.DONE)
             }
@@ -535,6 +535,8 @@ exports.initApp = function(app) {
                         }
                     } else if (fs.existsSync(logPath)) {
                         writeStream(res.end.bind(res))
+                    } else {
+                        res.status(404).send()
                     }
                 }
                 poll()
