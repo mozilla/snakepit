@@ -36,6 +36,7 @@ var db = store.root
 var pollInterval = config.pollInterval || 1000
 var gracePeriod = parseDuration(config.gracePeriod)
 var dataRoot = config.dataRoot || path.join(__dirname, '..', 'data')
+var sharedDir = path.join(dataRoot, 'shared')
 var upload = multer({ dest: path.join(dataRoot, 'uploads') })
 var utilization = {}
 
@@ -173,15 +174,20 @@ function _setJobState(job, state) {
     _saveJob(job)
 }
 
-function _getPreparationEnv(job, continueJob) {
-    let groups = db.users[job.user].groups
-    groups = (groups ? groups.join(' ') + ' ' : '') + 'public'
-    let env = {
+function _getBasicEnv(job) {
+    let user = db.users[job.user]
+    let groups = user && user.groups
+    return {
         DATA_ROOT: dataRoot,
-        USER_GROUPS: groups,
+        SHARED_DIR: sharedDir,
+        USER_GROUPS: groups ? groups.join(' ') : '',
         JOB_NUMBER: job.id,
         JOB_DIR: _getJobDir(job)
     }
+}
+
+function _getPreparationEnv(job, continueJob) {
+    let env = _getBasicEnv(job)
     if (continueJob) {
         env.CONTINUE_JOB_NUMBER = continueJob
     }
@@ -233,13 +239,9 @@ function _cleanJob(job, success) {
     })
 }
 
-function _buildJobEnv(job, clusterReservation) {
-    let jobEnv = {
-        DATA_ROOT:  dataRoot,
-        JOB_NUMBER: job.id,
-        JOB_DIR:    _getJobDir(job),
-        NUM_GROUPS: clusterReservation.length
-    }
+function _getComputeEnv(job, clusterReservation) {
+    let jobEnv = _getBasicEnv(job)
+    jobEnv.NUM_GROUPS = clusterReservation.length
     for(let gIndex = 0; gIndex < clusterReservation.length; gIndex++) {
         let groupReservation = clusterReservation[gIndex]
         jobEnv['NUM_PROCESSES_GROUP' + gIndex] = groupReservation.length
@@ -267,7 +269,7 @@ function _buildJobEnv(job, clusterReservation) {
 function _startJob(job, clusterReservation, callback) {
     _setJobState(job, jobStates.STARTING)
     job.clusterReservation = clusterReservation
-    let jobEnv = _buildJobEnv(job, clusterReservation)
+    let jobEnv = _getComputeEnv(job, clusterReservation)
     utils.runForEach([].concat.apply([], clusterReservation), (reservation, done) => {
         let cudaIndices = []
         let ports = []
