@@ -43,5 +43,9 @@ elif [ -n "$ARCHIVE" ]; then
     rm "$ARCHIVE"
 fi
 
-bash "${JOB_DIR}/src/.install" > "${JOB_DIR}/preparation.log" 2>&1
-echo $? > "${JOB_DIR}/exit-status_preparation"
+install_script="${JOB_DIR}/src/.install"
+
+if [ -f "$install_script" ]; then
+    bash $install_script > "${JOB_DIR}/preparation.log" 2>&1
+    echo $? > "${JOB_DIR}/exit-status_preparation"
+fi
