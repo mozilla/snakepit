@@ -384,6 +384,48 @@ function _getJobDescription(jobId, user, extended) {
     return job
 }
 
+function _sendLog(req, res, job, logFile, stopState) {
+    if (groupsModule.canAccessJob(req.user, job)) {
+        res.writeHead(200, {
+            'Connection': 'keep-alive',
+            'Content-Type': 'text/plain',
+            'Cache-Control': 'no-cache'
+        })
+        let logPath = path.join(_getJobDir(job), logFile)
+        let written = 0
+        let writeStream = cb => {
+            let stream = fs.createReadStream(logPath, { start: written })
+            stream.on('data', chunk => {
+                res.write(chunk)
+                written += chunk.length
+            })
+            stream.on('end', cb)
+        }
+        let poll = () => {
+            if (job.state <= stopState) {
+                if (fs.existsSync(logPath)) {
+                    fs.stat(logPath, (err, stats) => {
+                        if (!err && stats.size > written) {
+                            writeStream(() => setTimeout(poll, pollInterval))
+                        } else  {
+                            setTimeout(poll, pollInterval)
+                        }
+                    })
+                } else {
+                    setTimeout(poll, pollInterval)
+                }
+            } else if (fs.existsSync(logPath)) {
+                writeStream(res.end.bind(res))
+            } else {
+                res.status(404).send()
+            }
+        }
+        poll()
+    } else {
+        res.status(403).send()
+    }
+}
+
 exports.initApp = function(app) {
     app.post('/jobs', function(req, res) {
         store.lockAutoRelease('jobs', function() {
@@ -495,6 +537,15 @@ exports.initApp = function(app) {
         }
     })
 
+    app.get('/jobs/:id/preplog', function(req, res) {
+        let dbjob = _loadJob(req.params.id)
+        if (dbjob) {
+            _sendLog(req, res, dbjob, 'preparation.log', jobStates.PREPARING)
+        } else {
+            res.status(404).send()
+        }
+    })
+
     app.get('/jobs/:id/groups/:group/processes/:proc/log', function(req, res) {
         let dbjob = _loadJob(req.params.id)
         let group = Number(req.params.group)
@@ -504,45 +555,7 @@ exports.initApp = function(app) {
             group < dbjob.clusterReservation.length &&
             proc < dbjob.clusterReservation[group].length
         ) {
-            if (groupsModule.canAccessJob(req.user, dbjob)) {
-                res.writeHead(200, {
-                    'Connection': 'keep-alive',
-                    'Content-Type': 'text/plain',
-                    'Cache-Control': 'no-cache'
-                })
-                let logPath = path.join(_getJobDir(dbjob), 'process_' + group + '_' + proc + '.log')
-                let written = 0
-                let writeStream = cb => {
-                    let stream = fs.createReadStream(logPath, { start: written })
-                    stream.on('data', chunk => {
-                        res.write(chunk)
-                        written += chunk.length
-                    })
-                    stream.on('end', cb)
-                }
-                let poll = () => {
-                    if (dbjob.state <= jobStates.STOPPING) {
-                        if (fs.existsSync(logPath)) {
-                            fs.stat(logPath, (err, stats) => {
-                                if (!err && stats.size > written) {
-                                    writeStream(() => setTimeout(poll, pollInterval))
-                                } else  {
-                                    setTimeout(poll, pollInterval)
-                                }
-                            })
-                        } else {
-                            setTimeout(poll, pollInterval)
-                        }
-                    } else if (fs.existsSync(logPath)) {
-                        writeStream(res.end.bind(res))
-                    } else {
-                        res.status(404).send()
-                    }
-                }
-                poll()
-            } else {
-                res.status(403).send()
-            }
+            _sendLog(req, res, dbjob, 'process_' + group + '_' + proc + '.log', jobStates.STOPPING)
         } else {
             res.status(404).send()
         }
