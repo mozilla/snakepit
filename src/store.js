@@ -1,11 +1,13 @@
 const fs = require('fs')
+const path = require('path')
 const cluster = require('cluster')
+const config = require('./config.js')
 
 var exports = module.exports = {}
 
 const PARENT_SYMBOL = Symbol('parent')
 const NAME_SYMBOL = Symbol('name')
-const DB_PATH = process.env.SNAKEPIT_DB || 'db.json'
+const DB_PATH = path.join(config.dataRoot, 'db.json')
 
 var rawRoot = (fs.existsSync(DB_PATH) && fs.statSync(DB_PATH).isFile()) ? JSON.parse(fs.readFileSync(DB_PATH).toString()) : {}
 var storeLog = []

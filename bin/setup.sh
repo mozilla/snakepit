@@ -7,7 +7,7 @@ if [ -d "$config_dir" ]; then
 fi
 mkdir "$config_dir"
 
-read -re -p "Path to root data directory (prepared with dictionaries.sh script): " -i "/home/snakepit/data" data_root
+read -re -p "Path to root data directory (prepared with dictionaries.sh script): " -i "/var/snakepit" data_root
 
 read -re -p "Address of the snakepit service that clients should use to connect (without protocol/port): " -i `hostname` snakepit_fqdn
 read -re -p "Local interface the snakepit service should use (e.g. 192.168.1.1): " snakepit_interface
