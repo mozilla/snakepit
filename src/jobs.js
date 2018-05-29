@@ -56,8 +56,7 @@ exports.initDb = function() {
     for (let jobId of Object.keys(db.jobs)) {
         let job = db.jobs[jobId]
         if (job.state == jobStates.PREPARING) {
-            job.error = 'interrupted during preparation'
-            job.errorState = jobStates.PREPARING
+            _appendError(job, 'Job was interrupted during preparation')
             _cleanJob(job)
         } else if (job.state == jobStates.CLEANING) {
             _cleanJob(job)
@@ -174,6 +173,15 @@ function _setJobState(job, state) {
     _saveJob(job)
 }
 
+function _appendError(job, error) {
+    if (job.error) {
+        job.error += '\n===========================\n' + error
+    } else {
+        job.error = error
+    }
+    job.errorState = job.state
+}
+
 function _getBasicEnv(job) {
     let user = db.users[job.user]
     let groups = user && user.groups
@@ -196,14 +204,13 @@ function _getPreparationEnv(job, continueJob) {
 
 function _runPreparation(job, env) {
     _setJobState(job, jobStates.PREPARING)
-    utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
+    let p = utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
             if (code == 0 && fs.existsSync(_getJobDir(job))) {
                 db.schedule.push(job.id)
                 _setJobState(job, jobStates.WAITING)
             } else {
-                job.error = 'Problem during preparation - exit code: ' + code + '\n' + stderr
-                job.errorState = jobStates.PREPARING
+                _appendError(job, 'Problem during preparation step - exit code: ' + code + '\n' + stderr)
                 _setJobState(job, jobStates.DONE)
             }
         })
@@ -231,8 +238,7 @@ function _cleanJob(job, success) {
     utils.runScript('clean.sh', _getPreparationEnv(job), (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
             if (code > 0) {
-                job.error = stderr
-                job.errorState = jobStates.CLEANING
+                _appendError(job, 'Problem during cleaning step - exit code: ' + code + '\n' + stderr)
             }
             _setJobState(job, jobStates.DONE)
         })
@@ -313,6 +319,10 @@ function _startJob(job, clusterReservation, callback) {
                     }
                 }
             } else {
+                _appendError(job, 'Problem during startup (process ' + 
+                    reservation.groupIndex + ':' + reservation.processIndex + 
+                    ') - exit code: ' + code + '\n' + stderr
+                )
                 _setJobState(job, jobStates.STOPPING)
             }
             done()
@@ -629,8 +639,7 @@ groupsModule.on('restricted', function() {
     if (jobs.length > 0) {
         store.lockAutoRelease('jobs', function() {
             for (let job of jobs) {
-                job.error = 'Cluster cannot fulfill resource request anymore'
-                job.errorState = job.state
+                _appendError(job, 'Cluster cannot fulfill resource request anymore')
                 _setJobState(job, jobStates.DONE)
                 let index = db.schedule.indexOf(job.id)
                 if (index >= 0) {

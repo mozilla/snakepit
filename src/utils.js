@@ -48,31 +48,55 @@ exports.shellQuote = function(str) {
     return str
 }
 
+var _loadedScripts = {}
+
+const _includePrefix = '#INCLUDE '
+
+function _getScript(scriptName, alreadyIncluded) {
+    if (alreadyIncluded.hasOwnProperty(scriptName)) {
+        return ''
+    }
+    if (_loadedScripts.hasOwnProperty(scriptName)) {
+        return _loadedScripts[scriptName]
+    }
+    let scriptPath = path.join(__dirname, '..', 'scripts', scriptName)
+    let script = fs.readFileSync(scriptPath).toString()
+    alreadyIncluded[scriptName] = true
+    script = script
+        .split('\n')
+        .map(
+            l => l.startsWith(_includePrefix) ? 
+                _getScript(l.substring(_includePrefix.length), alreadyIncluded) : 
+                l
+        )
+        .join('\n')
+    return _loadedScripts[scriptName] = script
+}
+
+exports.getScript = function(scriptName) {
+    return _getScript(scriptName, {})
+}
+
 exports.runScript = function(scriptName, env, callback) {
     if (typeof env == 'function') {
         callback = env
         env = {}
     }
-    let scriptPath = path.join(__dirname, '..', 'scripts', scriptName)
-    fs.readFile(scriptPath, function read(err, content) {
-        if (err) {
-            callback(1, '', 'Problem reading script "' + scriptPath + '"')
-        } else {
-            env = env || {}
-            //console.log('Running script "' + scriptPath + '"')
-            p = spawn('bash', ['-s'])
-            let stdout = []
-            p.stdout.on('data', data => stdout.push(data))
-            let stderr = []
-            p.stderr.on('data', data => stderr.push(data))
-            p.on('close', code => callback(code, stdout.join('\n'), stderr.join('\n')))
-            var stdinStream = new stream.Readable()
-            Object.keys(env).forEach(name => stdinStream.push(
-                'export ' + name + '=' + exports.shellQuote(env[name]) + '\n')
-            )
-            stdinStream.push(content + '\n')
-            stdinStream.push(null)
-            stdinStream.pipe(p.stdin)
-        }
-    })
+    env = env || {}
+    let script = _getScript(scriptName, {})
+    //console.log('Running script "' + scriptPath + '"')
+    p = spawn('bash', ['-s'])
+    let stdout = []
+    p.stdout.on('data', data => stdout.push(data))
+    let stderr = []
+    p.stderr.on('data', data => stderr.push(data))
+    p.on('close', code => callback(code, stdout.join('\n'), stderr.join('\n')))
+    var stdinStream = new stream.Readable()
+    Object.keys(env).forEach(name => stdinStream.push(
+        'export ' + name + '=' + exports.shellQuote(env[name]) + '\n')
+    )
+    stdinStream.push(script + '\n')
+    stdinStream.push(null)
+    stdinStream.pipe(p.stdin)
+    return p
 }
