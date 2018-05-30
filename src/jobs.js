@@ -161,7 +161,7 @@ function _saveJob(job) {
     if (!fs.existsSync(jobPath)) {
         fs.mkdirSync(jobPath)
     }
-    fs.writeFileSync(path.join(jobPath, 'meta.json'), JSON.stringify(job), 'utf8')
+    fs.writeFileSync(path.join(jobPath, 'meta.json'), JSON.stringify(job))
 }
 
 function _deleteJobDir(jobId, callback) {

@@ -1,13 +1,18 @@
 const fs = require('fs')
 const path = require('path')
-const { spawn } = require('child_process')
 const stream = require('stream')
+const { spawn } = require('child_process')
+const { EventEmitter } = require('events')
 const CombinedStream = require('combined-stream')
-const store = require('./store.js')
-const { getAlias } = require('./aliases.js')
-const { getScript } = require('./utils.js')
 
-var exports = module.exports = {}
+const store = require('./store.js')
+const config = require('./config.js')
+const { getScript } = require('./utils.js')
+const { getAlias } = require('./aliases.js')
+
+const pollInterval = config.pollInterval || 1000
+
+var exports = module.exports = new EventEmitter()
 
 const nodeStates = {
     UNKNOWN: 0,
@@ -159,4 +164,8 @@ exports.initApp = function(app) {
             res.status(403).send()
         }
     })
+}
+
+exports.tick = function() {
+    setTimeout(exports.tick, pollInterval)
 }
