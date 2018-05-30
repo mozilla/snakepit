@@ -22,13 +22,16 @@ if [ -n "$ORIGIN" ]; then
     fi
 
     git -C "$cache_repo" archive --format=tar --prefix=src/ $HASH | (cd "$JOB_DIR" && tar xf -)
-    if [ -n "$DIFF" ]; then
-        cd "$job_src_dir"
-        echo "$DIFF" | patch -p0
-    fi
 elif [ -n "$ARCHIVE" ]; then
     tar -xzf "$ARCHIVE" -C "$job_src_dir"
     rm "$ARCHIVE"
+fi
+
+cd "$job_src_dir"
+
+patch_file="$JOB_DIR/git.patch"
+if [ -f "$patch_file" ]; then
+    cat "$patch_file" | patch -p0
 fi
 
 #INCLUDE jail.sh

@@ -26,6 +26,10 @@ hashRounds: 10
 # Max number of processes per node.
 maxProcesses: 10
 
-# Grace period before jobs are moved from state DONE to ARCHIVED
+# Duration before jobs are moved from state DONE to ARCHIVED
 # add thus removed from status report.
-gracePeriod: 10s
+keepDoneDuration: 1d
+
+# Duration before jobs preparations are considered hanging and therefore 
+# interrupted and set to state DONE.
+maxPrepDuration: 1h

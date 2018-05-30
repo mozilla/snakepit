@@ -34,11 +34,14 @@ exports.jobStates = jobStates
 
 var db = store.root
 var pollInterval = config.pollInterval || 1000
-var gracePeriod = parseDuration(config.gracePeriod)
+var keepDoneDuration = parseDuration(config.keepDoneDuration)
+var maxPrepDuration = parseDuration(config.maxPrepDuration)
+var maxParallelPrep = config.maxParallelPrep || 2
 var dataRoot = config.dataRoot || path.join(__dirname, '..', 'data')
 var sharedDir = path.join(dataRoot, 'shared')
 var upload = multer({ dest: path.join(dataRoot, 'uploads') })
 var utilization = {}
+var preparations = {}
 
 process.on('message', msg => {
     if (msg.utilization) {
@@ -194,17 +197,26 @@ function _getBasicEnv(job) {
     }
 }
 
-function _getPreparationEnv(job, continueJob) {
+function _getPreparationEnv(job) {
     let env = _getBasicEnv(job)
-    if (continueJob) {
-        env.CONTINUE_JOB_NUMBER = continueJob
+    if (job.continueJob) {
+        env.CONTINUE_JOB_NUMBER = job.continueJob
     }
     return env
 }
 
-function _runPreparation(job, env) {
+function _prepareJob(job) {
+    let env = _getPreparationEnv(job)
+    if (job.origin) {
+        Object.assign(env, {
+            ORIGIN: job.origin,
+            HASH:   job.hash
+        })
+    } else {
+        env.ARCHIVE = job.archive
+    }
     _setJobState(job, jobStates.PREPARING)
-    let p = utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
+    return utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
             if (code == 0 && fs.existsSync(_getJobDir(job))) {
                 db.schedule.push(job.id)
@@ -215,22 +227,6 @@ function _runPreparation(job, env) {
             }
         })
     })
-}
-
-function _prepareJobByGit(job, continueJob, origin, hash, diff) {
-    let env = _getPreparationEnv(job, continueJob)
-    Object.assign(env, {
-        ORIGIN: origin,
-        HASH:   hash,
-        DIFF:   diff
-    })
-    _runPreparation(job, env)
-}
-
-function _prepareJobByArchive(job, continueJob, archive) {
-    let env = _getPreparationEnv(job, continueJob)
-    env.ARCHIVE = archive
-    _runPreparation(job, env)
 }
 
 function _cleanJob(job, success) {
@@ -461,34 +457,47 @@ exports.initApp = function(app) {
             }
             let simulatedReservation = reserveCluster(clusterRequest, req.user, true)
             if (simulatedReservation) {
-                let provisioning
-                if (job.origin) {
-                    provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
-                    if (job.diff) {
-                        provisioning += ' with ' +
-                            (job.diff + '').split('\n').length + ' LoC diff'
-                    }
-                } else if (job.archive) {
-                    provisioning = 'Archive (' + fs.statSync(archive).size + ' bytes)'
-                }
                 let dbjob = {
                     id: id,
                     user: req.user.id,
-                    provisioning: provisioning,
                     description: ('' + job.description).substring(0,20),
                     clusterRequest: job.clusterRequest,
-                    clusterReservation: simulatedReservation
+                    clusterReservation: simulatedReservation,
+                    continueJob: job.continueJob,
+                    origin: job.origin,
+                    hash: job.hash,
+                    archive: job.archive
                 }
                 if (!job.private) {
                     dbjob.groups = req.user.autoshare
                 }
-                _setJobState(dbjob, jobStates.NEW)
-                db.jobs[id] = dbjob
-                res.status(200).send({ id: id })
                 if (job.origin) {
-                    _prepareJobByGit(db.jobs[id], job.continueJob, job.origin, job.hash, job.diff)
+                    dbjob.provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
+                    if (job.diff) {
+                        dbjob.diff = job.diff
+                        dbjob.provisioning += ' with ' +
+                            (job.diff + '').split('\n').length + ' LoC diff'
+                    }
                 } else if (job.archive) {
-                    _prepareJobByArchive(db.jobs[id], job.continueJob, archive)
+                    dbjob.provisioning = 'Archive (' + fs.statSync(archive).size + ' bytes)'
+                }
+                _setJobState(dbjob, jobStates.NEW)
+                let respond = () => {
+                    db.jobs[id] = dbjob
+                    res.status(200).send({ id: id })
+                }
+                if (job.diff) {
+                    let patchPath = path.join(_getJobDir(dbjob), 'git.patch')
+                    fs.writeFile(patchPath, job.diff + '\n', err => {
+                        if (err) {
+                            _deleteJobDir(id)
+                            res.status(500).send({ message: 'Error on persisting diff data' })
+                        } else {
+                            respond()
+                        }
+                    })
+                } else {
+                    respond()
                 }
             } else {
                 res.status(406).send({ message: 'Cluster cannot fulfill resource request' })
@@ -515,6 +524,7 @@ exports.initApp = function(app) {
             .filter(j => j.state == jobStates.WAITING)
             .sort((a,b) => db.schedule.indexOf(a.id) - db.schedule.indexOf(b.id))
         waiting = waiting.concat(jobs.filter(j => j.state == jobStates.PREPARING))
+        waiting = waiting.concat(jobs.filter(j => j.state == jobStates.NEW))
         let done = jobs.filter(j => j.state >= jobStates.CLEANING).sort((a,b) => b.id - a.id).slice(0, 20)
         res.status(200).send({
             running: running.map(j => _createJobDescription(j)),
@@ -576,11 +586,15 @@ exports.initApp = function(app) {
             let dbjob = _loadJob(req.params.id)
             if (dbjob) {
                 if (groupsModule.canAccessJob(req.user, dbjob)) {
-                    if (dbjob.state == jobStates.STARTING || dbjob.state == jobStates.RUNNING) {
+                    if (dbjob.state <= jobStates.RUNNING) {
+                        let scheduleIndex = db.schedule.indexOf(dbjob.id)
+                        if (scheduleIndex >= 0) {
+                            db.schedule.splice(scheduleIndex, 1)
+                        }
                         _setJobState(dbjob, jobStates.STOPPING)
                         res.status(200).send()
                     } else {
-                        res.status(412).send({ message: 'Only starting or running jobs can be stopped' })
+                        res.status(412).send({ message: 'Only jobs before or in running state can be stopped' })
                     }
                 } else {
                     res.status(403).send()
@@ -600,10 +614,6 @@ exports.initApp = function(app) {
                     if (dbjob.state >= jobStates.DONE) {
                         if (db.jobs[id]) {
                             delete db.jobs[id]
-                        }
-                        let scheduleIndex = db.schedule.indexOf(id)
-                        if (scheduleIndex >= 0) {
-                            db.schedule.splice(scheduleIndex, 1)
                         }
                         _deleteJobDir(id, err => {
                             if (err) {
@@ -722,11 +732,33 @@ exports.tick = function() {
                 })
             }, () => {
                 for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
-                    let graceTime = new Date(job.stateChanges[job.state]).getTime() + gracePeriod
-                    let timeNow = Date.now()
-                    if (job.state == jobStates.DONE && graceTime < timeNow) {
+                    let stateTime = new Date(job.stateChanges[job.state]).getTime()
+                    if (
+                        job.state == jobStates.DONE && 
+                        stateTime + keepDoneDuration < Date.now()
+                    ) {
                         _setJobState(job, jobStates.ARCHIVED)
                         delete db.jobs[job.id]
+                    } else if (
+                        job.state == jobStates.NEW && 
+                        Object.keys(preparations).length < maxParallelPrep
+                    ) {
+                        let p = _prepareJob(job)
+                        preparations[job.id] = p
+                        p.on('exit', () => delete preparations[job.id])
+                    } else if (
+                        job.state == jobStates.PREPARING &&
+                        stateTime + maxPrepDuration < Date.now()
+                    ) {
+                        _appendError(job, 'Job exceeded max preparation time')
+                        _setJobState(job, jobStates.STOPPING)
+                    }
+                    if (
+                        job.state == jobStates.STOPPING &&
+                        preparations.hasOwnProperty(job.id)
+                    ) {
+                        preparations[job.id].kill()
+                        _setJobState(job, jobStates.DONE)
                     }
                 }
                 if (db.schedule.length > 0) {
