@@ -1,0 +1,15 @@
+[Unit]
+Description=snakepit - Machine learning job scheduler
+Documentation=https://github.com/mozilla/snakepit
+After=network.target
+
+[Service]
+Environment=NODE_ENV=production
+WorkingDirectory=/home/snakepit
+Type=simple
+User=snakepit
+ExecStart=/usr/local/bin/snakepit
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

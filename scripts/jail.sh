@@ -28,5 +28,6 @@ jail () {
     --blacklist="$DATA_ROOT/db.json" \
     "${cuda[@]}" \
     --blacklist="/dev/nvidia*" \
+    --blacklist="$HOME/.snakepit" \
     "$@"
 }

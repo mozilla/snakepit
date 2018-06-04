@@ -2,7 +2,10 @@ const fs = require('fs')
 const path = require('path')
 const yaml = require('js-yaml')
 
-var filename = path.join(__dirname, '..', 'config', 'snakepit.conf')
+var filename = path.join('/etc/snakepit.conf')
+if (!fs.existsSync(filename)) {
+    filename = path.join(process.env.HOME, '.snakepit', 'snakepit.conf')
+}
 var content
 try {
     content = fs.readFileSync(filename, 'utf8')

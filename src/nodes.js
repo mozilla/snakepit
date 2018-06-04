@@ -81,7 +81,7 @@ exports.initApp = function(app) {
                 id: id,
                 address: node.address || dbnode.address,
                 port: node.port || dbnode.port || 22,
-                user: node.user || dbnode.user || 'pitmaster',
+                user: node.user || dbnode.user || config.user,
                 state: nodeStates.ONLINE
             }
             if (newnode.address) {

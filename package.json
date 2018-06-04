@@ -2,7 +2,9 @@
   "name": "snakepit",
   "version": "0.0.1",
   "description": "Machine learning job scheduler",
-  "main": "app.js",
+  "bin": {
+    "pit": "src/service.js"
+  },
   "scripts": {
     "start": "node src/service.js",
     "postinstall": "node node_modules/pegjs/bin/pegjs src/clusterParser.pegjs"
@@ -33,11 +35,11 @@
   "homepage": "https://github.com/mozilla/snakepit#readme",
   "dependencies": {
     "bcrypt": "^2.0.1",
-    "body-parser": "^1.18.2",
+    "body-parser": "^1.18.3",
     "commander": "^2.14.1",
     "express": "^4.16.2",
-    "js-yaml": "^3.11.0",
-    "jsonwebtoken": "^8.1.1",
+    "js-yaml": "^3.12.0",
+    "jsonwebtoken": "^8.2.2",
     "morgan": "^1.9.0",
     "multer": "^1.3.0",
     "multi-integer-range": "^4.0.4",
@@ -45,7 +47,7 @@
     "pegjs": "^0.10.0",
     "process": "^0.11.10",
     "readable-stream": "^2.3.5",
-    "request": "^2.83.0",
+    "request": "^2.87.0",
     "rimraf": "^2.6.2",
     "tar-fs": "^1.16.2"
   }
