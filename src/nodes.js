@@ -197,7 +197,7 @@ exports.initApp = function(app) {
                 } else {
                     _setNodeState(node, nodeStates.OFFLINE)
                 }
-                delete db.nodes[id]
+                delete db.nodes[node.id]
                 res.status(200).send()
             } else {
                 res.status(404).send()
