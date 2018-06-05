@@ -195,7 +195,7 @@ exports.initApp = function(app) {
                 if (p) {
                     p.kill()
                 } else {
-                    _setNodeState(node, nodeState.OFFLINE)
+                    _setNodeState(node, nodeStates.OFFLINE)
                 }
                 delete db.nodes[id]
                 res.status(200).send()
@@ -239,7 +239,7 @@ function _observeNode(node) {
         (code, err) => {
             console.log(code, err)
             delete observers[node.id]
-            _setNodeState(node, nodeState.OFFLINE)
+            _setNodeState(node, nodeStates.OFFLINE)
         }
     )
 }
