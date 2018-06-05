@@ -6,6 +6,8 @@ const modules = 'users groups nodes jobs aliases'
     .split(' ').map(name => require('./' + name + '.js'))
 
 if (cluster.isMaster) {
+    modules.forEach(module => (module.initDb || Function)())
+    modules.forEach(module => (module.tick || Function)())
     for (var i = 0; i < cpus; i++)
         cluster.fork()
     cluster.on('exit', function(deadWorker, code, signal) {
@@ -16,8 +18,6 @@ if (cluster.isMaster) {
         console.log('Worker ' + deadWorker.process.pid + ' died.')
         console.log('Worker ' + worker.process.pid + ' born.')
     })
-    modules.forEach(module => (module.initDb || Function)())
-    modules.forEach(module => (module.tick || Function)())
 } else {
     try {
         const url = require('url')
