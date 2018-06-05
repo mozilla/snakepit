@@ -191,7 +191,12 @@ exports.initApp = function(app) {
         if (req.user.admin) {
             let node = db.nodes[req.params.id]
             if (node) {
-                _setNodeState(node, nodeState.OFFLINE)
+                let p = observers[node.id]
+                if (p) {
+                    p.kill()
+                } else {
+                    _setNodeState(node, nodeState.OFFLINE)
+                }
                 delete db.nodes[id]
                 res.status(200).send()
             } else {
