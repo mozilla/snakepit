@@ -11,8 +11,8 @@ const parseDuration = require('parse-duration')
 const store = require('./store.js')
 const utils = require('./utils.js')
 const config = require('./config.js')
+const nodesModule = require('./nodes.js')
 const groupsModule = require('./groups.js')
-const { nodeStates, runScriptOnNode } = require('./nodes.js')
 const parseClusterRequest = require('./clusterParser.js').parse
 const { reserveCluster, summarizeClusterReservation } = require('./reservations.js')
 
@@ -76,12 +76,14 @@ function _getJobProcesses() {
     var jobs = {}
     for (let nodeId of Object.keys(db.nodes)) {
         let node = db.nodes[nodeId]
-        for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
-            //console.log('Checking resource ' + resource.name + ' (' + resource.index + ') on node ' + node.id)
-            if (resource.job && resource.pid && node.state >= nodeStates.ONLINE) {
-                let job = jobs[resource.job] = jobs[resource.job] || {}
-                let jobnode = job[node.id] = job[node.id] || {}
-                jobnode[resource.pid] = true
+        if (node.state >= nodesModule.nodeStates.ONLINE) {
+            for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
+                //console.log('Checking resource ' + resource.name + ' (' + resource.index + ') on node ' + node.id)
+                if (resource.job && resource.pid) {
+                    let job = jobs[resource.job] = jobs[resource.job] || {}
+                    let jobnode = job[node.id] = job[node.id] || {}
+                    jobnode[resource.pid] = true
+                }
             }
         }
     }
@@ -290,7 +292,7 @@ function _startJob(job, clusterReservation, callback) {
             PORTS:                ports.join(','),
             CUDA_VISIBLE_DEVICES: cudaIndices.join(',')
         }, jobEnv)
-        runScriptOnNode(node, 'run.sh', processEnv, (code, stdout, stderr) => {
+        nodesModule.runScriptOnNode(node, 'run.sh', processEnv, (code, stdout, stderr) => {
             if (code == 0) {
                 let pid = 0
                 stdout.split('\n').forEach(line => {
@@ -635,7 +637,7 @@ exports.initApp = function(app) {
     })
 }
 
-groupsModule.on('restricted', function() {
+function _resimulateReservations() {
     let jobs = []
     for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
         if (job.state >= jobStates.PREPARING && job.state <= jobStates.WAITING) {
@@ -658,7 +660,9 @@ groupsModule.on('restricted', function() {
             }
         })
     }
-})
+}
+
+groupsModule.on('restricted', _resimulateReservations)
 
 groupsModule.on('changed', (type, entity) => {
     if (type == 'job' && entity) {
@@ -666,120 +670,120 @@ groupsModule.on('changed', (type, entity) => {
     }
 })
 
+var realProcesses = {}
+var utilization = {}
+
+nodesModule.on('data', (nodeId, nodePids, nodeUtilization) => {
+    realProcesses[nodeId] = nodePids
+    utilization[nodeId] = nodeUtilization
+})
+
+nodesModule.on('state', (nodeId, nodeState) => {
+    if (nodeState == nodesModule.nodeStates.OFFLINE) {
+        delete realProcesses[nodeId]
+        delete utilization[nodeId]
+        _resimulateReservations()
+    }
+})
+
 exports.tick = function() {
-    let realProcesses = {}
-    let utilization = {}
-    utils.runForEach(Object.keys(db.nodes).map(k => db.nodes[k]), (node, done) => {
-        runScriptOnNode(node, 'pids.sh', { RUN_USER: node.user }, (code, stdout, stderr) => {
-            let pids = realProcesses[node.id] = {}
-            let nodeUtilization = utilization[node.id] = {}
-            for(let line of stdout.split('\n')) {
-                if(line.startsWith('pid:')) {
-                    pids[Number(line.substr(4))] = true
-                } else if (line.startsWith('util:')) {
-                    let values = line.substr(5).split(',')
-                    nodeUtilization[values[0]] = {
-                        comp: Number(values[1]),
-                        mem: Number(values[2])
-                    }
-                }
-            }
-            done()
-        })
-    }, () => {
-        for(let worker of Object.keys(cluster.workers).map(k => cluster.workers[k])) {
-            worker.send({ utilization: utilization })
+    if (Object.keys(realProcesses).length < Object.keys(db.nodes).length) {
+        console.log('Waiting for feedback from all nodes...')
+        setTimeout(exports.tick, pollInterval)
+        return
+    }
+    for(let worker of Object.keys(cluster.workers).map(k => cluster.workers[k])) {
+        worker.send({ utilization: utilization })
+    }
+    store.lockAsyncRelease('jobs', release => {
+        let goon = () => {
+            release()
+            setTimeout(exports.tick, pollInterval)
         }
-        store.lockAsyncRelease('jobs', release => {
-            let goon = () => {
-                release()
-                setTimeout(exports.tick, 1000)
-            }
-            let processes = _getJobProcesses()
-            let toStop = []
-            for(let jobId of Object.keys(processes)) {
-                let job = db.jobs[jobId]
-                let toStopForJob = []
-                let jobProcesses = processes[jobId]
-                for(let nodeId of Object.keys(jobProcesses)) {
-                    let nodeProcesses = jobProcesses[nodeId]
-                    let realNodeProcesses = realProcesses[nodeId]
-                    if (realNodeProcesses) {
-                        for(let pid of Object.keys(nodeProcesses)) {
-                            if (realNodeProcesses[pid]) {
-                                toStopForJob.push({ node: nodeId, pid: pid })
-                            } else {
-                                _setJobState(job, jobStates.STOPPING)
-                                _freeProcess(nodeId, pid)
-                            }
-                        }
-                    } else {
-                        _setJobState(job, jobStates.STOPPING)
-                    }
-                }
-                if (job.state == jobStates.STOPPING && toStopForJob.length > 0) {
-                    toStop = toStop.concat(toStopForJob)
-                }
-            }
-            utils.runForEach(toStop, (proc, done) => {
-                runScriptOnNode(db.nodes[proc.node], 'kill.sh', { PID: proc.pid }, (code, stdout, stderr) => {
-                    if (code == 0) {
-                        console.log('Ended PID: ' + proc.pid)
-                    } else {
-                        console.log('Problem ending PID: ' + proc.pid)
-                    }
-                    done()
-                })
-            }, () => {
-                for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
-                    let stateTime = new Date(job.stateChanges[job.state]).getTime()
-                    if (
-                        job.state == jobStates.DONE && 
-                        stateTime + keepDoneDuration < Date.now()
-                    ) {
-                        _setJobState(job, jobStates.ARCHIVED)
-                        delete db.jobs[job.id]
-                    } else if (
-                        job.state == jobStates.NEW && 
-                        Object.keys(preparations).length < maxParallelPrep
-                    ) {
-                        let p = _prepareJob(job)
-                        preparations[job.id] = p
-                        p.on('exit', () => delete preparations[job.id])
-                    } else if (
-                        job.state == jobStates.PREPARING &&
-                        stateTime + maxPrepDuration < Date.now()
-                    ) {
-                        _appendError(job, 'Job exceeded max preparation time')
-                        _setJobState(job, jobStates.STOPPING)
-                    }
-                    if (
-                        job.state == jobStates.STOPPING &&
-                        preparations.hasOwnProperty(job.id)
-                    ) {
-                        preparations[job.id].kill()
-                        _setJobState(job, jobStates.DONE)
-                    }
-                }
-                if (db.schedule.length > 0) {
-                    let job = db.jobs[db.schedule[0]]
-                    if (job) {
-                        let clusterRequest = parseClusterRequest(job.clusterRequest)
-                        let clusterReservation = reserveCluster(clusterRequest, db.users[job.user], false)
-                        if (clusterReservation) {
-                            db.schedule.shift()
-                            _startJob(job, clusterReservation, goon)
+        let processes = _getJobProcesses()
+        let toStop = []
+        for(let jobId of Object.keys(processes)) {
+            let job = db.jobs[jobId]
+            let toStopForJob = []
+            let jobProcesses = processes[jobId]
+            for(let nodeId of Object.keys(jobProcesses)) {
+                let nodeProcesses = jobProcesses[nodeId]
+                let realNodeProcesses = realProcesses[nodeId]
+                if (realNodeProcesses) {
+                    for(let pid of Object.keys(nodeProcesses)) {
+                        if (realNodeProcesses[pid]) {
+                            toStopForJob.push({ node: nodeId, pid: pid })
                         } else {
-                            goon()
+                            _setJobState(job, jobStates.STOPPING)
+                            _freeProcess(nodeId, pid)
                         }
-                    } else {
+                    }
+                } else {
+                    _setJobState(job, jobStates.STOPPING)
+                }
+            }
+            if (job.state == jobStates.STOPPING && toStopForJob.length > 0) {
+                toStop = toStop.concat(toStopForJob)
+            }
+        }
+        utils.runForEach(toStop, (proc, done) => {
+            nodesModule.runScriptOnNode(db.nodes[proc.node], 'kill.sh', { PID: proc.pid }, (code, stdout, stderr) => {
+                if (code == 0) {
+                    console.log('Ended PID: ' + proc.pid)
+                } else {
+                    console.log('Problem ending PID: ' + proc.pid)
+                }
+                done()
+            })
+        }, () => {
+            for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
+                let stateTime = new Date(job.stateChanges[job.state]).getTime()
+                if (
+                    job.state == jobStates.DONE && 
+                    stateTime + keepDoneDuration < Date.now()
+                ) {
+                    _setJobState(job, jobStates.ARCHIVED)
+                    delete db.jobs[job.id]
+                } else if (
+                    job.state == jobStates.NEW && 
+                    Object.keys(preparations).length < maxParallelPrep
+                ) {
+                    let p = _prepareJob(job)
+                    preparations[job.id] = p
+                    p.on('exit', () => delete preparations[job.id])
+                } else if (
+                    job.state == jobStates.PREPARING &&
+                    stateTime + maxPrepDuration < Date.now()
+                ) {
+                    _appendError(job, 'Job exceeded max preparation time')
+                    _setJobState(job, jobStates.STOPPING)
+                }
+                if (
+                    job.state == jobStates.STOPPING &&
+                    preparations.hasOwnProperty(job.id)
+                ) {
+                    preparations[job.id].kill()
+                    _setJobState(job, jobStates.DONE)
+                }
+            }
+            if (db.schedule.length > 0) {
+                let job = db.jobs[db.schedule[0]]
+                if (job) {
+                    let clusterRequest = parseClusterRequest(job.clusterRequest)
+                    let clusterReservation = reserveCluster(clusterRequest, db.users[job.user], false)
+                    if (clusterReservation) {
                         db.schedule.shift()
+                        _startJob(job, clusterReservation, goon)
+                    } else {
                         goon()
                     }
                 } else {
+                    db.schedule.shift()
                     goon()
                 }
-            })
+            } else {
+                goon()
+            }
         })
     })
 }

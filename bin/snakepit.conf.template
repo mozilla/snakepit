@@ -7,6 +7,9 @@ user: snakepit
 # Polling interval for querying node states in ms
 pollInterval: 1000
 
+# Time to wait in ms before reconnecting to a node after it went offline
+reconnectInterval: 60000
+
 # Time till a user token expires.
 # After this time-span users have to again provide their password.
 tokenTTL: 1d
