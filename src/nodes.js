@@ -14,6 +14,7 @@ const pollInterval = config.pollInterval || 1000
 const reconnectInterval = config.reconnectInterval || 60000
 
 var exports = module.exports = new EventEmitter()
+var dataRoot = config.dataRoot || '/snakepit'
 
 const nodeStates = {
     OFFLINE: 0,
@@ -25,6 +26,7 @@ exports.nodeStates = nodeStates
 
 var db = store.root
 var observers = {}
+var toRemove = {}
 
 function _startScriptOnNode(node, scriptName, env) {
     let script = getScript(scriptName)
@@ -71,9 +73,9 @@ function _getLinesFromNode(node, scriptName, env, onLine, onEnd) {
 }
 
 function _scanNode(node, callback) {
-    _runScriptOnNode(node, 'scan.sh', (err, stdout, stderr) => {
-        if (err) {
-            callback(stderr)
+    _runScriptOnNode(node, 'scan.sh', { DATA_ROOT: dataRoot }, (code, stdout, stderr) => {
+        if (code > 0) {
+            callback(code, stderr)
         } else {
             var resources = []
             var types = {}
@@ -84,7 +86,7 @@ function _scanNode(node, callback) {
                     resources.push({ type: type, index: types[type], name: name })
                 }
             })
-            callback(undefined, resources)
+            callback(code, resources)
         }
     })
 }
@@ -93,6 +95,12 @@ function _setNodeState(node, nodeState) {
     node.state = nodeState
     node.since = new Date().toISOString()
     exports.emit('state', node.id, node.state)
+    if (toRemove[node.id] && node.state == nodeStates.OFFLINE) {
+        setTimeout(() => {
+            delete toRemove[node.id]
+            delete db.nodes[node.id]
+        }, 1000)
+    }
 }
 
 exports.runScriptOnNode = _runScriptOnNode
@@ -123,18 +131,18 @@ exports.initApp = function(app) {
                 state: nodeStates.ONLINE
             }
             if (newnode.address) {
-                _scanNode(newnode, (err, resources) => {
-                    if (err) {
-                        res.status(400).send({ message: 'Node not available:\n' + err })
+                _scanNode(newnode, (code, result) => {
+                    if (code > 0) {
+                        res.status(400).send({ message: 'Node not available:\n' + result })
                     } else {
                         if (node.cvd) {
-                            resources = resources.filter(resource =>
+                            resources = result.filter(resource =>
                                 type != 'cuda' ||
                                 node.cvd.includes(resource.index)
                             )
                         }
                         newnode.resources = {}
-                        for(let resource of resources) {
+                        for(let resource of result) {
                             newnode.resources[resource.type + resource.index] = resource
                         }
                         db.nodes[id] = newnode
@@ -189,13 +197,13 @@ exports.initApp = function(app) {
         if (req.user.admin) {
             let node = db.nodes[req.params.id]
             if (node) {
+                toRemove[node.id] = true
                 let p = observers[node.id]
                 if (p) {
                     p.kill()
                 } else {
                     _setNodeState(node, nodeStates.OFFLINE)
                 }
-                delete db.nodes[node.id]
                 res.status(200).send()
             } else {
                 res.status(404).send()
