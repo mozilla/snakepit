@@ -30,7 +30,7 @@ function _startScriptOnNode(node, scriptName, env) {
     let script = getScript(scriptName)
     let address = node.user + '@' + node.address
     //console.log('Running script "' + scriptPath + '" on "' + address + '"')
-    p = spawn('ssh', [address, '-p', node.port, 'bash -s'])
+    p = spawn('ssh', ['-oConnectTimeout=10', '-oStrictHostKeyChecking=no', '-oBatchMode=yes', address, '-p', node.port, 'bash -s'])
     var stdinStream = new stream.Readable()
     Object.keys(env).forEach(name => stdinStream.push('export ' + name + '=' + env[name] + '\n'))
     stdinStream.push(script + '\n')
@@ -70,12 +70,10 @@ function _getLinesFromNode(node, scriptName, env, onLine, onEnd) {
     return p
 }
 
-function _checkAvailability(node, callback) {
+function _scanNode(node, callback) {
     _runScriptOnNode(node, 'scan.sh', (err, stdout, stderr) => {
-        console.log(stdout)
         if (err) {
-            console.error(err)
-            callback()
+            callback(stderr)
         } else {
             var resources = []
             var types = {}
@@ -86,7 +84,7 @@ function _checkAvailability(node, callback) {
                     resources.push({ type: type, index: types[type], name: name })
                 }
             })
-            callback(resources)
+            callback(undefined, resources)
         }
     })
 }
@@ -125,8 +123,10 @@ exports.initApp = function(app) {
                 state: nodeStates.ONLINE
             }
             if (newnode.address) {
-                _checkAvailability(newnode, resources => {
-                    if (resources) {
+                _scanNode(newnode, (err, resources) => {
+                    if (err) {
+                        res.status(400).send({ message: 'Node not available:\n' + err })
+                    } else {
                         if (node.cvd) {
                             resources = resources.filter(resource =>
                                 type != 'cuda' ||
@@ -139,8 +139,6 @@ exports.initApp = function(app) {
                         }
                         db.nodes[id] = newnode
                         res.status(200).send()
-                    } else {
-                        res.status(400).send({ message: 'Node not available' })
                     }
                 })
             } else {
