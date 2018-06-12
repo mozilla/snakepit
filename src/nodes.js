@@ -232,7 +232,7 @@ function _observeNode(node) {
                 utilization = {}
             } else {
                 if(line.startsWith('pid:')) {
-                    pids[Number(line.substr(4))] = true
+                    pids[line.substr(4)] = true
                 } else if (line.startsWith('util:')) {
                     let values = line.substr(5).split(',')
                     utilization[values[0]] = {

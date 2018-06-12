@@ -298,7 +298,7 @@ function _startJob(job, clusterReservation, callback) {
                 stdout.split('\n').forEach(line => {
                     let [key, value] = line.split(':')
                     if (key == 'pid' && value) {
-                        pid = Number(value)
+                        pid = value
                     }
                 })
                 for(let resourceId of Object.keys(reservation.resources)) {

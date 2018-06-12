@@ -15,7 +15,11 @@ jail () {
         cuda+=(--noblacklist=/dev/nvidiactl)
         cuda+=(--noblacklist=/dev/nvidia-uvm)
     fi
+    
     firejail \
+    --env=JOB_NUMBER=${JOB_NUMBER:=0} \
+    --env=GROUP_INDEX=${GROUP_INDEX:=0} \
+    --env=PROCESS_INDEX=${PROCESS_INDEX:=0} \
     --net="$interface" \
     --netfilter=/etc/firejail/nolocal.net \
     --read-write="${JOB_DIR}" \
