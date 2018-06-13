@@ -36,8 +36,16 @@ fi
 
 #INCLUDE jail.sh
 
+function ts () {
+    while IFS= read -r line; do printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line"; done
+}
+
+prep_log="${JOB_DIR}/preparation.log"
 install_script="${JOB_DIR}/src/.install"
 if [ -f "$install_script" ]; then
-    jail bash "$install_script" > "${JOB_DIR}/preparation.log" 2>&1
+    echo "Running .install script..." | ts >>"$prep_log"
+    jail bash "$install_script" | ts >>"$prep_log" 2>&1
     echo $? > "${JOB_DIR}/exit-status_preparation"
+    echo "Finished .install script." | ts >>"$prep_log"
+    sleep 2
 fi
