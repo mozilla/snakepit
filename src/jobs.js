@@ -399,6 +399,7 @@ function _sendLog(req, res, job, logFile, stopState) {
             'Content-Type': 'text/plain',
             'Cache-Control': 'no-cache'
         })
+        req.connection.setTimeout(60 * 60 * 1000)
         let logPath = path.join(_getJobDir(job), logFile)
         let written = 0
         let writeStream = cb => {
