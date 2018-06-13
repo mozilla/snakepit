@@ -37,7 +37,7 @@ fi
 #INCLUDE jail.sh
 
 function ts () {
-    while IFS= read -r line; do printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line"; done
+    while IFS= read -r line; do printf '[%s][PREP] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line"; done
 }
 
 prep_log="${JOB_DIR}/preparation.log"
