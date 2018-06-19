@@ -21,13 +21,14 @@ if (cluster.isMaster) {
 } else {
     try {
         const url = require('url')
+        const http = require('http')
         const https = require('https')
-        const express = require('express')
         const morgan = require('morgan')
+        const express = require('express')
         const bodyParser = require('body-parser')
 
         readConfigFile = name => {
-            return content = fs.readFileSync(config[name], 'utf8')
+            return fs.existsSync(config[name]) ? fs.readFileSync(config[name]) : undefined
         }
 
         let app = express()
@@ -43,14 +44,19 @@ if (cluster.isMaster) {
             res.status(500).send('Something broke')
         })
 
+        let inter = process.env.SNAKEPIT_INTERFACE || config.interface || '0.0.0.0'
+        let port = process.env.SNAKEPIT_PORT || config.port
         let credentials = {
             key: readConfigFile('keyPemPath'),
             cert: readConfigFile('certPemPath')
         }
-        let httpsServer = https.createServer(credentials, app)
-        let port = process.env.SNAKEPIT_PORT || config.port || 1443
-        let inter = process.env.SNAKEPIT_INTERFACE || config.interface || '0.0.0.0'
-        httpsServer.listen(port, inter)
+        if (credentials.key && credentials.cert) {
+            port = port || 443
+            https.createServer(credentials, app).listen(port, inter)
+        } else {
+            port = port || 80
+            http.createServer(app).listen(port, inter)
+        }
         console.log('Snakepit service running on port ' + port)
     } catch (ex) {
         console.error('Failure during startup: ' + ex)
