@@ -35,7 +35,9 @@ if (cluster.isMaster) {
         app.set('tokenSecret', readConfigFile('tokenSecretPath'))
         app.use(bodyParser.urlencoded({ extended: false }))
         app.use(bodyParser.json())
-        app.use(morgan('dev'))
+        app.use(morgan('combined', {
+            skip: function (req, res) { return res.statusCode < 400 }
+        }))
 
         modules.forEach(module => (module.initApp || Function)(app))
 
