@@ -1,4 +1,3 @@
-cd "${JOB_DIR}/src"
 computescript="${JOB_DIR}/src/.compute"
 logfile="${JOB_DIR}/process_${GROUP_INDEX}_${PROCESS_INDEX}.log"
 exit_status_file="${JOB_DIR}/exit-status_${GROUP_INDEX}_${PROCESS_INDEX}"
@@ -11,6 +10,7 @@ function ts () {
 }
 
 jail bash -c "echo \"Running $descriptor...\" ;\
+              cd \"${JOB_DIR}/src\" ;\
               bash \"$computescript\" ;\
               echo \$? >\"$exit_status_file\" ;\
               echo \"Finished $descriptor.\" ;\
