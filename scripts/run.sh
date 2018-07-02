@@ -14,6 +14,6 @@ jail bash -c "echo \"Running $descriptor...\" ;\
               bash \"$computescript\" ;\
               echo \$? >\"$exit_status_file\" ;\
               echo \"Finished $descriptor.\" ;\
-              sleep 2" \
+              sleep $EXTRA_WAIT_TIME" \
     2>&1 | ts >>"$logfile" &
 echo "pid:${JOB_NUMBER}_${GROUP_INDEX}_${PROCESS_INDEX}"

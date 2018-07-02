@@ -296,6 +296,7 @@ function _startJob(job, clusterReservation, callback) {
             GROUP_INDEX:          reservation.groupIndex,
             PROCESS_INDEX:        reservation.processIndex,
             PORTS:                ports.join(','),
+            EXTRA_WAIT_TIME:      Math.floor(2 * pollInterval / 1000),
             CUDA_VISIBLE_DEVICES: cudaIndices.join(',')
         }, jobEnv)
         nodesModule.runScriptOnNode(node, 'run.sh', processEnv, (code, stdout, stderr) => {
