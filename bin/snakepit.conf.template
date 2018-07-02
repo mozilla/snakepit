@@ -24,6 +24,9 @@ maxProcesses: 10
 # add thus removed from status report.
 keepDoneDuration: 1d
 
-# Duration before jobs preparations are considered hanging and therefore 
+# Duration before job preparations are considered hanging and therefore 
 # interrupted and set to state DONE.
 maxPrepDuration: 1h
+
+# Duration before job startups are considered hanging and therefore stopped.
+maxStartDuration: 5m

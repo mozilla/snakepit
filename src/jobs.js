@@ -32,11 +32,17 @@ const jobStates = {
 
 exports.jobStates = jobStates
 
+const oneSecond = 1000
+const oneMinute = 60 * oneSecond
+const oneHour = 60 * oneMinute
+const oneDay = 24 * oneHour
+
 var db = store.root
-var pollInterval = config.pollInterval || 1000
-var keepDoneDuration = parseDuration(config.keepDoneDuration)
-var maxPrepDuration = parseDuration(config.maxPrepDuration)
-var maxParallelPrep = config.maxParallelPrep || 2
+var pollInterval = config.pollInterval ? Number(config.pollInterval) : oneSecond
+var keepDoneDuration = config.keepDoneDuration ? parseDuration(config.keepDoneDuration) : 7 * oneDay
+var maxPrepDuration = config.maxPrepDuration ? parseDuration(config.maxPrepDuration) : oneHour
+var maxStartDuration = config.maxStartDuration ? parseDuration(config.maxStartDuration) : 5 * oneMinute
+var maxParallelPrep = config.maxParallelPrep ? Number(config.maxParallelPrep) : 2
 var dataRoot = config.dataRoot || '/snakepit'
 var sharedDir = path.join(dataRoot, 'shared')
 var upload = multer({ dest: path.join(dataRoot, 'uploads') })
@@ -326,9 +332,6 @@ function _startJob(job, clusterReservation, callback) {
             done()
         })
     }, () => {
-        if (job.state == jobStates.STARTING) {
-            _setJobState(job, jobStates.RUNNING)
-        }
         callback()
     })
 }
@@ -704,7 +707,11 @@ exports.tick = function() {
         let processes = _getJobProcesses()
         let toStop = []
         for(let jobId of Object.keys(processes)) {
+            let toStart = 0
             let job = db.jobs[jobId]
+            if (job.state < jobStates.STARTING || job.state > jobStates.STOPPING) {
+                continue
+            }
             let toStopForJob = []
             let jobProcesses = processes[jobId]
             for(let nodeId of Object.keys(jobProcesses)) {
@@ -712,19 +719,29 @@ exports.tick = function() {
                 let realNodeProcesses = realProcesses[nodeId]
                 if (realNodeProcesses) {
                     for(let pid of Object.keys(nodeProcesses)) {
-                        if (realNodeProcesses[pid]) {
-                            toStopForJob.push({ node: nodeId, pid: pid })
+                        if (job.state == jobStates.STARTING) {
+                            if (!realNodeProcesses[pid]) {
+                                toStart++
+                            }
                         } else {
-                            _setJobState(job, jobStates.STOPPING)
-                            _freeProcess(nodeId, pid)
+                            if (realNodeProcesses[pid]) {
+                                toStopForJob.push({ node: nodeId, pid: pid })
+                            } else {
+                                _setJobState(job, jobStates.STOPPING)
+                                _freeProcess(nodeId, pid)
+                            }
                         }
                     }
+                } else if (job.state == jobStates.STARTING) {
+                    toStart += nodeProcesses.length
                 } else {
                     _setJobState(job, jobStates.STOPPING)
                 }
             }
             if (job.state == jobStates.STOPPING && toStopForJob.length > 0) {
                 toStop = toStop.concat(toStopForJob)
+            } else if (job.state == jobStates.STARTING && toStart == 0) {
+                _setJobState(job, jobStates.RUNNING)
             }
         }
         utils.runForEach(toStop, (proc, done) => {
@@ -757,6 +774,12 @@ exports.tick = function() {
                     stateTime + maxPrepDuration < Date.now()
                 ) {
                     _appendError(job, 'Job exceeded max preparation time')
+                    _setJobState(job, jobStates.STOPPING)
+                } else if (
+                    job.state == jobStates.STARTING &&
+                    stateTime + maxStartDuration < Date.now()
+                ) {
+                    _appendError(job, 'Job exceeded max startup time')
                     _setJobState(job, jobStates.STOPPING)
                 }
                 if (
