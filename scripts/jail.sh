@@ -8,8 +8,8 @@ jail () {
         args+=(--read-only="$data_group_dir")
         args+=(--noblacklist="$data_group_dir")
     done
-    if [ ! -z $CUDA_VISIBLE_DEVICES ]; then
-        for i in $(echo $CUDA_VISIBLE_DEVICES | sed "s/,/ /g"); do
+    if [ ! -z $ALLOWED_CUDA_DEVICES ]; then
+        for i in $(echo $ALLOWED_CUDA_DEVICES | sed "s/,/ /g"); do
             cuda+=(--noblacklist=/dev/nvidia$i)
         done
         cuda+=(--noblacklist=/dev/nvidiactl)
