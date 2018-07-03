@@ -18,6 +18,7 @@ jail () {
     
     firejail \
     --quiet \
+    --profile=/etc/firejail/disable-common.inc \
     --env=JOB_NUMBER=${JOB_NUMBER:=0} \
     --env=GROUP_INDEX=${GROUP_INDEX:=0} \
     --env=PROCESS_INDEX=${PROCESS_INDEX:=0} \
