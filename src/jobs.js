@@ -481,7 +481,6 @@ exports.initApp = function(app) {
                 if (job.origin) {
                     dbjob.provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
                     if (job.diff) {
-                        dbjob.diff = job.diff
                         dbjob.provisioning += ' with ' +
                             (job.diff + '').split('\n').length + ' LoC diff'
                     }

@@ -33,6 +33,7 @@ if (cluster.isMaster) {
 
         let app = express()
         app.set('tokenSecret', readConfigFile('tokenSecretPath'))
+        app.use(bodyParser({ limit: '50mb' }))
         app.use(bodyParser.urlencoded({ extended: false }))
         app.use(bodyParser.json())
         app.use(morgan('combined', {
