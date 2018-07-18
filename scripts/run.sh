@@ -6,7 +6,7 @@ descriptor=".compute script (process ${GROUP_INDEX}.${PROCESS_INDEX})"
 #INCLUDE jail.sh
 
 function ts () {
-    while IFS= read -r line; do printf '[%s][%1u.%02u] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" $GROUP_INDEX $PROCESS_INDEX "$line"; done
+    while IFS= read -r line; do printf '[%s][%1u.%02u] %s\n' "$(date -u '+%Y-%m-%d %H:%M:%S')" $GROUP_INDEX $PROCESS_INDEX "$line"; done
 }
 
 jail bash -c "echo \"Running $descriptor...\" ;\
