@@ -215,15 +215,6 @@ function _getPreparationEnv(job) {
 
 function _prepareJob(job) {
     let env = _getPreparationEnv(job)
-    if (job.origin) {
-        Object.assign(env, {
-            ORIGIN: job.origin,
-            HASH:   job.hash,
-            NODE:   '#'
-        })
-    } else {
-        env.ARCHIVE = job.archive
-    }
     _setJobState(job, jobStates.PREPARING)
     return utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
@@ -440,6 +431,10 @@ function _sendLog(req, res, job, logFile, stopState) {
     }
 }
 
+function _stripCredentials(url) {
+    return url.replace(/\/\/.*\@/g, '//')
+}
+
 exports.initApp = function(app) {
     app.post('/jobs', function(req, res) {
         store.lockAutoRelease('jobs', function() {
@@ -471,40 +466,74 @@ exports.initApp = function(app) {
                     description: ('' + job.description).substring(0,20),
                     clusterRequest: job.clusterRequest,
                     clusterReservation: simulatedReservation,
-                    continueJob: job.continueJob,
-                    origin: job.origin,
-                    hash: job.hash,
-                    archive: job.archive
+                    continueJob: job.continueJob
                 }
                 if (!job.private) {
                     dbjob.groups = req.user.autoshare
                 }
                 if (job.origin) {
-                    dbjob.provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
+                    let visibleOrigin = _stripCredentials(job.origin)
+                    dbjob.provisioning = 'Git commit ' + job.hash + ' from ' + visibleOrigin
                     if (job.diff) {
                         dbjob.provisioning += ' with ' +
                             (job.diff + '').split('\n').length + ' LoC diff'
                     }
                 } else if (job.archive) {
                     dbjob.provisioning = 'Archive (' + fs.statSync(archive).size + ' bytes)'
+                } else {
+                    res.status(400).send({ message: 'No job data' })
+                    return
                 }
                 _setJobState(dbjob, jobStates.NEW)
                 let respond = () => {
                     db.jobs[id] = dbjob
                     res.status(200).send({ id: id })
                 }
-                if (job.diff) {
-                    let patchPath = path.join(_getJobDir(dbjob), 'git.patch')
-                    fs.writeFile(patchPath, job.diff + '\n', err => {
+                let writeDiff = () => {
+                    if (job.diff) {
+                        let patchPath = path.join(_getJobDir(dbjob), 'git.patch')
+                        fs.writeFile(patchPath, job.diff + '\n', err => {
+                            if (err) {
+                                _deleteJobDir(id)
+                                res.status(500).send({ message: 'Error writing diff data' })
+                            } else {
+                                respond()
+                            }
+                        })
+                    } else {
+                        respond()
+                    }
+                }
+                if (job.origin) {
+                    let origin = job.origin
+                    let originFilename = path.join(
+                        _getJobDir(dbjob), 
+                        _stripCredentials(origin) === origin ? 'public-origin.txt' : 'private-origin.txt'
+                    )
+                    fs.writeFile(originFilename, origin, err => {
                         if (err) {
                             _deleteJobDir(id)
-                            res.status(500).send({ message: 'Error on persisting diff data' })
+                            res.status(500).send({ message: 'Error writing origin meta data file' })
                         } else {
-                            respond()
+                            fs.writeFile(path.join(_getJobDir(dbjob), 'hash.txt'), job.hash, err => {
+                                if (err) {
+                                    _deleteJobDir(id)
+                                    res.status(500).send({ message: 'Error writing hash meta data file' })
+                                } else {
+                                    writeDiff()
+                                }
+                            })
                         }
                     })
-                } else {
-                    respond()
+                } else if (job.archive) {
+                    fs.rename(job.archive, path.join(_getJobDir(dbjob), 'archive.tar.gz'), err => {
+                        if (err) {
+                            _deleteJobDir(id)
+                            res.status(500).send({ message: 'Error moving archive to job directory' })
+                        } else {
+                            writeDiff()
+                        }
+                    })
                 }
             } else {
                 res.status(406).send({ message: 'Cluster cannot fulfill resource request' })
