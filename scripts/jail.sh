@@ -18,7 +18,7 @@ jail () {
     
     firejail \
     --quiet \
-    --profile=/etc/firejail/disable-common.inc \
+    --noprofile \
     --env=NODE=${NODE} \
     --env=JOB_NUMBER=${JOB_NUMBER:=0} \
     --env=GROUP_INDEX=${GROUP_INDEX:=0} \
