@@ -20,7 +20,7 @@ function _isReserved(clusterReservation, nodeId, resourceId) {
     )
 }
 
-function _reserveProcessOnNode(node, clusterReservation, resourceList, user, simulation) {
+function _reserveProcess(node, clusterReservation, resourceList, user, simulation) {
     var nodeReservation = { node: node.id, resources: {} }
     if (!node || !node.resources) {
         return null
@@ -77,27 +77,33 @@ function _reserveProcessOnNode(node, clusterReservation, resourceList, user, sim
     return nodeReservation
 }
 
-function _reserveProcess(clusterReservation, resourceList, user, simulation) {
-    for (let nodeId of Object.keys(db.nodes)) {
-        let node = db.nodes[nodeId]
-        if (node.state == nodeStates.ONLINE || simulation) {
-            let nodeReservation = _reserveProcessOnNode(node, clusterReservation, resourceList, user, simulation)
-            if (nodeReservation) {
-                return nodeReservation
-            }
-        }
-    }
-    return null
-}
-
 exports.reserveCluster = function(clusterRequest, user, simulation) {
+    let quotients = {}
+    let aq = node => {
+        if (quotients.hasOwnProperty(node.id)) {
+            return quotients[node.id]
+        }
+        let resources = Object.keys(node.resources).map(k => node.resources[k])
+        let allocated = resources.filter(resource => resource.job && !(resource.type && resource.type.startsWith('num:')))
+        return quotients[node.id] = resources.length / (allocated.length + 1)
+    }
+    let nodes = Object.keys(db.nodes)
+        .map(k => db.nodes[k])
+        .filter(node => node.state == nodeStates.ONLINE || simulation)
+        .sort((a, b) => aq(a) - aq(b))
     let clusterReservation = []
     for(let groupIndex = 0; groupIndex < clusterRequest.length; groupIndex++) {
         let groupRequest = clusterRequest[groupIndex]
         let groupReservation = []
         clusterReservation.push(groupReservation)
         for(let processIndex = 0; processIndex < groupRequest.count; processIndex++) {
-            let processReservation = _reserveProcess(clusterReservation, groupRequest.process, user, simulation)
+            let processReservation
+            for (let node of nodes) {
+                processReservation = _reserveProcess(node, clusterReservation, groupRequest.process, user, simulation)
+                if (processReservation) {
+                    break
+                }
+            }
             if (processReservation) {
                 processReservation.groupIndex = groupIndex
                 processReservation.processIndex = processIndex
