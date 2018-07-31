@@ -218,7 +218,8 @@ function _prepareJob(job) {
     if (job.origin) {
         Object.assign(env, {
             ORIGIN: job.origin,
-            HASH:   job.hash
+            HASH:   job.hash,
+            NODE:   '#'
         })
     } else {
         env.ARCHIVE = job.archive
@@ -270,6 +271,7 @@ function _getComputeEnv(job, clusterReservation) {
                     portCount++
                 }
             }
+            jobEnv['NODE'] = node.id
             jobEnv['NUM_PORTS_PER_PROCESS_GROUP' + gIndex] = portCount
         }
     }
