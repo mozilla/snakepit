@@ -22,23 +22,6 @@ exports.getDuration = function(date1, date2) {
     }
 }
 
-exports.runForEach = function(col, fun, callback) {
-    let counter = col.length
-    let done = () => {
-        counter--
-        if (counter == 0) {
-            callback()
-        }
-    }
-    if (col.length > 0) {
-        for(let item of col) {
-            fun(item, done)
-        }
-    } else {
-        callback()
-    }
-}
-
 exports.shellQuote = function(str) {
     str = '' + str
     str = str.replace(/\\/g, '\\\\')

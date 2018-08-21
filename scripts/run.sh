@@ -1,7 +1,7 @@
-computescript="${JOB_DIR}/src/.compute"
+computescript="${JOB_DIR}/compute.sh"
 logfile="${JOB_DIR}/process_${GROUP_INDEX}_${PROCESS_INDEX}.log"
 exit_status_file="${JOB_DIR}/exit-status_${GROUP_INDEX}_${PROCESS_INDEX}"
-descriptor=".compute script (process ${GROUP_INDEX}.${PROCESS_INDEX})"
+descriptor="script (process ${GROUP_INDEX}.${PROCESS_INDEX})"
 
 #INCLUDE jail.sh
 

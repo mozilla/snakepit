@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const zlib = require('zlib')
+const async = require('async')
 const tar = require('tar-fs')
 const stream = require('stream')
 const rimraf = require('rimraf')
@@ -282,7 +283,7 @@ function _startJob(job, clusterReservation, callback) {
     _setJobState(job, jobStates.STARTING)
     job.clusterReservation = clusterReservation
     let jobEnv = _getComputeEnv(job, clusterReservation)
-    utils.runForEach([].concat.apply([], clusterReservation), (reservation, done) => {
+    async.each([].concat.apply([], clusterReservation), (reservation, done) => {
         let cudaIndices = []
         let ports = []
         let node = db.nodes[reservation.node]
@@ -334,9 +335,7 @@ function _startJob(job, clusterReservation, callback) {
             }
             done()
         })
-    }, () => {
-        callback()
-    })
+    }, callback)
 }
 
 function _createJobDescription(dbjob) {
@@ -489,23 +488,32 @@ exports.initApp = function(app) {
                     dbjob.provisioning = 'Archive (' + fs.statSync(archive).size + ' bytes)'
                 }
                 _setJobState(dbjob, jobStates.NEW)
-                let respond = () => {
-                    db.jobs[id] = dbjob
-                    res.status(200).send({ id: id })
+
+                var files = {
+                    'compute.sh': job.compute || '[ -f .compute ] && bash .compute',
+                    'install.sh': job.install || '[ -f .install ] && bash .install'
                 }
                 if (job.diff) {
-                    let patchPath = path.join(_getJobDir(dbjob), 'git.patch')
-                    fs.writeFile(patchPath, job.diff + '\n', err => {
+                    files['git.patch'] = job.diff + '\n'
+                }
+                async.forEachOf(files, (content, file, done) => {
+                    let p = path.join(_getJobDir(dbjob), file)
+                    fs.writeFile(p, content, err => {
                         if (err) {
                             _deleteJobDir(id)
-                            res.status(500).send({ message: 'Error on persisting diff data' })
+                            done('Error on persisting ' + file)
                         } else {
-                            respond()
+                            done()
                         }
                     })
-                } else {
-                    respond()
-                }
+                }, err => {
+                    if (err) {
+                        res.status(500).send({ message: err })
+                    } else {
+                        db.jobs[id] = dbjob
+                        res.status(200).send({ id: id })
+                    }
+                })
             } else {
                 res.status(406).send({ message: 'Cluster cannot fulfill resource request' })
             }
@@ -745,7 +753,7 @@ exports.tick = function() {
                 _setJobState(job, jobStates.RUNNING)
             }
         }
-        utils.runForEach(toStop, (proc, done) => {
+        async.each(toStop, (proc, done) => {
             nodesModule.runScriptOnNode(db.nodes[proc.node], 'kill.sh', { PID: proc.pid }, (code, stdout, stderr) => {
                 if (code == 0) {
                     console.log('Ended PID: ' + proc.pid)
@@ -754,7 +762,7 @@ exports.tick = function() {
                 }
                 done()
             })
-        }, () => {
+        }, err => {
             for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
                 let stateTime = new Date(job.stateChanges[job.state]).getTime()
                 if (
