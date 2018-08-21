@@ -784,11 +784,14 @@ exports.tick = function() {
                     _setJobState(job, jobStates.STOPPING)
                 }
                 if (
-                    job.state == jobStates.STOPPING &&
-                    preparations.hasOwnProperty(job.id)
+                    job.state == jobStates.STOPPING
                 ) {
-                    preparations[job.id].kill()
-                    _setJobState(job, jobStates.DONE)
+                    if (preparations.hasOwnProperty(job.id)) {
+                        preparations[job.id].kill()
+                        _setJobState(job, jobStates.DONE)
+                    } else {
+                        _checkRunning(job)
+                    }
                 }
             }
             if (db.schedule.length > 0) {
