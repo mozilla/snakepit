@@ -73,7 +73,16 @@ exports.runScript = function(scriptName, env, callback) {
     p.stdout.on('data', data => stdout.push(data))
     let stderr = []
     p.stderr.on('data', data => stderr.push(data))
-    p.on('close', code => callback(code, stdout.join('\n'), stderr.join('\n')))
+    let called = false
+    let callCallback = code => {
+        if (!called) {
+            called = true
+            callback(code, stdout.join('\n'), stderr.join('\n'))
+        }
+    }
+    p.on('close', code => callCallback(code))
+    p.on('error', () => callCallback(128))
+    p.on('exit', () => callCallback(0))
     var stdinStream = new stream.Readable()
     Object.keys(env).forEach(name => stdinStream.push(
         'export ' + name + '=' + exports.shellQuote(env[name]) + '\n')
