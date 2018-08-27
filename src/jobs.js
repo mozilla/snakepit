@@ -31,6 +31,11 @@ const jobStates = {
     ARCHIVED: 8
 }
 
+var jobStateNames = {}
+for(name of Object.keys(jobStates)) {
+    jobStateNames[jobStates[name]] = name
+}
+
 exports.jobStates = jobStates
 
 const oneSecond = 1000
@@ -775,15 +780,7 @@ exports.tick = function() {
                     job.state == jobStates.NEW && 
                     Object.keys(preparations).length < maxParallelPrep
                 ) {
-                    let p = _prepareJob(job)
-                    preparations[job.id] = p
-                    p.on('exit', () => delete preparations[job.id])
-                } else if (
-                    job.state == jobStates.PREPARING &&
-                    stateTime + maxPrepDuration < Date.now()
-                ) {
-                    _appendError(job, 'Job exceeded max preparation time')
-                    _setJobState(job, jobStates.STOPPING)
+                    preparations[job.id] = _prepareJob(job)
                 } else if (
                     job.state == jobStates.STARTING &&
                     stateTime + maxStartDuration < Date.now()
@@ -792,13 +789,30 @@ exports.tick = function() {
                     _setJobState(job, jobStates.STOPPING)
                 }
                 if (
-                    job.state == jobStates.STOPPING
+                    job.state == jobStates.STOPPING &&
+                    !preparations.hasOwnProperty(job.id)
                 ) {
-                    if (preparations.hasOwnProperty(job.id)) {
-                        preparations[job.id].kill()
-                        _setJobState(job, jobStates.DONE)
-                    } else {
-                        _checkRunning(job)
+                    _checkRunning(job)
+                }
+            }
+            for(let jobId of Object.keys(preparations)) {
+                let job = db.jobs[jobId]
+                if (
+                    job && job.state == jobStates.PREPARING
+                ) {
+                    if (new Date(job.stateChanges[job.state]).getTime() + maxPrepDuration < Date.now()) {
+                        _appendError(job, 'Job exceeded max preparation time')
+                        _setJobState(job, jobStates.STOPPING)
+                    }
+                } else if (
+                    job && job.state == jobStates.STOPPING
+                ) {
+                    preparations[job.id].kill()
+                    _setJobState(job, jobStates.DONE)
+                } else {
+                    delete preparations[jobId]
+                    if (!job) {
+                        console.error('Removed preparation process for orphan job ' + jobId)
                     }
                 }
             }
