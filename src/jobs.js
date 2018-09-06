@@ -1,16 +1,15 @@
 const fs = require('fs')
 const path = require('path')
 const zlib = require('zlib')
-const async = require('async')
 const tar = require('tar-fs')
-const stream = require('stream')
-const rimraf = require('rimraf')
-const multer = require('multer')
+const async = require('async')
 const cluster = require('cluster')
+const randomstring = require('randomstring')
 const parseDuration = require('parse-duration')
 
 const store = require('./store.js')
 const utils = require('./utils.js')
+const jobfs = require('./jobfs.js')
 const config = require('./config.js')
 const nodesModule = require('./nodes.js')
 const groupsModule = require('./groups.js')
@@ -49,9 +48,6 @@ var keepDoneDuration = config.keepDoneDuration ? parseDuration(config.keepDoneDu
 var maxPrepDuration = config.maxPrepDuration ? parseDuration(config.maxPrepDuration) : oneHour
 var maxStartDuration = config.maxStartDuration ? parseDuration(config.maxStartDuration) : 5 * oneMinute
 var maxParallelPrep = config.maxParallelPrep ? Number(config.maxParallelPrep) : 2
-var dataRoot = config.dataRoot || '/snakepit'
-var sharedDir = path.join(dataRoot, 'shared')
-var upload = multer({ dest: path.join(dataRoot, 'uploads') })
 var utilization = {}
 var preparations = {}
 
@@ -147,47 +143,11 @@ function _freeProcess(nodeId, pid) {
     }
 }
 
-function _getJobsDir() {
-    return path.join(dataRoot, 'jobs')
-}
-
-function _getJobDirById(jobId) {
-    return path.join(_getJobsDir(), jobId + '')
-}
-
-function _getJobDir(job) {
-    return _getJobDirById(job.id)
-}
-
-function _loadJob(jobId) {
-    let job = db.jobs[jobId]
-    if (job) {
-        return job
-    }
-    let jobPath = path.join(_getJobDirById(jobId), 'meta.json')
-    if (fs.existsSync(jobPath)) {
-        return JSON.parse(fs.readFileSync(jobPath, 'utf8'))
-    }
-}
-
-function _saveJob(job) {
-    let jobPath = _getJobDir(job)
-    if (!fs.existsSync(jobPath)) {
-        fs.mkdirSync(jobPath)
-    }
-    fs.writeFileSync(path.join(jobPath, 'meta.json'), JSON.stringify(job))
-}
-
-function _deleteJobDir(jobId, callback) {
-    let jobDir = _getJobDirById(jobId)
-    rimraf(jobDir, callback)
-}
-
 function _setJobState(job, state) {
     job.state = state
     job.stateChanges = job.stateChanges || {}
     job.stateChanges[state] = new Date().toISOString()
-    _saveJob(job)
+    jobfs.saveJob(job)
 }
 
 function _appendError(job, error) {
@@ -203,11 +163,10 @@ function _getBasicEnv(job) {
     let user = db.users[job.user]
     let groups = user && user.groups
     return {
-        DATA_ROOT: dataRoot,
-        SHARED_DIR: sharedDir,
-        USER_GROUPS: groups ? groups.join(' ') : '',
+        DATA_ROOT: jobfs.dataRoot,
         JOB_NUMBER: job.id,
-        JOB_DIR: _getJobDir(job)
+        JOB_DIR: jobfs.getJobDir(job),
+        JOB_FS_URL: 'https://' + config.fqdn + ':' + config.port + '/jobs/' + job.id + '/fs/' + job.token
     }
 }
 
@@ -233,7 +192,7 @@ function _prepareJob(job) {
     _setJobState(job, jobStates.PREPARING)
     return utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
-            if (code == 0 && fs.existsSync(_getJobDir(job))) {
+            if (code == 0 && fs.existsSync(jobfs.getJobDir(job))) {
                 db.schedule.push(job.id)
                 _setJobState(job, jobStates.WAITING)
             } else {
@@ -387,7 +346,7 @@ function _createJobDescription(dbjob) {
 }
 
 function _getJobDescription(jobId, user, extended) {
-    let dbjob = _loadJob(jobId)
+    let dbjob = jobfs.loadJob(jobId)
     let job = dbjob ? _createJobDescription(dbjob) : null
     if (job && extended) {
         job.stateChanges = dbjob.stateChanges
@@ -409,7 +368,7 @@ function _sendLog(req, res, job, logFile, stopState) {
             'Cache-Control': 'no-cache'
         })
         req.connection.setTimeout(60 * 60 * 1000)
-        let logPath = path.join(_getJobDir(job), logFile)
+        let logPath = path.join(jobfs.getJobDir(job), logFile)
         let written = 0
         let writeStream = cb => {
             let stream = fs.createReadStream(logPath, { start: written })
@@ -457,7 +416,7 @@ exports.initApp = function(app) {
                 return
             }
             if (job.continueJob) {
-                let continueJob = _loadJob(job.continueJob)
+                let continueJob = jobfs.loadJob(job.continueJob)
                 if (!continueJob) {
                     res.status(404).send({ message: 'The job to continue is not existing' })
                     return
@@ -471,6 +430,7 @@ exports.initApp = function(app) {
             if (simulatedReservation) {
                 let dbjob = {
                     id: id,
+                    token: randomstring.generate(),
                     user: req.user.id,
                     description: ('' + job.description).substring(0,20),
                     clusterRequest: job.clusterRequest,
@@ -501,11 +461,12 @@ exports.initApp = function(app) {
                 if (job.diff) {
                     files['git.patch'] = job.diff + '\n'
                 }
+                let jobDir = jobfs.getJobDir(dbjob)
                 async.forEachOf(files, (content, file, done) => {
-                    let p = path.join(_getJobDir(dbjob), file)
+                    let p = path.join(jobDir, file)
                     fs.writeFile(p, content, err => {
                         if (err) {
-                            _deleteJobDir(id)
+                            jobfs.deleteJobDir(id)
                             done('Error on persisting ' + file)
                         } else {
                             done()
@@ -526,7 +487,7 @@ exports.initApp = function(app) {
     })
 
     app.get('/jobs', function(req, res) {
-        fs.readdir(_getJobsDir(), (err, files) => {
+        fs.readdir(jobfs.getJobsDir(), (err, files) => {
             if (err || !files) {
                 res.status(500).send()
             } else {
@@ -562,11 +523,15 @@ exports.initApp = function(app) {
         }
     })
 
+    app.post('/jobs/:id/fs/:token', function(req, res) {
+        
+    })
+
     app.get('/jobs/:id/targz', function(req, res) {
-        let dbjob = _loadJob(req.params.id)
+        let dbjob = jobfs.loadJob(req.params.id)
         if (dbjob) {
             if (groupsModule.canAccessJob(req.user, dbjob)) {
-                let jobdir = _getJobDir(dbjob)
+                let jobdir = jobfs.getJobDir(dbjob)
                 res.status(200).type('tar.gz')
                 tar.pack(jobdir).pipe(zlib.createGzip()).pipe(res)
             } else {
@@ -578,7 +543,7 @@ exports.initApp = function(app) {
     })
 
     app.get('/jobs/:id/preplog', function(req, res) {
-        let dbjob = _loadJob(req.params.id)
+        let dbjob = jobfs.loadJob(req.params.id)
         if (dbjob) {
             _sendLog(req, res, dbjob, 'preparation.log', jobStates.PREPARING)
         } else {
@@ -587,7 +552,7 @@ exports.initApp = function(app) {
     })
 
     app.get('/jobs/:id/groups/:group/processes/:proc/log', function(req, res) {
-        let dbjob = _loadJob(req.params.id)
+        let dbjob = jobfs.loadJob(req.params.id)
         let group = Number(req.params.group)
         let proc = Number(req.params.proc)
         if (dbjob &&
@@ -603,7 +568,7 @@ exports.initApp = function(app) {
 
     app.post('/jobs/:id/stop', function(req, res) {
         store.lockAutoRelease('jobs', function() {
-            let dbjob = _loadJob(req.params.id)
+            let dbjob = jobfs.loadJob(req.params.id)
             if (dbjob) {
                 if (groupsModule.canAccessJob(req.user, dbjob)) {
                     if (dbjob.state <= jobStates.RUNNING) {
@@ -628,14 +593,14 @@ exports.initApp = function(app) {
     app.delete('/jobs/:id', function(req, res) {
         store.lockAutoRelease('jobs', function() {
             var id = Number(req.params.id)
-            var dbjob = _loadJob(id)
+            var dbjob = jobfs.loadJob(id)
             if (dbjob) {
                 if (groupsModule.canAccessJob(req.user, dbjob)) {
                     if (dbjob.state >= jobStates.DONE) {
                         if (db.jobs[id]) {
                             delete db.jobs[id]
                         }
-                        _deleteJobDir(id, err => {
+                        jobfs.deleteJobDir(id, err => {
                             if (err) {
                                 res.status(500).send()
                             } else {
@@ -684,7 +649,7 @@ groupsModule.on('restricted', _resimulateReservations)
 
 groupsModule.on('changed', (type, entity) => {
     if (type == 'job' && entity) {
-        _saveJob(entity)
+        jobfs.saveJob(entity)
     }
 })
 

@@ -2,7 +2,7 @@ const fs = require('fs')
 const cluster = require('cluster')
 const cpus = require('os').cpus().length
 const config = require('./config.js')
-const modules = 'users groups nodes jobs aliases'
+const modules = 'jobfs users groups nodes jobs aliases'
     .split(' ').map(name => require('./' + name + '.js'))
 
 if (cluster.isMaster) {
