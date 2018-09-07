@@ -17,7 +17,15 @@ jail () {
     --env=JOB_NUMBER=${JOB_NUMBER:=0} \
     --env=GROUP_INDEX=${GROUP_INDEX:=0} \
     --env=PROCESS_INDEX=${PROCESS_INDEX:=0} \
+    --env=DATA_ROOT="~/jobfs" \
+    --env=JOB_DIR="~/jobfs/job" \
     "${cuda[@]}" \
     --blacklist="/dev/nvidia*" \
-    bash -c "set -x; cd ~; mkdir jobfs; httpfs ${JOB_FS_URL} jobfs & while [ ! -d jobfs/job ]; do sleep 0.1; done; $@; kill \$(jobs -p)"
+    bash -c "set -x;\
+             cd ~;\
+             mkdir jobfs;\
+             httpfs --cert ${JOB_FS_CERT} ${JOB_FS_URL} jobfs &\
+             while [ ! -d jobfs/job ]; do sleep 0.1; done;\
+             $@;\
+             kill \$(jobs -p)"
 }

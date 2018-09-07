@@ -27,12 +27,7 @@ if (cluster.isMaster) {
         const express = require('express')
         const bodyParser = require('body-parser')
 
-        readConfigFile = name => {
-            return fs.existsSync(config[name]) ? fs.readFileSync(config[name]) : undefined
-        }
-
         let app = express()
-        app.set('tokenSecret', readConfigFile('tokenSecretPath'))
         app.use(bodyParser({ limit: '50mb' }))
         app.use(bodyParser.urlencoded({ extended: false }))
         app.use(bodyParser.json())
@@ -49,13 +44,9 @@ if (cluster.isMaster) {
 
         let inter = process.env.SNAKEPIT_INTERFACE || config.interface || '0.0.0.0'
         let port = process.env.SNAKEPIT_PORT || config.port
-        let credentials = {
-            key: readConfigFile('keyPemPath'),
-            cert: readConfigFile('certPemPath')
-        }
-        if (credentials.key && credentials.cert) {
+        if (config.key && config.cert) {
             port = port || 443
-            https.createServer(credentials, app).listen(port, inter)
+            https.createServer({ key: config.key, cert: config.cert }, app).listen(port, inter)
         } else {
             port = port || 80
             http.createServer(app).listen(port, inter)

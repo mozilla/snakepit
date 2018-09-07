@@ -103,7 +103,7 @@ exports.initApp = function(app) {
                 if(result) {
                     jwt.sign(
                         { user: id },
-                        app.get('tokenSecret'),
+                        config.tokenSecret,
                         { expiresIn: config.tokenTTL },
                         function(err, token) {
                             if (err) {

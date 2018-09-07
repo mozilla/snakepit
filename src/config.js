@@ -17,4 +17,13 @@ function tryConfigFile(fun, verb) {
 }
 
 var content = tryConfigFile(() => fs.readFileSync(filename), 'reading')
-module.exports = tryConfigFile(() => yaml.safeLoad(content), 'parsing')
+var config = module.exports = tryConfigFile(() => yaml.safeLoad(content), 'parsing')
+
+
+function readConfigFile(name) {
+    return fs.existsSync(config[name]) ? fs.readFileSync(config[name]) : undefined
+}
+
+config.tokenSecret = readConfigFile('tokenSecretPath')
+config.key = readConfigFile('keyPemPath')
+config.cert = readConfigFile('certPemPath')
