@@ -60,8 +60,8 @@ exports.initApp = function(app) {
                 'job':    () => fslib.real(getJobDir(job)),
                 'shared': () => fslib.readOnly(fslib.real(sharedDir)),
                 'groups': () => fslib.readOnly(fslib.vDir(
-                    () => user ? user.groups : [],
-                    group => user && user.groups && user.groups.includes(group) ? fslib.readOnly(fslib.real(path.join(groupsDir, group))) : null
+                    () => (user && Array.isArray(user.groups)) ? user.groups : [],
+                    group => user && Array.isArray(user.groups) && user.groups.includes(group) ? fslib.readOnly(fslib.real(path.join(groupsDir, group))) : null
                 ))
             })
             let chunks = []

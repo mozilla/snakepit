@@ -163,10 +163,11 @@ function _getBasicEnv(job) {
     let user = db.users[job.user]
     let groups = user && user.groups
     return {
-        DATA_ROOT: jobfs.dataRoot,
         JOB_NUMBER: job.id,
+        DATA_ROOT: jobfs.dataRoot,
         JOB_DIR: jobfs.getJobDir(job),
-        JOB_FS_URL: 'https://' + config.fqdn + ':' + config.port + '/jobs/' + job.id + '/fs/' + job.token
+        JOB_FS_URL: 'https://' + config.fqdn + ':' + config.port + '/jobs/' + job.id + '/fs/' + job.token,
+        JOB_FS_CERT: config.cert
     }
 }
 
