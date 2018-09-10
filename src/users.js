@@ -20,12 +20,12 @@ exports.initApp = function(app) {
     function authorize(req, res, needsUser, callback) {
         var token = req.get('X-Auth-Token')
         if (token) {
-            jwt.verify(token, app.get('tokenSecret'), function(err, decoded) {
+            jwt.verify(token, config.tokenSecret, function(err, decoded) {
                 if (err) {
                     if (err.name == 'TokenExpiredError') {
                         res.status(401).json({ message: 'Token expired' })
                     } else {
-                        res.status(400).json({ message: 'Invalid token' })
+                        res.status(400).json({ message: 'Invalid token ' + err})
                     }
                 } else {
                     req.user = db.users[decoded.user]

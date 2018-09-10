@@ -5,7 +5,6 @@ const fslib = require('httpfslib')
 const store = require('./store.js')
 const config = require('./config.js')
 
-
 var db = store.root
 
 var exports = module.exports = {}
@@ -53,25 +52,27 @@ exports.deleteJobDir = function(jobId, callback) {
 exports.initApp = function(app) {
     app.post('/jobs/:id/fs/:token', function(req, res) {
         var job = exports.loadJob(req.params.id)
-        let user = db.users[job.user]
-        var token = req.params.token
-        if (token && job && job.token === token) {
-            let jfs = fslib.vDir({
-                'job':    () => fslib.real(getJobDir(job)),
-                'shared': () => fslib.readOnly(fslib.real(sharedDir)),
-                'groups': () => fslib.readOnly(fslib.vDir(
-                    () => (user && Array.isArray(user.groups)) ? user.groups : [],
-                    group => user && Array.isArray(user.groups) && user.groups.includes(group) ? fslib.readOnly(fslib.real(path.join(groupsDir, group))) : null
-                ))
-            })
-            let chunks = []
-            req.on('data', chunk => chunks.push(chunk));
-            req.on('end', () => fslib.serve(jfs, Buffer.concat(chunks), result => {
-                res.write(result)
-                res.end()
-            }))
+        if (job) {
+            let user = db.users[job.user]
+            var token = req.params.token
+            if (token && job.token && job.token.trim() == token.trim()) {
+                let jfs = fslib.vDir({
+                    'job':    () => fslib.real(exports.getJobDir(job)),
+                    'shared': () => fslib.readOnly(fslib.real(sharedDir)),
+                    'groups': () => fslib.readOnly(fslib.vDir(
+                        () => (user && Array.isArray(user.groups)) ? user.groups : [],
+                        group => user && Array.isArray(user.groups) && user.groups.includes(group) ? fslib.readOnly(fslib.real(path.join(groupsDir, group))) : null
+                    ))
+                })
+                let chunks = []
+                req.on('data', chunk => chunks.push(chunk));
+                req.on('end', () => fslib.serve(jfs, Buffer.concat(chunks), result => res.send(result)))
+            } else {
+                throw job.token + ' ' + token
+                res.status(408).send('Wrong token')
+            }
         } else {
-            res.status(401).json({ message: 'Wrong token or job' })
+            res.status(404).send('Wrong job')
         }
     })
 }

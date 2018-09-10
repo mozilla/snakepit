@@ -31,9 +31,7 @@ if (cluster.isMaster) {
         app.use(bodyParser({ limit: '50mb' }))
         app.use(bodyParser.urlencoded({ extended: false }))
         app.use(bodyParser.json())
-        app.use(morgan('combined', {
-            skip: function (req, res) { return res.statusCode < 400 }
-        }))
+        app.use(morgan('combined'))
 
         modules.forEach(module => (module.initApp || Function)(app))
 
