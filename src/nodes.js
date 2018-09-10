@@ -1,14 +1,11 @@
-const fs = require('fs')
-const path = require('path')
 const stream = require('stream')
 const { spawn } = require('child_process')
 const { EventEmitter } = require('events')
-const CombinedStream = require('combined-stream')
 
 const store = require('./store.js')
 const config = require('./config.js')
-const { getScript } = require('./utils.js')
 const { getAlias } = require('./aliases.js')
+const { getScript, shellQuote } = require('./utils.js')
 
 const pollInterval = config.pollInterval || 1000
 const reconnectInterval = config.reconnectInterval || 60000
@@ -34,7 +31,7 @@ function _startScriptOnNode(node, scriptName, env) {
     //console.log('Running script "' + scriptPath + '" on "' + address + '"')
     p = spawn('ssh', ['-oConnectTimeout=10', '-oStrictHostKeyChecking=no', '-oBatchMode=yes', address, '-p', node.port, 'bash -s'])
     var stdinStream = new stream.Readable()
-    Object.keys(env).forEach(name => stdinStream.push('export ' + name + '=' + env[name] + '\n'))
+    Object.keys(env).forEach(name => stdinStream.push('export ' + name + '=' + shellQuote(env[name]) + '\n'))
     stdinStream.push(script + '\n')
     stdinStream.push(null)
     stdinStream.pipe(p.stdin)

@@ -510,9 +510,9 @@ http@^0.0.0:
   version "0.0.0"
   resolved "https://registry.yarnpkg.com/http/-/http-0.0.0.tgz#86e6326d29c5d039de9fac584a45689f929f4f72"
 
-"httpfslib@https://github.com/mozilla/httpfslib":
+"httpfslib@https://github.com/mozilla/httpfslib.git":
   version "0.0.1"
-  resolved "https://github.com/mozilla/httpfslib#d6f368fc22336dc45d251d5cc4820720b5111217"
+  resolved "https://github.com/mozilla/httpfslib.git#7aa748801e32c17ff020a5d3c80fcec3c26ffb4e"
   dependencies:
     buffer-serializer "^1.1.0"
 

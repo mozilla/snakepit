@@ -162,7 +162,6 @@ function _appendError(job, error) {
 
 function _getBasicEnv(job) {
     let user = db.users[job.user]
-    let groups = user && user.groups
     return {
         JOB_NUMBER: job.id,
         DATA_ROOT: jobfs.dataRoot,
@@ -185,12 +184,12 @@ function _prepareJob(job) {
     if (job.origin) {
         Object.assign(env, {
             ORIGIN: job.origin,
-            HASH:   job.hash,
-            NODE:   '#'
+            HASH:   job.hash
         })
     } else {
         env.ARCHIVE = job.archive
     }
+    env.NODE = '#'
     _setJobState(job, jobStates.PREPARING)
     return utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
@@ -451,7 +450,7 @@ exports.initApp = function(app) {
             if (simulatedReservation) {
                 let dbjob = {
                     id: id,
-                    token: randomstring.generate(),
+                    token: randomstring.generate({ charset: 'numeric' }),
                     user: req.user.id,
                     description: ('' + job.description).substring(0,20),
                     clusterRequest: job.clusterRequest,
@@ -542,10 +541,6 @@ exports.initApp = function(app) {
         } else {
             res.status(404).send()
         }
-    })
-
-    app.post('/jobs/:id/fs/:token', function(req, res) {
-        
     })
 
     app.get('/jobs/:id/targz', function(req, res) {
