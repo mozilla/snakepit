@@ -17,16 +17,16 @@ jail () {
     --env=JOB_NUMBER=${JOB_NUMBER:=0} \
     --env=GROUP_INDEX=${GROUP_INDEX:=0} \
     --env=PROCESS_INDEX=${PROCESS_INDEX:=0} \
-    --env=DATA_ROOT="jobfs" \
-    --env=JOB_DIR="jobfs/job" \
     "${cuda[@]}" \
     --blacklist="/dev/nvidia*" \
-    bash -c "set -x;\
-             cd ~;\
+    --blacklist="${DATA_ROOT}" \
+    bash -c "cd ~;\
              mkdir jobfs;\
-             httpfs --certraw '${JOB_FS_CERT}' '${JOB_FS_URL}' jobfs &\
-             sleep 1;\
-             cd jobfs/job/src;
+             httpfs --quiet --certraw '${JOB_FS_CERT}' '${JOB_FS_URL}' jobfs &\
+             while [ ! -d jobfs/job ]; do sleep 0.1; done;\
+             export DATA_ROOT=~/jobfs ;\
+             export JOB_DIR=~/jobfs/job ;\
+             cd ~/jobfs/job/src;\
              $@;\
              kill \$(jobs -p)"
 }

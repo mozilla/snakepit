@@ -6,9 +6,9 @@ function ts () {
 
 run_log="${JOB_DIR}/process_${GROUP_INDEX}_${PROCESS_INDEX}.log"
 jail "bash -c \"\
-      echo \\\"Running compute script.\\\"; \
+      echo \\\"Running compute script...\\\"; \
       bash ../compute.sh; \
-      echo \\\$? >exit-status_${GROUP_INDEX}_${PROCESS_INDEX}; \
+      echo \\\$? >../exit-status_${GROUP_INDEX}_${PROCESS_INDEX}; \
       echo \\\"Finished compute script.\\\"; \
       sleep $EXTRA_WAIT_TIME\"" 2>&1 | ts >>"$run_log" &
 
