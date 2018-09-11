@@ -42,5 +42,5 @@ function ts () {
 
 prep_log="${JOB_DIR}/preparation.log"
 echo "Running install script..." | ts >>"$prep_log"
-jail "bash ../install.sh; echo \$? >exit-status_preparation" 2>&1 | ts >>"$prep_log"
+jail "bash ../install.sh; echo \$? >../exit-status_preparation" 2>&1 | ts >>"$prep_log"
 echo "Finished install script."  | ts >>"$prep_log"

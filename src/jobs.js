@@ -193,11 +193,13 @@ function _prepareJob(job) {
     _setJobState(job, jobStates.PREPARING)
     return utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
-            if (code == 0 && fs.existsSync(jobfs.getJobDir(job))) {
+            if (code == 0 && fs.existsSync(jobfs.getJobDir(job)) && job.state != jobStates.STOPPING) {
                 db.schedule.push(job.id)
                 _setJobState(job, jobStates.WAITING)
             } else {
-                _appendError(job, 'Problem during preparation step - exit code: ' + code + '\n' + stderr)
+                if (job.state != jobStates.STOPPING) {
+                    _appendError(job, 'Problem during preparation step - exit code: ' + code + '\n' + stderr)  
+                }
                 _setJobState(job, jobStates.DONE)
             }
         })
