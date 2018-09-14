@@ -3,9 +3,9 @@ const path = require('path')
 const zlib = require('zlib')
 const async = require('async')
 const tar = require('tar-fs')
-const stream = require('stream')
 const rimraf = require('rimraf')
 const multer = require('multer')
+const ndir = require('node-dir')
 const cluster = require('cluster')
 const parseDuration = require('parse-duration')
 
@@ -444,6 +444,25 @@ function _sendLog(req, res, job, logFile, stopState) {
     }
 }
 
+function _jobAndPath(req, res, cb) {
+    var dbjob = _loadJob(req.params.id)
+    if (dbjob) {
+        if (groupsModule.canAccessJob(req.user, dbjob)) {
+            let jobDir = _getJobDir(dbjob)
+            let newPath = path.resolve(jobDir, req.params[0] || '')
+            if (newPath.startsWith(jobDir)) {
+                cb(dbjob, newPath)
+            } else {
+                res.status(404).send()
+            }
+        } else {
+            res.status(403).send()
+        }
+    } else {
+        res.status(404).send()
+    }
+}
+
 exports.initApp = function(app) {
     app.post('/jobs', function(req, res) {
         store.lockAutoRelease('jobs', function() {
@@ -575,6 +594,50 @@ exports.initApp = function(app) {
         } else {
             res.status(404).send()
         }
+    })
+
+    app.get('/jobs/:id/stats/(*)?', function(req, res) {
+        _jobAndPath(req, res, (dbjob, resource) => {
+            fs.stat(resource, (err, stats) => {
+                if (err || !(stats.isDirectory() || stats.isFile())) {
+                    res.status(404).send()
+                } else {
+                    res.send({
+                        isFile: stats.isFile(),
+                        size:   stats.size,
+                        mtime:  stats.mtime,
+                        atime:  stats.atime,
+                        ctime:  stats.ctime
+                    })
+                }
+            })
+        })
+    })
+
+    app.get('/jobs/:id/content/(*)?', function(req, res) {
+        _jobAndPath(req, res, (dbjob, resource) => {
+            fs.stat(resource, (err, stats) => {
+                if (err || !(stats.isDirectory() || stats.isFile())) {
+                    res.status(404).send()
+                } else {
+                    if (stats.isDirectory()) {
+                        ndir.files(resource, 'all', (err, paths) => {
+                            if (err) {
+                                res.status(500).send()
+                            } else {
+                                res.send({ dirs: paths.dirs, files: paths.files })
+                            }
+                        }, { shortName: true, recursive: false })
+                    } else {
+                        res.writeHead(200, {
+                            'Content-Type': 'application/octet-stream',
+                            'Content-Length': stats.size
+                        })
+                        fs.createReadStream(resource).pipe(res)
+                    }
+                }
+            })
+        })
     })
 
     app.get('/jobs/:id/preplog', function(req, res) {
