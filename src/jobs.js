@@ -5,6 +5,7 @@ const tar = require('tar-fs')
 const ndir = require('node-dir')
 const async = require('async')
 const cluster = require('cluster')
+const fslib = require('httpfslib')
 const randomstring = require('randomstring')
 const parseDuration = require('parse-duration')
 
@@ -166,7 +167,7 @@ function _getBasicEnv(job) {
         JOB_NUMBER: job.id,
         DATA_ROOT: jobfs.dataRoot,
         JOB_DIR: jobfs.getJobDir(job),
-        JOB_FS_URL: 'https://' + config.fqdn + ':' + config.port + '/jobs/' + job.id + '/fs/' + job.token,
+        JOB_FS_URL: 'https://' + config.fqdn + ':' + config.port + '/jobfs/' + job.id + '/' + job.token,
         JOB_FS_CERT: config.cert
     }
 }
@@ -607,7 +608,11 @@ exports.initApp = function(app) {
     app.get('/jobs/:id/preplog', function(req, res) {
         let dbjob = jobfs.loadJob(req.params.id)
         if (dbjob) {
-            _sendLog(req, res, dbjob, 'preparation.log', jobStates.PREPARING)
+            if (groupsModule.canAccessJob(req.user, dbjob)) {
+                _sendLog(req, res, dbjob, 'preparation.log', jobStates.PREPARING)
+            } else {
+                res.status(403).send()
+            }
         } else {
             res.status(404).send()
         }
@@ -615,14 +620,45 @@ exports.initApp = function(app) {
 
     app.get('/jobs/:id/groups/:group/processes/:proc/log', function(req, res) {
         let dbjob = jobfs.loadJob(req.params.id)
-        let group = Number(req.params.group)
-        let proc = Number(req.params.proc)
-        if (dbjob &&
-            dbjob.clusterReservation &&
-            group < dbjob.clusterReservation.length &&
-            proc < dbjob.clusterReservation[group].length
-        ) {
-            _sendLog(req, res, dbjob, 'process_' + group + '_' + proc + '.log', jobStates.STOPPING)
+        if (dbjob) {
+            if (groupsModule.canAccessJob(req.user, dbjob)) {
+                let group = Number(req.params.group)
+                let proc = Number(req.params.proc)
+                if (dbjob.clusterReservation &&
+                    group < dbjob.clusterReservation.length &&
+                    proc < dbjob.clusterReservation[group].length
+                ) {
+                    _sendLog(req, res, dbjob, 'process_' + group + '_' + proc + '.log', jobStates.STOPPING)
+                } else {
+                    res.status(404).send()
+                }
+            } else {
+                res.status(403).send()
+            }
+        } else {
+            res.status(404).send()
+        }
+    })
+
+    app.post('/jobs/:id/fs', function(req, res) {
+        var dbjob = jobfs.loadJob(req.params.id)
+        if (dbjob) {
+            if (groupsModule.canAccessJob(req.user, dbjob)) {
+                let user = db.users[dbjob.user]
+                let jfs = fslib.readOnly(fslib.vDir({
+                    'job':    () => fslib.real(jobfs.getJobDir(dbjob)),
+                    'shared': () => fslib.real(jobfs.sharedDir),
+                    'groups': () => fslib.vDir(
+                        () => (user && Array.isArray(user.groups)) ? user.groups : [],
+                        group => user && Array.isArray(user.groups) && user.groups.includes(group) ? fslib.readOnly(fslib.real(path.join(jobfs.groupsDir, group))) : null
+                    )
+                }))
+                let chunks = []
+                req.on('data', chunk => chunks.push(chunk));
+                req.on('end', () => fslib.serve(jfs, Buffer.concat(chunks), result => res.send(result)))
+            } else {
+                res.status(403).send()
+            }
         } else {
             res.status(404).send()
         }

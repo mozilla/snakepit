@@ -50,7 +50,7 @@ exports.deleteJobDir = function(jobId, callback) {
 }
 
 exports.initApp = function(app) {
-    app.post('/jobs/:id/fs/:token', function(req, res) {
+    app.post('/jobfs/:id/:token', function(req, res) {
         var job = exports.loadJob(req.params.id)
         if (job) {
             let user = db.users[job.user]
