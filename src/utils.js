@@ -81,8 +81,8 @@ exports.runScript = function(scriptName, env, callback) {
         }
     }
     p.on('close', code => callCallback(code))
-    p.on('error', () => callCallback(128))
-    p.on('exit', () => callCallback(0))
+    p.on('error', err => callCallback(128))
+    p.on('exit', code => callCallback(code || 0))
     var stdinStream = new stream.Readable()
     Object.keys(env).forEach(name => stdinStream.push(
         'export ' + name + '=' + exports.shellQuote(env[name]) + '\n')

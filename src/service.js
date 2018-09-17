@@ -28,7 +28,7 @@ if (cluster.isMaster) {
         const bodyParser = require('body-parser')
 
         let app = express()
-        app.use(bodyParser({ limit: '50mb' }))
+        app.use(bodyParser.json({ limit: '50mb' }))
         app.use(bodyParser.urlencoded({ extended: false }))
         app.use(bodyParser.json())
         app.use(morgan('combined'))

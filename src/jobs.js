@@ -199,7 +199,7 @@ function _prepareJob(job) {
                 _setJobState(job, jobStates.WAITING)
             } else {
                 if (job.state != jobStates.STOPPING) {
-                    _appendError(job, 'Problem during preparation step - exit code: ' + code + '\n' + stderr)  
+                    _appendError(job, 'Problem during preparation step - exit code: ' + code + '\n' + stdout + '\n' + stderr)  
                 }
                 _setJobState(job, jobStates.DONE)
             }
@@ -478,8 +478,8 @@ exports.initApp = function(app) {
                 _setJobState(dbjob, jobStates.NEW)
 
                 var files = {
-                    'compute.sh': job.compute || '[ -f .compute ] && bash .compute',
-                    'install.sh': job.install || '[ -f .install ] && bash .install'
+                    'compute.sh': job.compute || 'if [ -f .compute ]; then bash .compute; fi',
+                    'install.sh': job.install || 'if [ -f .install ]; then bash .install; fi',
                 }
                 if (job.diff) {
                     files['git.patch'] = job.diff + '\n'

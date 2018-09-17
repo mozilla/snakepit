@@ -57,8 +57,8 @@ function _runScriptOnNode(node, scriptName, env, callback) {
         }
     }
     p.on('close', code => callCallback(code))
-    p.on('error', () => callCallback(128))
-    p.on('exit', () => callCallback(0))
+    p.on('error', err => callCallback(128))
+    p.on('exit', code => callCallback(code || 0))
 }
 
 function _getLinesFromNode(node, scriptName, env, onLine, onEnd) {

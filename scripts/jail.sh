@@ -20,13 +20,14 @@ jail () {
     "${cuda[@]}" \
     --blacklist="/dev/nvidia*" \
     --blacklist="${DATA_ROOT}" \
-    bash -c "cd ~;\
-             mkdir jobfs;\
-             httpfs --quiet --certraw '${JOB_FS_CERT}' '${JOB_FS_URL}' jobfs &\
-             while [ ! -d jobfs/job ]; do sleep 0.1; done;\
-             export DATA_ROOT=~/jobfs ;\
-             export JOB_DIR=~/jobfs/job ;\
-             cd ~/jobfs/job/src;\
-             $@;\
-             kill \$(jobs -p)"
+    bash -c \
+       "cd ~;\
+        mkdir jobfs;\
+        httpfs --quiet --certraw '${JOB_FS_CERT}' '${JOB_FS_URL}' jobfs &\
+        while [ ! -d jobfs/job ]; do sleep 0.1; done;\
+        export DATA_ROOT=~/jobfs ;\
+        export JOB_DIR=~/jobfs/job ;\
+        cd ~/jobfs/job/src;\
+        $@;\
+        kill \$(jobs -p);"
 }
