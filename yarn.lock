@@ -512,7 +512,7 @@ http@^0.0.0:
 
 "httpfslib@https://github.com/mozilla/httpfslib.git":
   version "0.0.1"
-  resolved "https://github.com/mozilla/httpfslib.git#7aa748801e32c17ff020a5d3c80fcec3c26ffb4e"
+  resolved "https://github.com/mozilla/httpfslib.git#7208ca5b1d99739158c644fd489ab819476b336d"
   dependencies:
     buffer-serializer "^1.1.0"
 

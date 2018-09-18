@@ -30,9 +30,10 @@ if (cluster.isMaster) {
         let app = express()
         app.use(bodyParser.json({ limit: '50mb' }))
         app.use(bodyParser.urlencoded({ extended: false }))
-        app.use(bodyParser.json())
-        app.use(morgan('combined'))
-
+        app.use(morgan('combined', {
+            skip: function (req, res) { return res.statusCode < 400 }
+        }))
+        
         modules.forEach(module => (module.initApp || Function)(app))
 
         app.use(function (err, req, res, next) {
