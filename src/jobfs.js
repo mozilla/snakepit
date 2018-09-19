@@ -66,9 +66,8 @@ exports.initApp = function(app) {
                 })
                 let chunks = []
                 req.on('data', chunk => chunks.push(chunk));
-                req.on('end', () => fslib.serve(jfs, Buffer.concat(chunks), result => res.send(result)))
+                req.on('end', () => fslib.serve(jfs, Buffer.concat(chunks), result => res.send(result), config.debugJobFS))
             } else {
-                throw job.token + ' ' + token
                 res.status(408).send('Wrong token')
             }
         } else {

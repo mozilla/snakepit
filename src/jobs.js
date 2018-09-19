@@ -7,7 +7,6 @@ const async = require('async')
 const cluster = require('cluster')
 const fslib = require('httpfslib')
 const randomstring = require('randomstring')
-const parseDuration = require('parse-duration')
 
 const store = require('./store.js')
 const utils = require('./utils.js')
@@ -39,17 +38,7 @@ for(name of Object.keys(jobStates)) {
 
 exports.jobStates = jobStates
 
-const oneSecond = 1000
-const oneMinute = 60 * oneSecond
-const oneHour = 60 * oneMinute
-const oneDay = 24 * oneHour
-
 var db = store.root
-var pollInterval = config.pollInterval ? Number(config.pollInterval) : oneSecond
-var keepDoneDuration = config.keepDoneDuration ? parseDuration(config.keepDoneDuration) : 7 * oneDay
-var maxPrepDuration = config.maxPrepDuration ? parseDuration(config.maxPrepDuration) : oneHour
-var maxStartDuration = config.maxStartDuration ? parseDuration(config.maxStartDuration) : 5 * oneMinute
-var maxParallelPrep = config.maxParallelPrep ? Number(config.maxParallelPrep) : 2
 var utilization = {}
 var preparations = {}
 
@@ -194,7 +183,7 @@ function _prepareJob(job) {
     _setJobState(job, jobStates.PREPARING)
     return utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
-            if (code == 0 && fs.existsSync(jobfs.getJobDir(job)) && job.state != jobStates.STOPPING) {
+            if (code == 0 && fs.existsSync(jobfs.getJobDir(job)) && job.state == jobStates.PREPARING) {
                 db.schedule.push(job.id)
                 _setJobState(job, jobStates.WAITING)
             } else {
@@ -267,7 +256,7 @@ function _startJob(job, clusterReservation, callback) {
             GROUP_INDEX:          reservation.groupIndex,
             PROCESS_INDEX:        reservation.processIndex,
             PORTS:                ports.join(','),
-            EXTRA_WAIT_TIME:      Math.floor(2 * pollInterval / 1000),
+            EXTRA_WAIT_TIME:      Math.floor(2 * config.pollInterval / 1000),
             ALLOWED_CUDA_DEVICES: cudaIndices.join(',')
         }, jobEnv)
         nodesModule.runScriptOnNode(node, 'run.sh', processEnv, (code, stdout, stderr) => {
@@ -387,13 +376,13 @@ function _sendLog(req, res, job, logFile, stopState) {
                 if (fs.existsSync(logPath)) {
                     fs.stat(logPath, (err, stats) => {
                         if (!err && stats.size > written) {
-                            writeStream(() => setTimeout(poll, pollInterval))
+                            writeStream(() => setTimeout(poll, config.pollInterval))
                         } else  {
-                            setTimeout(poll, pollInterval)
+                            setTimeout(poll, config.pollInterval)
                         }
                     })
                 } else {
-                    setTimeout(poll, pollInterval)
+                    setTimeout(poll, config.pollInterval)
                 }
             } else if (fs.existsSync(logPath)) {
                 writeStream(res.end.bind(res))
@@ -655,7 +644,7 @@ exports.initApp = function(app) {
                 }))
                 let chunks = []
                 req.on('data', chunk => chunks.push(chunk));
-                req.on('end', () => fslib.serve(jfs, Buffer.concat(chunks), result => res.send(result)))
+                req.on('end', () => fslib.serve(jfs, Buffer.concat(chunks), result => res.send(result), config.debugJobFS))
             } else {
                 res.status(403).send()
             }
@@ -770,7 +759,7 @@ nodesModule.on('state', (nodeId, nodeState) => {
 exports.tick = function() {
     if (Object.keys(realProcesses).length < Object.keys(db.nodes).length) {
         console.log('Waiting for feedback from all nodes...')
-        setTimeout(exports.tick, pollInterval)
+        setTimeout(exports.tick, config.pollInterval)
         return
     }
     for(let worker of Object.keys(cluster.workers).map(k => cluster.workers[k])) {
@@ -779,7 +768,7 @@ exports.tick = function() {
     store.lockAsyncRelease('jobs', release => {
         let goon = () => {
             release()
-            setTimeout(exports.tick, pollInterval)
+            setTimeout(exports.tick, config.pollInterval)
         }
         let processes = _getJobProcesses()
         let toStop = []
@@ -835,18 +824,18 @@ exports.tick = function() {
                 let stateTime = new Date(job.stateChanges[job.state]).getTime()
                 if (
                     job.state == jobStates.DONE && 
-                    stateTime + keepDoneDuration < Date.now()
+                    stateTime + config.keepDoneDuration < Date.now()
                 ) {
                     _setJobState(job, jobStates.ARCHIVED)
                     delete db.jobs[job.id]
                 } else if (
                     job.state == jobStates.NEW && 
-                    Object.keys(preparations).length < maxParallelPrep
+                    Object.keys(preparations).length < config.maxParallelPrep
                 ) {
                     preparations[job.id] = _prepareJob(job)
                 } else if (
                     job.state == jobStates.STARTING &&
-                    stateTime + maxStartDuration < Date.now()
+                    stateTime + config.maxStartDuration < Date.now()
                 ) {
                     _appendError(job, 'Job exceeded max startup time')
                     _setJobState(job, jobStates.STOPPING)
@@ -863,7 +852,7 @@ exports.tick = function() {
                 if (
                     job && job.state == jobStates.PREPARING
                 ) {
-                    if (new Date(job.stateChanges[job.state]).getTime() + maxPrepDuration < Date.now()) {
+                    if (new Date(job.stateChanges[job.state]).getTime() + config.maxPrepDuration < Date.now()) {
                         _appendError(job, 'Job exceeded max preparation time')
                         _setJobState(job, jobStates.STOPPING)
                     }

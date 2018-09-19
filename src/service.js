@@ -29,9 +29,8 @@ if (cluster.isMaster) {
 
         let app = express()
         app.use(bodyParser.json({ limit: '50mb' }))
-        app.use(bodyParser.urlencoded({ extended: false }))
         app.use(morgan('combined', {
-            skip: function (req, res) { return res.statusCode < 400 }
+            skip: (req, res) => res.statusCode < 400 && !config.debugHttp
         }))
         
         modules.forEach(module => (module.initApp || Function)(app))
@@ -41,16 +40,12 @@ if (cluster.isMaster) {
             res.status(500).send('Something broke')
         })
 
-        let inter = process.env.SNAKEPIT_INTERFACE || config.interface || '0.0.0.0'
-        let port = process.env.SNAKEPIT_PORT || config.port
-        if (config.key && config.cert) {
-            port = port || 443
-            https.createServer({ key: config.key, cert: config.cert }, app).listen(port, inter)
+        if (config.https) {
+            https.createServer({ key: config.key, cert: config.cert }, app).listen(config.port, config.interface)
         } else {
-            port = port || 80
-            http.createServer(app).listen(port, inter)
+            http.createServer(app).listen(config.port, config.interface)
         }
-        console.log('Snakepit service running on port ' + port)
+        console.log('Snakepit service running on ' + config.interface + ':' + config.port)
     } catch (ex) {
         console.error('Failure during startup: ' + ex)
         process.exit(100)
