@@ -221,11 +221,12 @@ function _getComputeEnv(job, clusterReservation) {
             for(let resourceId of Object.keys(processReservation.resources)) {
                 let resource = processReservation.resources[resourceId]
                 if (resource.type == 'num:port') {
-                    jobEnv[
-                        'HOST_GROUP' + processReservation.groupIndex +
+                    let name = 
+                        'GROUP'    + processReservation.groupIndex +
                         '_PROCESS' + processReservation.processIndex +
-                        '_PORT' + portCount
-                    ] = node.address + ':' + resource.index
+                        '_PORT'    + portCount
+                    jobEnv['HOST_' + name] = node.address + ':' + resource.index
+                    jobEnv[name] = resource.index
                     portCount++
                 }
             }

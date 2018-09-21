@@ -132,8 +132,10 @@ exports.initApp = function(app) {
             newnode = {
                 id: id,
                 address: node.address || dbnode.address,
-                port: node.port || dbnode.port || 22,
                 user: node.user || dbnode.user || config.user,
+                port: node.port || dbnode.port || 22,
+                minPort: node.minPort || dbnode.minPort,
+                maxPort: node.maxPort || dbnode.maxPort,
                 state: nodeStates.ONLINE
             }
             if (newnode.address) {
@@ -174,6 +176,8 @@ exports.initApp = function(app) {
                 id:        node.id,
                 address:   node.address,
                 port:      node.port,
+                minPort:   node.minPort,
+                maxPort:   node.maxPort,
                 user:      node.user,
                 state:     node.state,
                 since:     node.since,

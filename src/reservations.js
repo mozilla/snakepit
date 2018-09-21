@@ -26,7 +26,7 @@ function _reserveProcess(node, clusterReservation, resourceList, user, simulatio
         return null
     }
     var resourceCounter = 1
-    let reserveNumeric = function(type, minIndex, maxIndex, numResources) {
+    let reserveNumeric = function(type, minIndex, maxIndex) {
         for(let i = minIndex; resourceCounter > 0 && i <= maxIndex; i++) {
             let resourceId = type + i
             let nodeResource = node.resources[resourceId]
@@ -49,7 +49,7 @@ function _reserveProcess(node, clusterReservation, resourceList, user, simulatio
         resourceCounter = resource.count
         //console.log('Looking for ' + resource.count + ' x ' + resource.name)
         if (resource.name == 'port') {
-            reserveNumeric('port', 1024, 65535, resource.count)
+            reserveNumeric('port', node.minPort || 1024, node.maxPort || 65535)
         } else {
             let name = db.aliases[resource.name] ? db.aliases[resource.name].name : resource.name
             for(let resourceId of Object.keys(node.resources)) {
