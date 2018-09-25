@@ -639,7 +639,7 @@ exports.initApp = function(app) {
                     'job':    () => fslib.real(jobfs.getJobDir(dbjob)),
                     'shared': () => fslib.real(jobfs.sharedDir),
                     'groups': () => fslib.vDir(
-                        () => (user && Array.isArray(user.groups)) ? user.groups : [],
+                        () => (user && Array.isArray(user.groups)) ? Object.getOwnPropertyNames(user.groups) : [],
                         group => user && Array.isArray(user.groups) && user.groups.includes(group) ? fslib.readOnly(fslib.real(path.join(jobfs.groupsDir, group))) : null
                     )
                 }))

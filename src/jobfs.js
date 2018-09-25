@@ -60,7 +60,7 @@ exports.initApp = function(app) {
                     'job':    () => fslib.real(exports.getJobDir(job)),
                     'shared': () => fslib.readOnly(fslib.real(sharedDir)),
                     'groups': () => fslib.readOnly(fslib.vDir(
-                        () => (user && Array.isArray(user.groups)) ? user.groups : [],
+                        () => (user && Array.isArray(user.groups)) ? Object.getOwnPropertyNames(user.groups) : [],
                         group => user && Array.isArray(user.groups) && user.groups.includes(group) ? fslib.readOnly(fslib.real(path.join(groupsDir, group))) : null
                     ))
                 })
