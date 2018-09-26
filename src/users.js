@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const store = require('./store.js')
+const jobfs = require('./jobfs.js')
 const config = require('./config.js')
 
 var exports = module.exports = {}
@@ -18,7 +19,7 @@ exports.initApp = function(app) {
     })
 
     function authorize(req, res, needsUser, callback) {
-        var token = req.get('X-Auth-Token')
+        let token = req.get('X-Auth-Token')
         if (token) {
             jwt.verify(token, config.tokenSecret, function(err, decoded) {
                 if (err) {
@@ -44,15 +45,15 @@ exports.initApp = function(app) {
     }
 
     app.put('/users/:id', function(req, res) {
-        var id = req.params.id
-        var user = req.body
+        let id = req.params.id
+        let user = req.body
         authorize(req, res, false, function() {
             if (db.users[id] && (!req.user || (req.user && req.user.id !== id && !req.user.admin))) {
                 res.status(403).send()
             } else {
-                var dbuser = db.users[id] || {}
+                let dbuser = db.users[id] || {}
                 function setUser(hash) {
-                    var admin = dbuser.admin
+                    let admin = dbuser.admin
                     if (Object.keys(db.users).length === 0) {
                         admin = true
                     } else if (req.user && req.user.admin) {
@@ -67,7 +68,7 @@ exports.initApp = function(app) {
                         res.status(403).send()
                         return
                     }
-                    var newuser = {
+                    let newuser = {
                         id: id,
                         fullname: user.fullname || dbuser.fullname,
                         email: user.email || dbuser.email,
@@ -96,8 +97,8 @@ exports.initApp = function(app) {
     })
 
     app.post('/users/:id/authenticate', function(req, res) {
-        var id = req.params.id
-        var user = db.users[id]
+        let id = req.params.id
+        let user = db.users[id]
         if (user) {
             bcrypt.compare(req.body.password, user.password, function(err, result) {
                 if(result) {
@@ -135,7 +136,7 @@ exports.initApp = function(app) {
     })
 
     app.get('/users/:id', function(req, res) {
-        var id = req.params.id
+        let id = req.params.id
         if (id == '~') {
             id = req.user.id
         }
@@ -159,11 +160,34 @@ exports.initApp = function(app) {
     })
 
     app.delete('/users/:id', function(req, res) {
-        var id = req.params.id
+        let id = req.params.id
         if (req.user.id == id || req.user.admin) {
             if (db.users[id]) {
                 delete db.users[id]
                 res.status(200).send()
+            } else {
+                res.status(404).send()
+            }
+        } else {
+            res.status(403).send()
+        }
+    })
+
+    app.post('/users/:id/home', function(req, res) {
+        let id = req.params.id
+        if (id == '~') {
+            id = req.user.id
+        }
+        if (req.user.id == id || req.user.admin) {
+            let user = db.users[id]
+            if (user) {
+                let chunks = []
+                req.on('data', chunk => chunks.push(chunk));
+                req.on('end', () => fslib.serve(
+                    fslib.real(jobfs.getHomeDir(user)), 
+                    Buffer.concat(chunks), 
+                    result => res.send(result), config.debugJobFS)
+                )
             } else {
                 res.status(404).send()
             }

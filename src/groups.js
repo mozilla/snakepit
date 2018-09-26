@@ -1,4 +1,5 @@
 const store = require('./store.js')
+const jobfs = require('./jobfs.js')
 const { EventEmitter } = require('events')
 var exports = module.exports = new EventEmitter()
 var db = store.root
@@ -91,6 +92,30 @@ exports.initApp = function(app) {
         } else {
             res.status(403).send()
         }
+    })
+
+    app.post('/groups/:group/fs', function(req, res) {
+        if (req.user.groups.includes(group)) {
+            let chunks = []
+            req.on('data', chunk => chunks.push(chunk));
+            req.on('end', () => fslib.serve(
+                fslib.real(jobfs.getGroupDir(group)), 
+                Buffer.concat(chunks), 
+                result => res.send(result), config.debugJobFS)
+            )
+        } else {
+            res.status(403).send()
+        }
+    })
+
+    app.post('/shared', function(req, res) {
+        let chunks = []
+        req.on('data', chunk => chunks.push(chunk));
+        req.on('end', () => fslib.serve(
+            fslib.readOnly(fslib.real(jobfs.sharedDir)), 
+            Buffer.concat(chunks), 
+            result => res.send(result), config.debugJobFS)
+        )
     })
 
     app.put('/users/:user/groups/:group', function(req, res) {

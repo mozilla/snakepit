@@ -634,18 +634,13 @@ exports.initApp = function(app) {
         var dbjob = jobfs.loadJob(req.params.id)
         if (dbjob) {
             if (groupsModule.canAccessJob(req.user, dbjob)) {
-                let user = db.users[dbjob.user]
-                let jfs = fslib.readOnly(fslib.vDir({
-                    'job':    () => fslib.real(jobfs.getJobDir(dbjob)),
-                    'shared': () => fslib.real(jobfs.sharedDir),
-                    'groups': () => fslib.vDir(
-                        () => (user && Array.isArray(user.groups)) ? Object.getOwnPropertyNames(user.groups) : [],
-                        group => user && Array.isArray(user.groups) && user.groups.includes(group) ? fslib.readOnly(fslib.real(path.join(jobfs.groupsDir, group))) : null
-                    )
-                }))
                 let chunks = []
                 req.on('data', chunk => chunks.push(chunk));
-                req.on('end', () => fslib.serve(jfs, Buffer.concat(chunks), result => res.send(result), config.debugJobFS))
+                req.on('end', () => fslib.serve(
+                    fslib.readOnly(fslib.real(jobfs.getJobDir(dbjob))), 
+                    Buffer.concat(chunks), 
+                    result => res.send(result), config.debugJobFS)
+                )
             } else {
                 res.status(403).send()
             }

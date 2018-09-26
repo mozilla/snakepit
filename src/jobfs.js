@@ -8,9 +8,10 @@ const config = require('./config.js')
 var db = store.root
 
 var exports = module.exports = {}
-const dataRoot = exports.dataRoot = config.dataRoot || '/snakepit'
-const sharedDir = exports.sharedDir = path.join(dataRoot, 'shared')
-const groupsDir = exports.groupsDir = path.join(dataRoot, 'groups')
+const dataRoot   = exports.dataRoot  = config.dataRoot || '/snakepit'
+const sharedDir  = exports.sharedDir = path.join(dataRoot, 'shared')
+const groupsDir  = exports.groupsDir = path.join(dataRoot, 'groups')
+const homesDir   = exports.homesDir  = path.join(dataRoot, 'home')
 const uploadsDir = exports.uploadDir = path.join(dataRoot, 'uploads')
 
 exports.getJobsDir = function() {
@@ -49,6 +50,22 @@ exports.deleteJobDir = function(jobId, callback) {
     rimraf(jobDir, callback)
 }
 
+exports.getGroupDir = function(group) {
+    let groupDir = path.join(groupsDir, group)
+    if (!fs.existsSync(groupDir)) {
+        fs.mkdirSync(groupDir)
+    }
+    return groupDir
+}
+
+exports.getHomeDir = function(user) {
+    let homeDir = path.join(homesDir, user.id)
+    if (!fs.existsSync(homeDir)) {
+        fs.mkdirSync(homeDir)
+    }
+    return homeDir
+}
+
 exports.initApp = function(app) {
     app.post('/jobfs/:id/:token', function(req, res) {
         var job = exports.loadJob(req.params.id)
@@ -59,10 +76,11 @@ exports.initApp = function(app) {
                 let jfs = fslib.vDir({
                     'job':    () => fslib.real(exports.getJobDir(job)),
                     'shared': () => fslib.readOnly(fslib.real(sharedDir)),
-                    'groups': () => fslib.readOnly(fslib.vDir(
+                    'groups': () => fslib.vDir(
                         () => (user && Array.isArray(user.groups)) ? Object.getOwnPropertyNames(user.groups) : [],
-                        group => user && Array.isArray(user.groups) && user.groups.includes(group) ? fslib.readOnly(fslib.real(path.join(groupsDir, group))) : null
-                    ))
+                        group => user && Array.isArray(user.groups) && user.groups.includes(group) ? fslib.real(getGroupDir(group)) : null
+                    ),
+                    'home':   () => fslib.real(getHomeDir(user))
                 })
                 let chunks = []
                 req.on('data', chunk => chunks.push(chunk));
