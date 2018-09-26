@@ -1,5 +1,7 @@
+const fslib = require('httpfslib')
 const store = require('./store.js')
 const jobfs = require('./jobfs.js')
+const config = require('./config.js')
 const { EventEmitter } = require('events')
 var exports = module.exports = new EventEmitter()
 var db = store.root
