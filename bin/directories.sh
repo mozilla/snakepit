@@ -16,6 +16,7 @@ fi
 
 mkdir -p "$root_dir"
 mkdir -p "$root_dir/shared"
+mkdir -p "$root_dir/home"
 mkdir -p "$root_dir/groups"
 mkdir -p "$root_dir/cache"
 mkdir -p "$root_dir/uploads"

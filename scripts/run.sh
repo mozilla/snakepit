@@ -1,12 +1,15 @@
-#INCLUDE jail.sh
+set -e
+set -o pipefail
 
 function ts () {
     while IFS= read -r line; do printf '[%s][%1u.%02u] %s\n' "$(date -u '+%Y-%m-%d %H:%M:%S')" $GROUP_INDEX $PROCESS_INDEX "$line"; done
 }
 
+#INCLUDE jail.sh
+
 jail "bash -c \"\
       echo \\\"Running compute script...\\\"; \
-      bash -ex ../compute.sh; \
+      bash -e ../compute.sh; \
       echo \\\$? >../exit-status_${GROUP_INDEX}_${PROCESS_INDEX}; \
       echo \\\"Finished compute script.\\\"; \
       sleep $EXTRA_WAIT_TIME;\"" \

@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const store = require('./store.js')
+const fslib = require('httpfslib')
 const jobfs = require('./jobfs.js')
 const config = require('./config.js')
 
@@ -173,7 +174,7 @@ exports.initApp = function(app) {
         }
     })
 
-    app.post('/users/:id/home', function(req, res) {
+    app.post('/users/:id/fs', function(req, res) {
         let id = req.params.id
         if (id == '~') {
             id = req.user.id

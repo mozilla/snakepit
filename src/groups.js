@@ -97,6 +97,7 @@ exports.initApp = function(app) {
     })
 
     app.post('/groups/:group/fs', function(req, res) {
+        let group = req.params.group
         if (req.user.groups.includes(group)) {
             let chunks = []
             req.on('data', chunk => chunks.push(chunk));
