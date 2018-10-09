@@ -37,6 +37,7 @@ config.cert = readConfigFile('certPemPath')
 config.https = config.key
 config.interface = process.env.SNAKEPIT_INTERFACE || config.interface || '0.0.0.0'
 config.port = process.env.SNAKEPIT_PORT || config.port || (config.https ? 443 : 80)
+config.external = process.env.SNAKEPIT_EXTERNAL || config.external || ('https://' + config.fqdn + ':' + config.port)
 
 config.debugHttp = process.env.SNAKEPIT_DEBUG_HTTP || config.debugHttp
 config.debugJobFS = process.env.SNAKEPIT_DEBUG_JOBFS || config.debugJobFS
