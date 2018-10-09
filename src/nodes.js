@@ -261,15 +261,17 @@ function _observeNode(node) {
 
 exports.tick = function() {
     for (let node of Object.keys(db.nodes).map(k => db.nodes[k])) {
-        if (node.since) {
-            if (node.state == nodeStates.OFFLINE && !observers[node.id]) {
-                let stateTime = new Date(node.since).getTime()
-                if (stateTime + reconnectInterval < Date.now()) {
-                    _observeNode(node)
+        if (!observers[node.id]) {
+            if (node.since) {
+                if (node.state == nodeStates.OFFLINE) {
+                    let stateTime = new Date(node.since).getTime()
+                    if (stateTime + reconnectInterval < Date.now()) {
+                        _observeNode(node)
+                    }
                 }
+            } else {
+                _observeNode(node)
             }
-        } else {
-            _observeNode(node)
         }
     }
     setTimeout(exports.tick, pollInterval)
