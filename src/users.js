@@ -15,6 +15,10 @@ exports.initDb = function() {
 }
 
 exports.initApp = function(app) {
+    app.get('/hello', function(req, res) {
+        res.send('Here I am')
+    })
+
     app.get('/users/:id/exists', function(req, res) {
         res.status(db.users[req.params.id] ? 200 : 404).send()
     })

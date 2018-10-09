@@ -79,7 +79,10 @@ function _getLinesFromNode(node, scriptName, env, onLine, onEnd) {
 }
 
 function _scanNode(node, callback) {
-    _runScriptOnNode(node, 'scan.sh', { DATA_ROOT: dataRoot }, (code, stdout, stderr) => {
+    _runScriptOnNode(node, 'scan.sh', { 
+        TEST_URL: 'https://' + config.fqdn + ':' + config.port + '/hello',
+        TEST_CERT: config.cert
+    }, (code, stdout, stderr) => {
         if (code > 0) {
             callback(code, stderr)
         } else {
@@ -126,10 +129,10 @@ exports.initDb = function() {
 exports.initApp = function(app) {
     app.put('/nodes/:id', function(req, res) {
         if (req.user.admin) {
-            var id = req.params.id
-            node = req.body
-            dbnode = db.nodes[id] || {}
-            newnode = {
+            let id = req.params.id
+            let node = req.body
+            let dbnode = db.nodes[id] || {}
+            let newnode = {
                 id: id,
                 address: node.address || dbnode.address,
                 user: node.user || dbnode.user || config.user,
@@ -143,15 +146,11 @@ exports.initApp = function(app) {
                     if (code > 0) {
                         res.status(400).send({ message: 'Node not available:\n' + result })
                     } else {
-                        if (node.cvd) {
-                            resources = result.filter(resource =>
-                                type != 'cuda' ||
-                                node.cvd.includes(resource.index)
-                            )
-                        }
                         newnode.resources = {}
                         for(let resource of result) {
-                            newnode.resources[resource.type + resource.index] = resource
+                            if (!node.cvd || resource.type != 'cuda' || node.cvd.includes(resource.index)) {
+                                newnode.resources[resource.type + resource.index] = resource
+                            }
                         }
                         db.nodes[id] = newnode
                         res.status(200).send()
