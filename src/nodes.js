@@ -80,7 +80,7 @@ function _getLinesFromNode(node, scriptName, env, onLine, onEnd) {
 
 function _scanNode(node, callback) {
     _runScriptOnNode(node, 'scan.sh', { 
-        TEST_URL: 'https://' + config.external + '/hello',
+        TEST_URL: config.external + '/hello',
         TEST_CERT: config.cert
     }, (code, stdout, stderr) => {
         if (code > 0) {
