@@ -78,9 +78,9 @@ exports.initApp = function(app) {
                     'shared': () => fslib.readOnly(fslib.real(sharedDir)),
                     'groups': () => fslib.vDir(
                         () => (user && Array.isArray(user.groups)) ? Object.getOwnPropertyNames(user.groups) : [],
-                        group => user && Array.isArray(user.groups) && user.groups.includes(group) ? fslib.real(getGroupDir(group)) : null
+                        group => user && Array.isArray(user.groups) && user.groups.includes(group) ? fslib.real(exports.getGroupDir(group)) : null
                     ),
-                    'home':   () => fslib.real(getHomeDir(user))
+                    'home':   () => fslib.real(exports.getHomeDir(user))
                 })
                 let chunks = []
                 req.on('data', chunk => chunks.push(chunk));
