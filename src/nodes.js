@@ -268,6 +268,8 @@ exports.tick = function() {
                     if (stateTime + reconnectInterval < Date.now()) {
                         _observeNode(node)
                     }
+                } else {
+                    _observeNode(node)
                 }
             } else {
                 _observeNode(node)
