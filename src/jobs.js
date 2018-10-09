@@ -156,7 +156,7 @@ function _getBasicEnv(job) {
         JOB_NUMBER: job.id,
         DATA_ROOT: jobfs.dataRoot,
         JOB_DIR: jobfs.getJobDir(job),
-        JOB_FS_URL: 'https://' + config.fqdn + ':' + config.port + '/jobfs/' + job.id + '/' + job.token,
+        JOB_FS_URL: config.external + '/jobfs/' + job.id + '/' + job.token,
         JOB_FS_CERT: config.cert
     }
 }
