@@ -19,6 +19,7 @@ if (cluster.isMaster) {
     })
 } else {
     try {
+        const http = require('http')
         const https = require('https')
         const morgan = require('morgan')
         const express = require('express')
@@ -36,8 +37,12 @@ if (cluster.isMaster) {
             console.error(err.stack)
             res.status(500).send('Something broke')
         })
-        
-        https.createServer({ key: config.key, cert: config.cert }, app).listen(config.port, config.interface)
+
+        if (config.https) {
+            https.createServer({ key: config.key, cert: config.cert }, app).listen(config.port, config.interface)
+        } else {
+            http.createServer(app).listen(config.port, config.interface)
+        }
         console.log('Snakepit service running on ' + config.interface + ':' + config.port)
     } catch (ex) {
         console.error('Failure during startup: ' + ex)
