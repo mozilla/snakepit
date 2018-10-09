@@ -207,6 +207,20 @@ exports.initApp = function(app) {
     })
 }
 
+exports.getGroups = function (entity) {
+    let groups = []
+    if (entity.groups) {
+        for (let group of entity.groups) {
+            groups.push(group)
+        }
+    }
+    return groups
+}
+
+exports.isInGroup = function (entity, group) {
+    return entity && group && entity.groups && entity.groups.includes && entity.groups.includes(group)
+}
+
 exports.canAccessResource = function (user, resource) {
     if (resource.groups) {
         if (user.groups) {
