@@ -77,7 +77,7 @@ exports.initApp = function(app) {
                     'job':    () => fslib.real(exports.getJobDir(job)),
                     'shared': () => fslib.readOnly(fslib.real(sharedDir)),
                     'groups': () => fslib.vDir(
-                        () => (user && Array.isArray(user.groups)) ? Object.getOwnPropertyNames(user.groups) : [],
+                        () => (user && Array.isArray(user.groups)) ? Object.getOwnPropertyNames(user.groups).map(key => user.groups[key]) : [],
                         group => user && Array.isArray(user.groups) && user.groups.includes(group) ? fslib.real(exports.getGroupDir(group)) : null
                     ),
                     'home':   () => fslib.real(exports.getHomeDir(user))
