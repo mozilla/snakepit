@@ -1,8 +1,9 @@
+const fs = require('fs')
+const path = require('path')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const store = require('./store.js')
 const fslib = require('httpfslib')
-const jobfs = require('./jobfs.js')
 const config = require('./config.js')
 
 var exports = module.exports = {}
@@ -189,7 +190,7 @@ exports.initApp = function(app) {
                 let chunks = []
                 req.on('data', chunk => chunks.push(chunk));
                 req.on('end', () => fslib.serve(
-                    fslib.real(jobfs.getHomeDir(user)), 
+                    fslib.real(exports.getHomeDir(user)), 
                     Buffer.concat(chunks), 
                     result => res.send(result), config.debugJobFS)
                 )
@@ -200,4 +201,12 @@ exports.initApp = function(app) {
             res.status(403).send()
         }
     })
+}
+
+exports.getHomeDir = function(user) {
+    let homeDir = path.join(config.homesDir, user.id)
+    if (!fs.existsSync(homeDir)) {
+        fs.mkdirSync(homeDir)
+    }
+    return homeDir
 }

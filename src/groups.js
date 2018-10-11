@@ -1,8 +1,10 @@
+const fs = require('fs')
+const path = require('path')
 const fslib = require('httpfslib')
 const store = require('./store.js')
-const jobfs = require('./jobfs.js')
 const config = require('./config.js')
 const { EventEmitter } = require('events')
+
 var exports = module.exports = new EventEmitter()
 var db = store.root
 
@@ -102,7 +104,7 @@ exports.initApp = function(app) {
             let chunks = []
             req.on('data', chunk => chunks.push(chunk));
             req.on('end', () => fslib.serve(
-                fslib.real(jobfs.getGroupDir(group)), 
+                fslib.real(exports.getGroupDir(group)), 
                 Buffer.concat(chunks), 
                 result => res.send(result), config.debugJobFS)
             )
@@ -115,7 +117,7 @@ exports.initApp = function(app) {
         let chunks = []
         req.on('data', chunk => chunks.push(chunk));
         req.on('end', () => fslib.serve(
-            fslib.readOnly(fslib.real(jobfs.sharedDir)), 
+            fslib.readOnly(fslib.real(config.sharedDir)), 
             Buffer.concat(chunks), 
             result => res.send(result), config.debugJobFS)
         )
@@ -205,6 +207,14 @@ exports.initApp = function(app) {
         }
         _emitRestricted()
     })
+}
+
+exports.getGroupDir = function(group) {
+    let groupDir = path.join(config.groupsDir, group)
+    if (!fs.existsSync(groupDir)) {
+        fs.mkdirSync(groupDir)
+    }
+    return groupDir
 }
 
 exports.getGroups = function (entity) {

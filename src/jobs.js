@@ -32,7 +32,7 @@ const jobStates = {
 }
 
 var jobStateNames = {}
-for(name of Object.keys(jobStates)) {
+for(let name of Object.keys(jobStates)) {
     jobStateNames[jobStates[name]] = name
 }
 
@@ -154,7 +154,7 @@ function _getBasicEnv(job) {
     let user = db.users[job.user]
     return {
         JOB_NUMBER: job.id,
-        DATA_ROOT: jobfs.dataRoot,
+        DATA_ROOT: config.dataRoot,
         JOB_DIR: jobfs.getJobDir(job),
         JOB_FS_URL: config.external + '/jobfs/' + job.id + '/' + job.token,
         JOB_FS_CERT: config.cert
@@ -398,10 +398,10 @@ function _sendLog(req, res, job, logFile, stopState) {
 }
 
 function _jobAndPath(req, res, cb) {
-    var dbjob = _loadJob(req.params.id)
+    var dbjob = jobfs.loadJob(req.params.id)
     if (dbjob) {
         if (groupsModule.canAccessJob(req.user, dbjob)) {
-            let jobDir = _getJobDir(dbjob)
+            let jobDir = jobfs.getJobDir(dbjob)
             let newPath = path.resolve(jobDir, req.params[0] || '')
             if (newPath.startsWith(jobDir)) {
                 cb(dbjob, newPath)
@@ -463,7 +463,7 @@ exports.initApp = function(app) {
                             (job.diff + '').split('\n').length + ' LoC diff'
                     }
                 } else if (job.archive) {
-                    dbjob.provisioning = 'Archive (' + fs.statSync(archive).size + ' bytes)'
+                    dbjob.provisioning = 'Archive (' + fs.statSync(job.archive).size + ' bytes)'
                 }
                 _setJobState(dbjob, jobStates.NEW)
 
@@ -500,7 +500,7 @@ exports.initApp = function(app) {
     })
 
     app.get('/jobs', function(req, res) {
-        fs.readdir(jobfs.getJobsDir(), (err, files) => {
+        fs.readdir(config.jobsDir, (err, files) => {
             if (err || !files) {
                 res.status(500).send()
             } else {
