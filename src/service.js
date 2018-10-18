@@ -7,8 +7,9 @@ const modules = 'jobfs users groups nodes jobs aliases'
 if (cluster.isMaster) {
     modules.forEach(module => (module.initDb || Function)())
     modules.forEach(module => (module.tick || Function)())
-    for (var i = 0; i < cpus; i++)
+    for (let i = 0; i < cpus; i++) {
         cluster.fork()
+    }
     cluster.on('exit', function(deadWorker, code, signal) {
         if (code === 100) {
             process.exit(100) // Preventing fork-loop on startup problems
