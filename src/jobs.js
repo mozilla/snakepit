@@ -326,16 +326,18 @@ function _createJobDescription(dbjob) {
         }
     }
     return {
-        id: dbjob.id,
-        description: dbjob.description,
-        user: dbjob.user,
-        groups: dbjob.groups,
-        resources: dbjob.state >= jobStates.STARTING ? summarizeClusterReservation(dbjob.clusterReservation, true) : dbjob.clusterRequest,
-        state: dbjob.state,
-        since: duration,
+        id:               dbjob.id,
+        description:      dbjob.description,
+        user:             dbjob.user,
+        groups:           dbjob.groups,
+        resources:        dbjob.state >= jobStates.STARTING ? 
+                              summarizeClusterReservation(dbjob.clusterReservation, true) : 
+                              dbjob.clusterRequest,
+        state:            dbjob.state,
+        since:            duration,
         schedulePosition: db.schedule.indexOf(dbjob.id),
-        utilComp: utilComp / utilCompCount,
-        utilMem: utilMem / utilMemCount
+        utilComp:         utilComp / utilCompCount,
+        utilMem:          utilMem / utilMemCount
     }
 }
 

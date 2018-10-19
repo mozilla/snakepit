@@ -155,7 +155,7 @@ function _writeDb() {
         storeLog = []
         fs.writeFile(DB_PATH, JSON.stringify(rawRoot, null, '\t'), function(err) {
             if(err)
-                return console.err(err);
+                return console.error(err);
             //log('Wrote db!')
         })
     }

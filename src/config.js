@@ -8,9 +8,13 @@ const oneMinute = 60 * oneSecond
 const oneHour = 60 * oneMinute
 const oneDay = 24 * oneHour
 
-var filename = process.env.SNAKEPIT_CONF || '/etc/snakepit.conf'
+var filename = process.env.SNAKEPIT_CONF || '/etc/snakepit/snakepit.conf'
 if (!fs.existsSync(filename)) {
-    filename = path.join(process.env.HOME, '.snakepit', 'snakepit.conf')
+    if (process.env.HOME) {
+        filename = path.join(process.env.HOME, '.snakepit', 'snakepit.conf')
+    } else {
+        filename = path.join('config', 'snakepit.conf')
+    }
 }
 
 function tryConfigFile(fun, verb) {

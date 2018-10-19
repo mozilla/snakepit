@@ -5,10 +5,9 @@ After=network.target
 
 [Service]
 Environment=NODE_ENV=production
-WorkingDirectory=/home/snakepit
+WorkingDirectory=/code
 Type=simple
-User=snakepit
-ExecStart=/usr/local/bin/snakepit
+ExecStart=/usr/bin/node /code/src/service.js
 Restart=on-failure
 
 [Install]
