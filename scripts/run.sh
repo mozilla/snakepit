@@ -1,18 +1,9 @@
-set -e
-set -o pipefail
-
-function ts () {
-    while IFS= read -r line; do printf '[%s][%1u.%02u] %s\n' "$(date -u '+%Y-%m-%d %H:%M:%S')" $GROUP_INDEX $PROCESS_INDEX "$line"; done
-}
 
 #INCLUDE jail.sh
 
-jail "bash -c \"\
-      echo \\\"Running compute script...\\\"; \
-      bash -e ../compute.sh; \
-      echo \\\$? >../exit-status_${GROUP_INDEX}_${PROCESS_INDEX}; \
-      echo \\\"Finished compute script.\\\"; \
-      sleep $EXTRA_WAIT_TIME;\"" \
-      2>&1 | ts >>"${JOB_DIR}/process_${GROUP_INDEX}_${PROCESS_INDEX}.log" &
+gp="${GROUP_INDEX}_${PROCESS_INDEX}"
+prefix=$(printf '%1u.%02u' $GROUP_INDEX $PROCESS_INDEX)
 
-echo "pid:${JOB_NUMBER}_${GROUP_INDEX}_${PROCESS_INDEX}"
+DECOUPLED=true jail "exit-status_${gp}" "$prefix" "process_${gp}.log" "compute"
+
+echo "pid:${JOB_NUMBER}_${gp}"

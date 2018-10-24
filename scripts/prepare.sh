@@ -1,9 +1,3 @@
-set -e
-set -o pipefail
-
-function ts () {
-    while IFS= read -r line; do printf '[%s][PREP] %s\n' "$(date -u '+%Y-%m-%d %H:%M:%S')" "$line"; done
-}
 
 #INCLUDE jail.sh
 
@@ -40,9 +34,4 @@ if [ -f "$patch_file" ]; then
     cat "$patch_file" | patch -p0
 fi
 
-{
-    echo "Running install script..."
-    jail "bash -e ../install.sh; echo \$? >../exit-status_preparation" 2>&1
-    echo "Finished install script."
-    exit `cat ../exit-status_preparation`
-} 2>&1 | ts >>"${JOB_DIR}/preparation.log"
+jail "exit-status_preparation" "PREP" "preparation.log" "install"
