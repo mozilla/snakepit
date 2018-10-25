@@ -135,10 +135,6 @@ exports.initApp = function(app) {
             let newnode = {
                 id: id,
                 address: node.address || dbnode.address,
-                user: node.user || dbnode.user || config.user,
-                port: node.port || dbnode.port || 22,
-                minPort: node.minPort || dbnode.minPort,
-                maxPort: node.maxPort || dbnode.maxPort,
                 state: nodeStates.ONLINE
             }
             if (newnode.address) {
@@ -174,10 +170,6 @@ exports.initApp = function(app) {
             res.status(200).json({
                 id:        node.id,
                 address:   node.address,
-                port:      node.port,
-                minPort:   node.minPort,
-                maxPort:   node.maxPort,
-                user:      node.user,
                 state:     node.state,
                 since:     node.since,
                 resources: Object.keys(node.resources).map(resourceId => {
@@ -223,58 +215,14 @@ exports.initApp = function(app) {
     })
 }
 
-function _observeNode(node) {
-    let pids = {}
-    let utilization = {}
-    observers[node.id] = _getLinesFromNode(
-        node, 
-        'poll.sh', 
-        { INTERVAL: Math.ceil(pollInterval / 1000) }, 
-        line => {
-            if (node.state != nodeStates.ONLINE) {
-                _setNodeState(node, nodeStates.ONLINE)
-            }
-            line = line.trim()
-            if (line == 'NEXT') {
-                exports.emit('data', node.id, pids, utilization)
-                pids = {}
-                utilization = {}
-            } else {
-                if(line.startsWith('pid:')) {
-                    pids[line.substr(4)] = true
-                } else if (line.startsWith('util:')) {
-                    let values = line.substr(5).split(',')
-                    utilization[values[0]] = {
-                        comp: Number(values[1]),
-                        mem: Number(values[2])
-                    }
-                }
-            }
-        },
-        (code, err) => {
-            console.log(code, err)
-            delete observers[node.id]
-            _setNodeState(node, nodeStates.OFFLINE)
-        }
-    )
+function _checkNodeObservation(node) {
+    //TODO: Check, if observer container is up and running
+    //TODO: If not: Instantiate it
 }
 
 exports.tick = function() {
     for (let node of Object.keys(db.nodes).map(k => db.nodes[k])) {
-        if (!observers[node.id]) {
-            if (node.since) {
-                if (node.state == nodeStates.OFFLINE) {
-                    let stateTime = new Date(node.since).getTime()
-                    if (stateTime + reconnectInterval < Date.now()) {
-                        _observeNode(node)
-                    }
-                } else {
-                    _observeNode(node)
-                }
-            } else {
-                _observeNode(node)
-            }
-        }
+        _checkNodeObservation(node)
     }
     setTimeout(exports.tick, pollInterval)
 }
