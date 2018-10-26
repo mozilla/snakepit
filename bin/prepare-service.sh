@@ -17,7 +17,9 @@ else
 fi
 address="`echo "$address" | cut -d/ -f 1`"
 
-lxc init ubuntu:18.04 snakepit
+lxc remote add --protocol simplestreams ubuntu-minimal https://cloud-images.ubuntu.com/minimal/releases/
+
+lxc init ubuntu-minimal:18.04/amd64 snakepit
 lxc config set snakepit raw.idmap "both $uid 0"
 lxc config device add snakepit data disk path=/data source="$1"
 if [ $# -eq 2 ]; then
@@ -27,8 +29,10 @@ fi
 lxc start snakepit
 exe="lxc exec snakepit -- "
 $exe systemctl isolate multi-user.target
-$exe apt update
-$exe apt install -y curl jq nodejs npm git build-essential
+
+$exe bash -c 'DEBIAN_FRONTEND=noninteractive apt-get -yq update && \
+    apt-get install -yq curl jq nodejs npm git build-essential'
+
 if [ $# -ne 2 ]; then
     $exe bash -c 'git clone https://github.com/mozilla/snakepit.git /code; cd /code; npm install'
 fi
