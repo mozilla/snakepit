@@ -1,18 +1,18 @@
-const stream = require('stream')
-const { spawn } = require('child_process')
+const https = require('https')
+const axios = require('axios')
 const { EventEmitter } = require('events')
 
 const store = require('./store.js')
 const config = require('./config.js')
 const { getAlias } = require('./aliases.js')
-const { getScript, shellQuote } = require('./utils.js')
 
-const pollInterval = config.pollInterval || 1000
-const reconnectInterval = config.reconnectInterval || 60000
-
-var exports = module.exports = new EventEmitter()
-var dataRoot = config.dataRoot || '/snakepit'
-
+const agent = new https.Agent({ 
+    key: config.lxdkey, 
+    cert: config.lxdcert,
+    rejectUnauthorized: false
+})
+const stdOptions = { httpsAgent: agent }
+const headNode = { id: 'head', address: config.lxd }
 const nodeStates = {
     OFFLINE: 0,
     ONLINE:  1
@@ -20,84 +20,235 @@ const nodeStates = {
 
 exports.nodeStates = nodeStates
 
-
 var db = store.root
 var observers = {}
 var toRemove = {}
+var headInfo
+var exports = module.exports = new EventEmitter()
 
-function _startScriptOnNode(node, scriptName, env) {
-    let script = getScript(scriptName)
-    let address = node.user + '@' + node.address
-    //console.log('Running script "' + scriptPath + '" on "' + address + '"')
-    p = spawn('ssh', ['-oConnectTimeout=10', '-oStrictHostKeyChecking=no', '-oBatchMode=yes', address, '-p', node.port, 'bash -s'])
-    var stdinStream = new stream.Readable()
-    Object.keys(env).forEach(name => stdinStream.push('export ' + name + '=' + shellQuote(env[name]) + '\n'))
-    stdinStream.push(script + '\n')
-    stdinStream.push(null)
-    stdinStream.pipe(p.stdin)
-    return p
-}
 
-function _runScriptOnNode(node, scriptName, env, callback) {
-    if (typeof env == 'function') {
-        callback = env
-        env = {}
-    }
-    env = env || {}
-    let p = _startScriptOnNode(node, scriptName, env)
-    let stdout = []
-    p.stdout.on('data', data => stdout.push(data))
-    let stderr = []
-    p.stderr.on('data', data => stderr.push(data))
-    let called = false
-    let callCallback = code => {
-        if (!called) {
-            called = true
-            callback(code, stdout.join('\n'), stderr.join('\n'))
+function getHeadCertificate() {
+    if (!headInfo) {
+        let response = await axios.get(getUrl(), stdOptions)
+        if (response) {
+            headInfo = response.metadata
         }
     }
-    p.on('close', code => callCallback(code))
-    p.on('error', err => callCallback(128))
-    p.on('exit', code => callCallback(code || 0))
+    return headInfo && headInfo.environment && headInfo.environment.certificate
 }
 
-function _getLinesFromNode(node, scriptName, env, onLine, onEnd) {
-    let p = _startScriptOnNode(node, scriptName, env)
-    let lastLine
-    p.stdout.on('data', data => {
-        let lines = data.toString().split('\n')
-        if (lastLine && lines.length > 0) {
-            lines[0] = lastLine + lines[0]
-        }
-        lastLine = lines.splice(-1, 1)[0]
-        lines.forEach(onLine)
-    })
-    let stderr = []
-    p.stderr.on('data', data => stderr.push(data))
-    p.on('close', code => onEnd(code, stderr.join('\n')))
-    return p
+function getUrl(node, resource) {
+    if (!resource) {
+        resource = node
+        baseUrl = config.lxd
+    } else {
+        baseUrl = node.address
+    }
+    return baseUrl + '/1.0' + (resource ? ('/' + resource) : '')
 }
 
-function _scanNode(node, callback) {
-    _runScriptOnNode(node, 'scan.sh', { 
-        TEST_URL: config.external + '/hello',
-        TEST_CERT: config.cert
-    }, (code, stdout, stderr) => {
-        if (code > 0) {
-            callback(code, stderr)
-        } else {
-            var resources = []
-            var types = {}
-            stdout.split('\n').forEach(line => {
-                let [type, name] = line.split(':')
-                if (type && name) {
-                    types[type] = (type in types) ? types[type] + 1 : 0
-                    resources.push({ type: type, index: types[type], name: name })
-                }
-            })
-            callback(code, resources)
+function interpretResult(promise) {
+    return promise.then(data => {
+        return data.type == 'error' ? [data.error] : [null, data]
+    }).catch(err => [err])
+}
+
+function lxdGet(node, resource) {
+    return interpretResult(axios.get(getUrl(node, resource), stdOptions))
+}
+
+function lxdDelete(node, resource) {
+    return interpretResult(axios.delete(getUrl(node, resource), stdOptions))
+}
+
+function lxdPut(node, resource, data) {
+    return interpretResult(axios.put(getUrl(node, resource), data, stdOptions))
+}
+
+function lxdPost(node, resource, data) {
+    return interpretResult(axios.post(getUrl(node, resource), data, stdOptions))
+}
+
+function getSnakeId(pitId, node, name) {
+    return pitId + '-' + node.id + '-' + name
+}
+
+function parseSnakeId(sId) {
+    let res = /sp-pit-[a-z0-9]+-([a-z0-9]+)-([a-z0-9]+)-([a-z0-9]+)/.exec(sId)
+    return { pitId: res[1], nId: res[2], name: res[3] }
+}
+
+function getNetworkId(pitId) {
+    return pitId + '-network'
+}
+
+function getDaemonId(pitId) {
+    return pitId + '-snaked'
+}
+
+function getAllNodes() {
+    nodes = [headNode]
+    for (let nId of Object.keys(db.nodes)) {
+        nodes.push(db.nodes[nId])
+    }
+    return nodes
+}
+
+function getNodeById(nId) {
+    return nId == 'head' ? headNode : db.nodes[nId]
+}
+
+function getSnakeUrl(sId) {
+    let snakeInfo = parseSnakeId(sId)
+    let node = getNodeById(snakeInfo.nId)
+    return getUrl(node.address) + '/containers/' + sId
+}
+
+
+async function getPits () {
+    let err, snakes
+    [err, snakes] = getSnakes(headNode)
+    if (snakes) {
+        let sIds = {}
+        for (let sId of snakes) {
+            let snakeInfo = parseSnakeId(sId)
+            sIds[snakeInfo.sId] = true
         }
-    })
+        return Object.keys(sIds)
+    }
+    return []
+}
+exports.getPits = getPits
+
+
+async function createPit (name, drives) {
+    let pitId = 'sp-pit-' + name
+    await axios.put(getUrl('networks/' + getNetworkId(pitId)), {
+        "config": {
+            "bridge.driver": "vxnet",
+            "ipv4.address": "10.0.0.1/24"
+        }
+    }, stdOptions)
+    let devices = {}
+    if (drives) {
+        for (let dest of Object.keys(drives)) {
+            driveOptions[dest] = {
+                path: '/' + dest,
+                source: drives[dest],
+                type: 'disk'
+            }
+        }
+    }
+    await addSnake(pitId, headNode, 'snaked', getDaemonId(pitId), { devices: devices })
+    return pitId
+}
+exports.createPit = createPit
+
+
+async function dropPit (pitId) {
+    for(let node of getAllNodes()) {
+        for (let sId of getSnakes(node)) {
+            if (sId.startsWith(pitId)) {
+                removeSnake(sId)
+            }
+        }
+    }
+    await axios.delete(config.lxd + '/networks/' + getNetworkId(pitId), stdOptions)
+}
+exports.dropPit = dropPit
+
+
+async function getSnakes (node) {
+    let address = node ? node.address : config.lxd 
+    let result = await axios.get(address + '/containers', stdOptions)
+    return result.data
+}
+exports.getContainers = getContainers
+
+ 
+async function addSnake (pitId, node, image, name, options) {
+    let sId = getSnakeId(pitId, node, name)
+    let config = Object.assign({
+        name: sId,
+        architecture: 'x86_64',
+        profiles: [],
+        ephemeral: false,
+        devices: {
+            'kvm': {
+                path: '/dev/kvm',
+                type: 'unix-char'
+            },
+            'eth0': {
+                name:    'eth0',
+                nictype: 'bridged',
+                parent:  getNetworkId(pitId),
+                type:    'nic'
+            }
+        },
+        source: {
+            type:        'image',
+            mode:        'pull',
+            server:      config.lxd,
+            protocol:    'lxd',
+            certificate: getHeadCertificate(),
+            alias:       image
+        },
+    }, options)
+    await axios.post(getUrl('containers/' + sId), config, stdOptions)
+    return sId
+}
+exports.addSnake = addSnake
+
+
+async function setSnakeState (sId, state, force, stateful) {
+    await axios.put(getSnakeUrl(sId) + '/state', {
+        action:   state,
+        timeout:  config.lxdTimeout,
+        force:    !!force,
+        stateful: !!stateful
+    }, stdOptions)
+}
+exports.startSnake = startSnake
+
+
+async function startSnake (sId) {
+    await setSnakeState(sId, 'start')
+}
+exports.startSnake = startSnake
+
+
+async function stopSnake (sId) {
+    await setSnakeState(sId, 'stop')
+}
+exports.stopSnake = stopSnake
+
+
+async function exec (sId, command, env) {
+    let call = await axios.post(getSnakeUrl(sId) + '/exec', {
+        command:              command,
+        environment:          env,
+        'wait-for-websocket': true,
+        interactive:          false
+    }, stdOptions)
+    if (call && call.metadata && call.metadata.fds) {
+
+    }
+}
+exports.execSync = execSync
+
+
+async function removeSnake (sId) {
+    await axios.delete(getSnakeUrl(sId), stdOptions)
+}
+exports.removeSnake = removeSnake
+
+
+async function _scanNode(node) {
+    let pitId = await createPit('test' + node.id, { 'snakepit': config.dataRoot })
+    let sId = await addSnake(pitId, node, 'snakew', 'scanner')
+    let output = await exec(sId, "bash -c 'ls -la /data; nvidia-smi'")
+    // TODO: Check output
+    return true
 }
 
 function _setNodeState(node, nodeState) {
@@ -111,8 +262,6 @@ function _setNodeState(node, nodeState) {
         }, 1000)
     }
 }
-
-exports.runScriptOnNode = _runScriptOnNode
 
 exports.initDb = function() {
     if (!db.nodes) {
@@ -213,16 +362,4 @@ exports.initApp = function(app) {
             res.status(403).send()
         }
     })
-}
-
-function _checkNodeObservation(node) {
-    //TODO: Check, if observer container is up and running
-    //TODO: If not: Instantiate it
-}
-
-exports.tick = function() {
-    for (let node of Object.keys(db.nodes).map(k => db.nodes[k])) {
-        _checkNodeObservation(node)
-    }
-    setTimeout(exports.tick, pollInterval)
 }

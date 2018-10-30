@@ -1,12 +1,10 @@
 const cluster = require('cluster')
 const cpus = require('os').cpus().length
-const lxdn = require('lxdn')
 const config = require('./config.js')
 const modules = 'jobfs users groups nodes jobs aliases'
     .split(' ').map(name => require('./' + name + '.js'))
 
 if (cluster.isMaster) {
-    let mainClient = lxdn(config.lxd, { key: config.lxdkey, cert: config.lxdcert })
     modules.forEach(module => (module.initDb || Function)())
     modules.forEach(module => (module.tick || Function)())
     for (let i = 0; i < cpus; i++) {

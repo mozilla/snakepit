@@ -30,13 +30,17 @@ var content = tryConfigFile(() => fs.readFileSync(filename), 'reading')
 var config = module.exports = tryConfigFile(() => yaml.safeLoad(content), 'parsing')
 
 function readConfigFile(name) {
-    return fs.existsSync(config[name]) ? fs.readFileSync(config[name]) : undefined
+    return fs.existsSync(config[name]) ? fs.readFileSync(config[name]).toString() : undefined
 }
 
 config.tokenSecret = readConfigFile('tokenSecretPath')
 
 config.key = readConfigFile('keyPemPath')
 config.cert = readConfigFile('certPemPath')
+config.lxdkey = readConfigFile('lxdkey')
+config.lxdcert = readConfigFile('lxdcert')
+config.lxdTimeout = config.lxdTimeout || 30
+
 config.https = config.key
 
 config.interface  = process.env.SNAKEPIT_INTERFACE   || config.interface || '0.0.0.0'
