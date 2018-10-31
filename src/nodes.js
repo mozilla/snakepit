@@ -27,7 +27,7 @@ var headInfo
 var exports = module.exports = new EventEmitter()
 
 
-function getHeadCertificate() {
+function getHeadCertificate () {
     if (!headInfo) {
         let response = await axios.get(getUrl(), stdOptions)
         if (response) {
@@ -37,7 +37,7 @@ function getHeadCertificate() {
     return headInfo && headInfo.environment && headInfo.environment.certificate
 }
 
-function getUrl(node, resource) {
+function getUrl (node, resource) {
     if (!resource) {
         resource = node
         baseUrl = config.lxd
@@ -47,129 +47,151 @@ function getUrl(node, resource) {
     return baseUrl + '/1.0' + (resource ? ('/' + resource) : '')
 }
 
-function interpretResult(promise) {
-    return promise.then(data => {
-        return data.type == 'error' ? [data.error] : [null, data]
-    }).catch(err => [err])
+function to (promise) {
+    return promise.then(data => [null, data]).catch(err => [err])
 }
 
-function lxdGet(node, resource) {
+function interpretResult (promise) {
+    return promise.then(data => {
+        if (data && data.type == 'error') {
+            throw data.error
+        } else {
+            return data.metadata
+        }
+    })
+}
+
+function lxdGet (node, resource) {
     return interpretResult(axios.get(getUrl(node, resource), stdOptions))
 }
 
-function lxdDelete(node, resource) {
+function lxdDelete (node, resource) {
     return interpretResult(axios.delete(getUrl(node, resource), stdOptions))
 }
 
-function lxdPut(node, resource, data) {
+function lxdPut (node, resource, data) {
     return interpretResult(axios.put(getUrl(node, resource), data, stdOptions))
 }
 
-function lxdPost(node, resource, data) {
+function lxdPost (node, resource, data) {
     return interpretResult(axios.post(getUrl(node, resource), data, stdOptions))
 }
 
-function getSnakeId(pitId, node, name) {
-    return pitId + '-' + node.id + '-' + name
+function getSnakeName (pitId, node, name) {
+    return prefix(pitId + '-' + node.id + '-' + name)
 }
 
-function parseSnakeId(sId) {
-    let res = /sp-pit-[a-z0-9]+-([a-z0-9]+)-([a-z0-9]+)-([a-z0-9]+)/.exec(sId)
-    return { pitId: res[1], nId: res[2], name: res[3] }
+function parseSnakeName (snakeName) {
+    let res = /sp-pit-([a-z0-9]+)-([a-z0-9]+)-([a-z0-9]+)-([a-z0-9]+)/.exec(snakeName)
+    return { pitId: res[1], nodeId: res[2], id: res[3] }
 }
 
-function getNetworkId(pitId) {
-    return pitId + '-network'
+function prefix(name) {
+    return 'sp-pit-' + name
 }
 
-function getDaemonId(pitId) {
-    return pitId + '-snaked'
+function getNetworkName (pitId) {
+    return prefix(pitId + '-network')
 }
 
-function getAllNodes() {
+function getDaemonName (pitId) {
+    return prefix(pitId + '-snaked')
+}
+
+function getAllNodes () {
     nodes = [headNode]
-    for (let nId of Object.keys(db.nodes)) {
-        nodes.push(db.nodes[nId])
+    for (let nodeId of Object.keys(db.nodes)) {
+        nodes.push(db.nodes[nodeId])
     }
     return nodes
 }
 
-function getNodeById(nId) {
-    return nId == 'head' ? headNode : db.nodes[nId]
+function getNodeById (nodeId) {
+    return nodeId == 'head' ? headNode : db.nodes[nodeId]
 }
 
-function getSnakeUrl(sId) {
-    let snakeInfo = parseSnakeId(sId)
-    let node = getNodeById(snakeInfo.nId)
-    return getUrl(node.address) + '/containers/' + sId
+function getSnakeUrl (snakeName) {
+    let snakeInfo = parseSnakeName(snakeName)
+    let node = getNodeById(snakeInfo.nodeId)
+    return getUrl(node.address) + '/containers/' + snakeName
 }
 
 
 async function getPits () {
     let err, snakes
-    [err, snakes] = getSnakes(headNode)
+    [err, snakes] = await to(getSnakes(headNode))
     if (snakes) {
-        let sIds = {}
-        for (let sId of snakes) {
-            let snakeInfo = parseSnakeId(sId)
-            sIds[snakeInfo.sId] = true
+        let pitIds = {}
+        for (let snakeName of snakes) {
+            let snakeInfo = parseSnakeName(snakeName)
+            pitIds[snakeInfo.pitId] = true
         }
-        return Object.keys(sIds)
+        return Object.keys(pitIds)
     }
     return []
 }
 exports.getPits = getPits
 
 
-async function createPit (name, drives) {
-    let pitId = 'sp-pit-' + name
-    await axios.put(getUrl('networks/' + getNetworkId(pitId)), {
+async function createPit (pitId, drives) {
+    let netResource = 'networks/' + getNetwork(pitId),
+        err
+    [err] = await to(lxdPut(headNode, netResource, {
         "config": {
             "bridge.driver": "vxnet",
             "ipv4.address": "10.0.0.1/24"
         }
-    }, stdOptions)
-    let devices = {}
-    if (drives) {
-        for (let dest of Object.keys(drives)) {
-            driveOptions[dest] = {
-                path: '/' + dest,
-                source: drives[dest],
-                type: 'disk'
+    }))
+    if (!err) {
+        let devices = {}
+        if (drives) {
+            for (let dest of Object.keys(drives)) {
+                driveOptions[dest] = {
+                    path: '/' + dest,
+                    source: drives[dest],
+                    type: 'disk'
+                }
             }
         }
+        [err] = await to(addSnake(pitId, headNode, 'snaked', getDaemonName(pitId), { devices: devices }))
+        if (err) {
+            await lxdDelete(headNode, netResource)
+        } else {
+            return true
+        }
     }
-    await addSnake(pitId, headNode, 'snaked', getDaemonId(pitId), { devices: devices })
-    return pitId
 }
 exports.createPit = createPit
 
 
 async function dropPit (pitId) {
     for(let node of getAllNodes()) {
-        for (let sId of getSnakes(node)) {
-            if (sId.startsWith(pitId)) {
-                removeSnake(sId)
+        let [err, snakes] = await to(getSnakes(node))
+        if (snakes) {
+            for (let snakeName of snakes) {
+                if (snakeName.startsWith(pitId)) {
+                    removeSnake(snakeName)
+                }
             }
         }
     }
-    await axios.delete(config.lxd + '/networks/' + getNetworkId(pitId), stdOptions)
+    let [err] = await to(lxdDelete(headNode, '/networks/' + getNetworkName(pitId)))
 }
 exports.dropPit = dropPit
 
 
 async function getSnakes (node) {
-    let address = node ? node.address : config.lxd 
-    let result = await axios.get(address + '/containers', stdOptions)
-    return result.data
+    let [err, result] = await to(lxdGet(node, '/containers'))
+    // TODO: Complete RegEx
+    return result ? result.filter(r => /sp-pit-[a-z0-9]+-/.test(r)) : []
 }
 exports.getContainers = getContainers
 
  
 async function addSnake (pitId, node, image, name, options) {
-    let sId = getSnakeId(pitId, node, name)
+    let snakeName = getSnakeName(pitId, node, name)
     let config = Object.assign({
-        name: sId,
+        name: snakeName,
         architecture: 'x86_64',
         profiles: [],
         ephemeral: false,
@@ -181,7 +203,7 @@ async function addSnake (pitId, node, image, name, options) {
             'eth0': {
                 name:    'eth0',
                 nictype: 'bridged',
-                parent:  getNetworkId(pitId),
+                parent:  getNetworkName(pitId),
                 type:    'nic'
             }
         },
@@ -194,14 +216,14 @@ async function addSnake (pitId, node, image, name, options) {
             alias:       image
         },
     }, options)
-    await axios.post(getUrl('containers/' + sId), config, stdOptions)
-    return sId
+    await axios.post(getUrl('containers/' + snakeName), config, stdOptions)
+    return snakeName
 }
 exports.addSnake = addSnake
 
 
-async function setSnakeState (sId, state, force, stateful) {
-    await axios.put(getSnakeUrl(sId) + '/state', {
+async function setSnakeState (snakeName, state, force, stateful) {
+    await axios.put(getSnakeUrl(snakeName) + '/state', {
         action:   state,
         timeout:  config.lxdTimeout,
         force:    !!force,
@@ -211,20 +233,20 @@ async function setSnakeState (sId, state, force, stateful) {
 exports.startSnake = startSnake
 
 
-async function startSnake (sId) {
-    await setSnakeState(sId, 'start')
+async function startSnake (snakeName) {
+    await setSnakeState(snakeName, 'start')
 }
 exports.startSnake = startSnake
 
 
-async function stopSnake (sId) {
-    await setSnakeState(sId, 'stop')
+async function stopSnake (snakeName) {
+    await setSnakeState(snakeName, 'stop')
 }
 exports.stopSnake = stopSnake
 
 
-async function exec (sId, command, env) {
-    let call = await axios.post(getSnakeUrl(sId) + '/exec', {
+async function exec (snakeName, command, env) {
+    let call = await axios.post(getSnakeUrl(snakeName) + '/exec', {
         command:              command,
         environment:          env,
         'wait-for-websocket': true,
@@ -237,16 +259,16 @@ async function exec (sId, command, env) {
 exports.execSync = execSync
 
 
-async function removeSnake (sId) {
-    await axios.delete(getSnakeUrl(sId), stdOptions)
+async function removeSnake (snakeName) {
+    await axios.delete(getSnakeUrl(snakeName), stdOptions)
 }
 exports.removeSnake = removeSnake
 
 
 async function _scanNode(node) {
     let pitId = await createPit('test' + node.id, { 'snakepit': config.dataRoot })
-    let sId = await addSnake(pitId, node, 'snakew', 'scanner')
-    let output = await exec(sId, "bash -c 'ls -la /data; nvidia-smi'")
+    let snakeName = await addSnake(pitId, node, 'snakew', 'scanner')
+    let output = await exec(snakeName, "bash -c 'ls -la /data; nvidia-smi'")
     // TODO: Check output
     return true
 }
