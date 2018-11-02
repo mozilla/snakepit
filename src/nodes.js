@@ -132,6 +132,27 @@ async function getPits () {
 }
 exports.getPits = getPits
 
+/*
+TODO: build network on nodes like this:
+
+# on host 1
+sudo lxc network create <NW1> tunnel.<T1>.protocol=gre tunnel.<T1>.local=<IP1> tunnel.<T1>.remote=<IP2>
+sudo lxc profile create <PRO1>
+sudo lxc profile device remove default eth0
+sudo lxc profile device add <PRO1> root disk path=/ pool=default
+sudo lxc network attach-profile <NW1> <PRO1> eth0 eth0
+sudo lxc init headnode:snaked <C1>
+sudo lxc profile assign <C1> <PRO1>
+
+# on host 2
+sudo lxc network create <NW1> tunnel.<T2>.protocol=gre tunnel.<T2>.local=<IP2> tunnel.<T2>.remote=<IP1>
+sudo lxc profile create <PRO1>
+sudo lxc profile device remove default eth0
+sudo lxc profile device add <PRO1> root disk path=/ pool=default
+sudo lxc network attach-profile <NW1> <PRO1> eth0 eth0
+sudo lxc init headnode:snaked <C2>
+sudo lxc profile assign <C2> <PRO1>
+*/
 
 async function createPit (pitId, drives) {
     let netResource = 'networks/' + getNetwork(pitId),
