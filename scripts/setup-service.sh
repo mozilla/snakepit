@@ -5,7 +5,9 @@ lxd_endpoint=$1
 
 command=$'\n "sudo lxc exec snakepit -- /code/scripts/setup-service.sh '$lxd_endpoint$'"\n'
 if ! curl -k -s $lxd_endpoint > /dev/null 2>&1; then
-    echo "Problem accessing \"$lxd_endpoint\". Please call $command with the appropriate LXD REST service endpoint."
+    echo "Problem accessing \"$lxd_endpoint\"."
+    echo "You have to enable LXD's REST API access over HTTPS."
+    echo "Please call $command with the appropriate LXD REST service endpoint."
     exit 1
 fi
 

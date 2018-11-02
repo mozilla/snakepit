@@ -5,6 +5,8 @@ if [ $# -ne 1 ] && [ $# -ne 2 ] ; then
     exit 1
 fi
 
+bin/prepare-lxd.sh
+
 uid=`ls -ldn "$1" | awk '{print $3}'`
 
 if lxc network show snakebr0 > /dev/null 2>&1; then
@@ -16,8 +18,6 @@ else
     address=`lxc network get lxdbr0 ipv4.address`
 fi
 address="`echo "$address" | cut -d/ -f 1`"
-
-lxc remote add --protocol simplestreams ubuntu-minimal https://cloud-images.ubuntu.com/minimal/releases/
 
 lxc init ubuntu-minimal:18.04/amd64 snakepit
 lxc config set snakepit raw.idmap "both $uid 0"
