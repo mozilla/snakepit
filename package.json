@@ -35,6 +35,7 @@
   "homepage": "https://github.com/mozilla/snakepit#readme",
   "dependencies": {
     "async": "^2.6.1",
+    "async-parallel": "^1.2.3",
     "axios": "^0.18.0",
     "bcrypt": "^2.0.1",
     "body-parser": "^1.18.3",
