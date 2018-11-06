@@ -1,5 +1,6 @@
 const https = require('https')
 const axios = require('axios')
+const assign = require('assign-deep')
 const Parallel = require('async-parallel')
 const { EventEmitter } = require('events')
 
@@ -37,7 +38,8 @@ async function getHeadCertificate () {
             headInfo = response
         }
     }
-    return headInfo && headInfo.environment && headInfo.environment.certificate
+    let cert = headInfo && headInfo.environment && headInfo.environment.certificate
+    return cert
 }
 
 function getUrl (node, resource) {
@@ -48,38 +50,59 @@ function to (promise) {
     return promise.then(data => [null, data]).catch(err => [err])
 }
 
-function interpretResult (promise) {
-    return promise.then(data => {
-        if (data && data.type == 'error') {
-            throw data.error
-        } else {
-            return data.metadata
-        }
-    })
+async function _interpretResult (node, response) {
+    switch(response.data.type) {
+        case 'sync':
+            console.log('Result:', response.data.metadata)
+            return response.data.metadata
+        case 'async':
+            console.log('Forwarding:', response.data.operation + '/wait')
+            let wres = await axios.get(node.address + response.data.operation + '/wait', stdOptions)
+            console.log('Result:', wres.data)
+            if (wres.err) {
+                throw wres.err
+            }
+            return wres
+        case 'error':
+            console.log('Error:', response.data.error)
+            throw response.data.error
+    }
+}
+
+async function interpretResult (node, promise) {
+    return promise.then(response => _interpretResult(node, response))
 }
 
 function lxdGet (node, resource) {
-    return interpretResult(axios.get(getUrl(node, resource), stdOptions))
+    let u = getUrl(node, resource)
+    console.log('GET:', u)
+    return interpretResult(node, axios.get(u, stdOptions))
 }
 
 function lxdDelete (node, resource) {
-    return interpretResult(axios.delete(getUrl(node, resource), stdOptions))
+    let u = getUrl(node, resource)
+    console.log('DELETE:', u)
+    return interpretResult(node, axios.delete(u, stdOptions))
 }
 
 function lxdPut (node, resource, data) {
-    return interpretResult(axios.put(getUrl(node, resource), data, stdOptions))
+    let u = getUrl(node, resource)
+    console.log('PUT:', u)
+    return interpretResult(node, axios.put(u, data, stdOptions))
 }
 
 function lxdPost (node, resource, data) {
-    return interpretResult(axios.post(getUrl(node, resource), data, stdOptions))
+    let u = getUrl(node, resource)
+    console.log('POST:', u)
+    return interpretResult(node, axios.post(u, data, stdOptions))
 }
 
 const snakepitPrefix = 'sp-'
 const networkPrefix = snakepitPrefix + 'net-'
 const snakePrefix = snakepitPrefix + 'snake-'
-const workerMark = 'w-'
+const workerMark = 'w'
 const workerSnakePrefix = snakePrefix + workerMark
-const daemonMark = 'd-'
+const daemonMark = 'd'
 const daemonSnakePrefix = snakePrefix + daemonMark
 
 function getWorkerSnakeName (pitId, node, id) {
@@ -98,10 +121,10 @@ function parseSnakeName (snakeName) {
     let isWorker
     if (str.startsWith(workerMark)) {
         isWorker = true
-        snakeName = snakeName.slice(workerMark.length)
+        snakeName = snakeName.slice(workerMark.length + 1)
     } else if (str.startsWith(daemonMark)) {
         isWorker = false
-        snakeName = snakeName.slice(daemonMark.length)
+        snakeName = snakeName.slice(daemonMark.length + 1)
     } else {
         return 
     }
@@ -167,7 +190,7 @@ sudo lxc init headnode:snaked <C2>
 sudo lxc profile assign <C2> <PRO1>
 */
 
-async function createPit (pitId, drives) {
+function createPit (pitId, drives) {
     let devices = {}
     if (drives) {
         for (let dest of Object.keys(drives)) {
@@ -178,7 +201,7 @@ async function createPit (pitId, drives) {
             }
         }
     }
-    return await addDaemonSnake(pitId, { devices: devices })
+    return addDaemonSnake(pitId, { devices: devices })
 }
 exports.createPit = createPit
 
@@ -190,7 +213,7 @@ async function dropPit (pitId) {
             let snakeInfo = parseSnakeName(snakeName)
             return snakeInfo && snakeInfo.pitId === pitId
         })
-        Parallel.each(snakes, async snake => dropSnake(snake))
+        await Parallel.each(snakes, async snake => dropSnake(snake))
     }
     await lxdDelete(headNode, 'networks/' + getNetworkName(pitId))
 }
@@ -198,7 +221,7 @@ exports.dropPit = dropPit
 
 
 async function getSnakesOnNode (node) {
-    let [err, results] = await to(lxdGet(node, '/containers'))
+    let [err, results] = await to(lxdGet(node, 'containers'))
     return results ? results.filter(result => parseSnakeName(result)) : []
 }
 exports.getSnakesOnNode = getSnakesOnNode
@@ -218,33 +241,30 @@ exports.getSnakes = getSnakes
 
  
 async function addSnake (pitId, node, image, snakeName, options) {
-    let containerConfig = Object.assign({
+    let cert = await getHeadCertificate()
+    let containerConfig = assign({
         name: snakeName,
         architecture: 'x86_64',
         profiles: [],
         ephemeral: false,
         devices: {
-            'kvm': {
-                path: '/dev/kvm',
-                type: 'unix-char'
-            },
-            'eth0': {
-                name:    'eth0',
-                nictype: 'bridged',
-                parent:  networkPrefix + pitId,
-                type:    'nic'
-            }
+            'root': {
+				path: '/',
+				pool: 'default',
+				type: 'disk'
+			}
         },
         source: {
             type:        'image',
             mode:        'pull',
             server:      config.lxd,
             protocol:    'lxd',
-            certificate: getHeadCertificate(),
+            certificate: cert,
             alias:       image
         },
     }, options || {})
-    return await lxdPost(node, 'containers/' + snakeName, containerConfig)
+    console.log(containerConfig)
+    return await lxdPost(node, 'containers', containerConfig)
 }
 
 function addDaemonSnake (pitId, options) {

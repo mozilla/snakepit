@@ -37,4 +37,4 @@ if [ $# -ne 2 ]; then
     $exe bash -c 'git clone https://github.com/mozilla/snakepit.git /code; cd /code; npm install'
 fi
 
-$exe /code/scripts/setup-service.sh "https://${address}:8443/1.0"
+$exe /code/scripts/setup-service.sh "https://${address}:8443"

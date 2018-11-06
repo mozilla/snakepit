@@ -4,7 +4,7 @@ set -e
 lxd_endpoint=$1
 
 command=$'\n "sudo lxc exec snakepit -- /code/scripts/setup-service.sh '$lxd_endpoint$'"\n'
-if ! curl -k -s $lxd_endpoint > /dev/null 2>&1; then
+if ! curl -k -s $lxd_endpoint/1.0 > /dev/null 2>&1; then
     echo "Problem accessing \"$lxd_endpoint\"."
     echo "You have to enable LXD's REST API access over HTTPS."
     echo "Please call $command with the appropriate LXD REST service endpoint."
@@ -27,7 +27,7 @@ json=$(curl \
     -k \
     --cert "$config_dir/lxd.crt" \
     --key "$config_dir/lxd.key" \
-    $lxd_endpoint/certificates \
+    $lxd_endpoint/1.0/certificates \
     -X POST \
     -d "{\"type\": \"client\", \"password\": \"$password\"}" \
 )

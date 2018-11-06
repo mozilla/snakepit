@@ -34,6 +34,7 @@
   },
   "homepage": "https://github.com/mozilla/snakepit#readme",
   "dependencies": {
+    "assign-deep": "^1.0.0",
     "async": "^2.6.1",
     "async-parallel": "^1.2.3",
     "axios": "^0.18.0",
