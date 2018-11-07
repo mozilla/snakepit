@@ -99,36 +99,36 @@ function lxdPost (node, resource, data) {
 
 const snakepitPrefix = 'sp-'
 const networkPrefix = snakepitPrefix + 'net-'
-const snakePrefix = snakepitPrefix + 'snake-'
+const containerPrefix = snakepitPrefix + 'container-'
 const workerMark = 'w'
-const workerSnakePrefix = snakePrefix + workerMark
+const workerContainerPrefix = containerPrefix + workerMark
 const daemonMark = 'd'
-const daemonSnakePrefix = snakePrefix + daemonMark
+const daemonContainerPrefix = containerPrefix + daemonMark
 
-function getWorkerSnakeName (pitId, node, id) {
-    return [workerSnakePrefix, node.id, pitId, id].join('-')
+function getWorkerContainerName (pitId, node, id) {
+    return [workerContainerPrefix, node.id, pitId, id].join('-')
 }
 
-function getDaemonSnakeName (pitId) {
-    return [daemonSnakePrefix, headNode.id, pitId].join('-')
+function getDaemonContainerName (pitId) {
+    return [daemonContainerPrefix, headNode.id, pitId].join('-')
 }
 
-function parseSnakeName (snakeName) {
-    if (!snakeName.startsWith(snakePrefix)) {
+function parseContainerName (containerName) {
+    if (!containerName.startsWith(containerPrefix)) {
         return
     }
-    let str = snakeName.slice(snakePrefix.length)
+    let str = containerName.slice(containerPrefix.length)
     let isWorker
     if (str.startsWith(workerMark)) {
         isWorker = true
-        snakeName = snakeName.slice(workerMark.length + 1)
+        containerName = containerName.slice(workerMark.length + 1)
     } else if (str.startsWith(daemonMark)) {
         isWorker = false
-        snakeName = snakeName.slice(daemonMark.length + 1)
+        containerName = containerName.slice(daemonMark.length + 1)
     } else {
         return 
     }
-    let parts = snakeName.split('-')
+    let parts = containerName.split('-')
     return { 
         worker: isWorker, 
         daemon: !isWorker, 
@@ -150,100 +150,42 @@ function getNodeById (nodeId) {
     return nodeId == 'head' ? headNode : db.nodes[nodeId]
 }
 
-function getSnakeNodeAndResource (snakeName) {
-    let snakeInfo = parseSnakeName(snakeName)
-    let node = getNodeById(snakeInfo.nodeId)
-    return [node, 'containers/' + snakeName]
+function getContainerNodeAndResource (containerName) {
+    let containerInfo = parseContainerName(containerName)
+    let node = getNodeById(containerInfo.nodeId)
+    return [node, 'containers/' + containerName]
 }
 
-async function getPits () {
-    let err, snakes
-    [err, snakes] = await to(getSnakesOnNode(headNode))
-    let pitIds = {}
-    for (let snakeName of snakes) {
-        let snakeInfo = parseSnakeName(snakeName)
-        pitIds[snakeInfo.pitId] = true
-    }
-    return Object.keys(pitIds)
+async function getContainersOnNode (node) {
+    let results = await to(lxdGet(node, 'containers'))
+    return results.filter(result => parseContainerName(result))
 }
-exports.getPits = getPits
 
-/*
-TODO: build network on nodes like this:
-
-# on host 1
-sudo lxc network create <NW1> tunnel.<T1>.protocol=gre tunnel.<T1>.local=<IP1> tunnel.<T1>.remote=<IP2>
-sudo lxc profile create <PRO1>
-sudo lxc profile device remove default eth0
-sudo lxc profile device add <PRO1> root disk path=/ pool=default
-sudo lxc network attach-profile <NW1> <PRO1> eth0 eth0
-sudo lxc init headnode:snaked <C1>
-sudo lxc profile assign <C1> <PRO1>
-
-# on host 2
-sudo lxc network create <NW1> tunnel.<T2>.protocol=gre tunnel.<T2>.local=<IP2> tunnel.<T2>.remote=<IP1>
-sudo lxc profile create <PRO1>
-sudo lxc profile device remove default eth0
-sudo lxc profile device add <PRO1> root disk path=/ pool=default
-sudo lxc network attach-profile <NW1> <PRO1> eth0 eth0
-sudo lxc init headnode:snaked <C2>
-sudo lxc profile assign <C2> <PRO1>
-*/
-
-function createPit (pitId, drives) {
-    let devices = {}
-    if (drives) {
-        for (let dest of Object.keys(drives)) {
-            devices[dest] = {
-                path: '/' + dest,
-                source: drives[dest],
-                type: 'disk'
-            }
-        }
-    }
-    return addDaemonSnake(pitId, { devices: devices })
-}
-exports.createPit = createPit
-
-
-async function dropPit (pitId) {
-    let [err, snakes] = await to(getSnakes())
-    if (!err && snakes) {
-        snakes = snakes.filter(snakeName => {
-            let snakeInfo = parseSnakeName(snakeName)
-            return snakeInfo && snakeInfo.pitId === pitId
-        })
-        await Parallel.each(snakes, async snake => dropSnake(snake))
-    }
-    await lxdDelete(headNode, 'networks/' + getNetworkName(pitId))
-}
-exports.dropPit = dropPit
-
-
-async function getSnakesOnNode (node) {
-    let [err, results] = await to(lxdGet(node, 'containers'))
-    return results ? results.filter(result => parseSnakeName(result)) : []
-}
-exports.getSnakesOnNode = getSnakesOnNode
-
-
-async function getSnakes () {
-    let allSnakes = []
+async function getContainers () {
+    let allContainers = []
     await Parallel.each(getAllNodes(), async node => {
-        let [err, snakes] = await to(getSnakesOnNode(node))
-        if (!err && snakes) {
-            allSnakes.push(...snakes)
+        let [err, containers] = await to(getContainersOnNode(node))
+        if (!err && containers) {
+            allContainers.push(...containers)
         }
     })
-    return allSnakes
+    return allContainers
 }
-exports.getSnakes = getSnakes
 
- 
-async function addSnake (pitId, node, image, snakeName, options) {
+async function getPitNodes (pitId) {
+    let nodes = {}
+    let containers = await getContainers()
+    for (let containerName of containers) {
+        let containerInfo = parseContainerName(containerName)
+        nodes[containerInfo.nodeId] = true
+    }
+    return Object.keys(nodes)
+}
+
+async function addContainer (pitId, node, image, containerName, options) {
     let cert = await getHeadCertificate()
     let containerConfig = assign({
-        name: snakeName,
+        name: containerName,
         architecture: 'x86_64',
         profiles: [],
         ephemeral: false,
@@ -267,11 +209,11 @@ async function addSnake (pitId, node, image, snakeName, options) {
     return await lxdPost(node, 'containers', containerConfig)
 }
 
-function addDaemonSnake (pitId, options) {
-    return addSnake(pitId, headNode, 'snaked', getDaemonSnakeName(pitId), options)
+function addDaemonContainer (pitId, options) {
+    return addContainer(pitId, headNode, 'snakepit-daemon', getDaemonContainerName(pitId), options)
 }
 
-async function addWorkerSnake (pitId, node, id, options) {
+async function addWorkerContainer (pitId, node, id, options) {
     let netResource = 'networks/' + getNetworkName(pitId),
         err
     [err] = await to(lxdPut(headNode, netResource, {
@@ -280,13 +222,11 @@ async function addWorkerSnake (pitId, node, id, options) {
             "ipv4.address": "10.0.0.1/24"
         }
     }))
-    return addSnake(pitId, node, 'snakew', getWorkerSnakeName(pitId, node, id), options)
+    return addContainer(pitId, node, 'snakepit-worker', getWorkerContainerName(pitId, node, id), options)
 }
-exports.addWorkerSnake = addWorkerSnake
 
-
-async function setSnakeState (snakeName, state, force, stateful) {
-    let [node, resource] = getSnakeNodeAndResource(snakeName)
+async function setContainerState (containerName, state, force, stateful) {
+    let [node, resource] = getContainerNodeAndResource(containerName)
     await lxdPut(node, resource + '/state', {
         action:   state,
         timeout:  config.lxdTimeout,
@@ -294,45 +234,86 @@ async function setSnakeState (snakeName, state, force, stateful) {
         stateful: !!stateful
     })
 }
-exports.startSnake = startSnake
 
-
-async function startSnake (snakeName) {
-    await setSnakeState(snakeName, 'start')
+async function startContainer (containerName) {
+    await setContainerState(containerName, 'start')
 }
-exports.startSnake = startSnake
 
-
-async function stopSnake (snakeName) {
-    await setSnakeState(snakeName, 'stop')
+async function stopContainer (containerName) {
+    await setContainerState(containerName, 'stop')
 }
-exports.stopSnake = stopSnake
 
+async function dropContainer (containerName) { 
+    await lxdDelete(...getContainerNodeAndResource(containerName))
+}
 
-async function exec (snakeName, command, env) {
-    let call = await axios.post(getSnakeUrl(snakeName) + '/exec', {
-        command:              command,
-        environment:          env,
-        'wait-for-websocket': true,
-        interactive:          false
-    }, stdOptions)
-    if (call && call.metadata && call.metadata.fds) {
+async function createPit (pitId, workers, drives) {
+    /*
+    TODO: build network on nodes like this:
 
+    # on host 1
+    sudo lxc network create <NW1> tunnel.<T1>.protocol=gre tunnel.<T1>.local=<IP1> tunnel.<T1>.remote=<IP2>
+    sudo lxc profile create <PRO1>
+    sudo lxc profile device remove default eth0
+    sudo lxc profile device add <PRO1> root disk path=/ pool=default
+    sudo lxc network attach-profile <NW1> <PRO1> eth0 eth0
+    sudo lxc init headnode:snakepit-daemon <C1>
+    sudo lxc profile assign <C1> <PRO1>
+
+    # on host 2
+    sudo lxc network create <NW1> tunnel.<T2>.protocol=gre tunnel.<T2>.local=<IP2> tunnel.<T2>.remote=<IP1>
+    sudo lxc profile create <PRO1>
+    sudo lxc profile device remove default eth0
+    sudo lxc profile device add <PRO1> root disk path=/ pool=default
+    sudo lxc network attach-profile <NW1> <PRO1> eth0 eth0
+    sudo lxc init headnode:snakepit-daemon <C2>
+    sudo lxc profile assign <C2> <PRO1>
+    */
+    let devices = {}
+    if (drives) {
+        for (let dest of Object.keys(drives)) {
+            devices[dest] = {
+                path: '/' + dest,
+                source: drives[dest],
+                type: 'disk'
+            }
+        }
+    }
+    return addDaemonContainer(pitId, { devices: devices })
+}
+
+async function getPits () {
+    let err, containers
+    [err, containers] = await to(getContainersOnNode(headNode))
+    let pitIds = {}
+    for (let containerName of containers) {
+        let containerInfo = parseContainerName(containerName)
+        pitIds[containerInfo.pitId] = true
+    }
+    return Object.keys(pitIds)
+}
+
+async function dropPit (pitId) {
+    let nodes = {}
+    let containers = await getContainers()
+    for (let containerName of containers) {
+        let containerInfo = parseContainerName(containerName)
+        if (containerInfo.pitId === pitId) {
+            nodes[containerInfo.nodeId] = true
+            await lxdDelete(getNodeById(nodeId), 'containers/' + containerName)
+        }
+    }
+    if (nodes.length > 1) {
+        Parallel.each(Object.keys(nodes), nodeId => {
+            await lxdDelete(getNodeById(nodeId), 'networks/' + networkPrefix + pitId)
+        })
     }
 }
-exports.exec = exec
-
-
-async function dropSnake (snakeName) { 
-    await lxdDelete(...getSnakeNodeAndResource(snakeName))
-}
-exports.dropSnake = dropSnake
-
 
 async function _scanNode(node) {
     let pitId = await createPit('test' + node.id, { 'snakepit': config.dataRoot })
-    let snakeName = await addSnake(pitId, node, 'snakew', 'scanner')
-    let output = await exec(snakeName, "bash -c 'ls -la /data; nvidia-smi'")
+    let containerName = await addContainer(pitId, node, 'snakepit-worker', 'scanner')
+    let output = await exec(containerName, "bash -c 'ls -la /data; nvidia-smi'")
     // TODO: Check output
     return true
 }
@@ -360,6 +341,10 @@ exports.initDb = function() {
         }
     }
 }
+
+exports.createPit = createPit
+exports.getPits = getPits
+exports.dropPit = dropPit
 
 exports.initApp = function(app) {
     app.put('/nodes/:id', function(req, res) {
