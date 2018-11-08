@@ -36,6 +36,9 @@ if [[ "`echo $json | jq '.status_code'`" -ne "200" ]]; then
     exit 2
 fi
 
+echo -n "Local network address used for connecting to remote nodes: " 
+read address
+
 token_secret_path="$config_dir/token-secret.txt"
 touch "$token_secret_path"
 chmod 600 "$token_secret_path"
@@ -47,8 +50,9 @@ chmod 644 "$conf"
 cp "/code/scripts/snakepit.conf.template" "$conf"
 echo -e "# Local interface the snakepit service should use (e.g. 192.168.1.1).\ninterface: 0.0.0.0\n" >>$conf
 echo -e "# Local port of the snakepit service.\nport: 80\n" >>$conf
+echo -e "# Local network address used for connecting to remote nodes: \"$address\"\n" >>$conf
 echo -e "# External URL.\nexternal: \"http://snakepit.lxd\"\n" >>$conf
-echo -e "# LXD REST URL.\nlxd: \"$lxd_endpoint\"\n" >>$conf
+echo -e "# LXD REST URL.\nlxdEndpoint: \"$lxd_endpoint\"\n" >>$conf
 echo -e "# LXD REST certificate.\nlxdcert: \"$config_dir/lxd.crt\"\n" >>$conf
 echo -e "# LXD REST key.\nlxdkey: \"$config_dir/lxd.key\"\n" >>$conf
 echo -e "# Path to data root.\ndataRoot: \"/data\"\n" >>$conf
