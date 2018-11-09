@@ -16,8 +16,20 @@ const nodeStates = {
 }
 exports.nodeStates = nodeStates
 
-const headNode = { id: 'head', lxdEndpoint: config.lxdEndpoint, address: config.address }
+const headNode = { id: 'head', lxdEndpoint: config.lxdEndpoint }
 exports.headNode = headNode
+
+exports.getAllNodes = function getAllNodes () {
+    nodes = [headNode]
+    for (let nodeId of Object.keys(db.nodes)) {
+        nodes.push(db.nodes[nodeId])
+    }
+    return nodes
+}
+
+exports.getNodeById = function getNodeById (nodeId) {
+    return nodeId == 'head' ? headNode : db.nodes[nodeId]
+}
 
 async function _scanNode(node) {
     let pitId = await createPit('test' + node.id, { 'snakepit': config.dataRoot })

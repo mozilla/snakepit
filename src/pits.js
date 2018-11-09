@@ -5,12 +5,10 @@ const https = require('https')
 const axios = require('axios')
 const assign = require('assign-deep')
 const Parallel = require('async-parallel')
-
-const store = require('./store.js')
-const config = require('./config.js')
-const nodesModule = require('./nodes.js')
-
 const lookupAsync = util.promisify(dns.lookup)
+
+const config = require('./config.js')
+const { headNode, getNodeById, getAllNodes } = require('./nodes.js')
 
 const snakepitPrefix = 'sp-'
 const networkPrefix = snakepitPrefix + 'net-'
@@ -20,14 +18,12 @@ const workerContainerPrefix = containerPrefix + workerMark
 const daemonMark = 'd'
 const daemonContainerPrefix = containerPrefix + daemonMark
 
-const headNode = nodesModule.headNode
-const agent = new https.Agent({ 
-    key: config.lxdkey, 
-    cert: config.lxdcert,
+var agent = new https.Agent({ 
+    key: config.lxdKey, 
+    cert: config.lxdCert,
     rejectUnauthorized: false
 })
 
-var db = store.root
 var headInfo
 var exports = module.exports = {}
 
@@ -35,54 +31,36 @@ function to (promise) {
     return promise.then(data => [null, data]).catch(err => [err])
 }
 
-async function getHeadCertificate () {
-    if (!headInfo) {
-        let [err, response] = await to(lxdGet(headNode, ''))
-        if (!err && response) {
-            headInfo = response
+async function wrapLxdResponse (node, promise) {
+    return promise.then(async function (response) {
+        switch(response.data.type) {
+            case 'sync':
+                console.log('Result:', response.data.metadata)
+                return response.data.metadata
+            case 'async':
+                console.log('Forwarding:', response.data.operation + '/wait')
+                let wres = await axios.get(node.lxdEndpoint + response.data.operation + '/wait', stdOptions)
+                console.log('Result:', wres.data)
+                if (wres.err) {
+                    throw wres.err
+                }
+                return wres
+            case 'error':
+                console.log('Error:', response.data)
+                throw response.data.error
         }
-    }
-    let cert = headInfo && headInfo.environment && headInfo.environment.certificate
-    return cert
-}
-
-function getUrl (node, resource) {
-    return node.lxdEndpoint + '/1.0' + (resource ? ('/' + resource) : '')
-}
-
-async function interpretResult (node, response) {
-    switch(response.data.type) {
-        case 'sync':
-            console.log('Result:', response.data.metadata)
-            return response.data.metadata
-        case 'async':
-            console.log('Forwarding:', response.data.operation + '/wait')
-            let wres = await axios.get(node.lxdEndpoint + response.data.operation + '/wait', stdOptions)
-            console.log('Result:', wres.data)
-            if (wres.err) {
-                throw wres.err
-            }
-            return wres
-        case 'error':
-            console.log('Error:', response.data.error)
-            throw response.data.error
-    }
-}
-
-async function wrapPromise (node, promise) {
-    return promise.then(response => interpretResult(node, response))
+    })
 }
 
 function callLxd(method, node, resource, data) {
-    let u = getUrl(node, resource)
     let axiosConfig = {
         method: method,
-        url: u,
+        url: getUrl(node, resource),
         httpsAgent: agent,
         data: data
     }
-    console.log(method, u, data)
-    return wrapPromise(node, axios(axiosConfig))
+    console.log(method, axiosConfig.url, data)
+    return wrapLxdResponse(node, axios(axiosConfig))
 }
 
 function lxdGet (node, resource) {
@@ -109,6 +87,33 @@ function getDaemonContainerName (pitId) {
     return [daemonContainerPrefix, headNode.id, pitId].join('-')
 }
 
+async function getHeadInfo () {
+    if (headInfo) {
+        return headInfo
+    }
+    return headInfo = await lxdGet(headNode, '')
+}
+exports.getHeadInfo = getHeadInfo
+
+async function testAsync () {
+    return await getHeadInfo()
+}
+
+exports.test = function () {
+    testAsync()
+    .then(result => console.log(result))
+    .catch(err => console.log(err))
+}
+
+async function getHeadCertificate () {
+    let info = await getHeadInfo()
+    return info.environment && info.environment.certificate
+}
+
+function getUrl (node, resource) {
+    return node.lxdEndpoint + '/1.0' + (resource ? ('/' + resource) : '')
+}
+
 function parseContainerName (containerName) {
     if (!containerName.startsWith(containerPrefix)) {
         return
@@ -132,18 +137,6 @@ function parseContainerName (containerName) {
         pitId:  parts[1], 
         id:     isWorker ? parts[2] : ''
     }
-}
-
-function getAllNodes () {
-    nodes = [headNode]
-    for (let nodeId of Object.keys(db.nodes)) {
-        nodes.push(db.nodes[nodeId])
-    }
-    return nodes
-}
-
-function getNodeById (nodeId) {
-    return nodeId == 'head' ? headNode : db.nodes[nodeId]
 }
 
 function getContainerNodeAndResource (containerName) {
@@ -228,12 +221,8 @@ async function createPit (pitId, drives, workers) {
         let addresses = {}
         console.log('Resolving...')
         await Parallel.each(endpoints, async function (endpoint) {
-            if (physicalNodes[endpoint].address) {
-                addresses[endpoint] = physicalNodes[endpoint].address
-            } else {
-                let result = await lookupAsync(url.parse(endpoint).hostname)
-                addresses[endpoint] = result.address
-            }
+            let result = await lookupAsync(url.parse(endpoint).hostname)
+            addresses[endpoint] = result.address
         })
         console.log('Resolving done.')
         await Parallel.each(endpoints, async function (localEndpoint) {
@@ -288,6 +277,7 @@ async function createPit (pitId, drives, workers) {
         await setContainerState(containerName, 'start')
     })
 }
+exports.createPit = createPit
 
 async function dropPit (pitId) {
     let nodes = {}
@@ -305,6 +295,7 @@ async function dropPit (pitId) {
         })
     }
 }
+exports.dropPit = dropPit 
 
 async function getPits () {
     let err, containers
@@ -316,7 +307,4 @@ async function getPits () {
     }
     return Object.keys(pitIds)
 }
-
-exports.createPit = createPit
-exports.dropPit = dropPit
 exports.getPits = getPits

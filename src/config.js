@@ -37,8 +37,8 @@ config.tokenSecret = readConfigFile('tokenSecretPath')
 
 config.key = readConfigFile('keyPemPath')
 config.cert = readConfigFile('certPemPath')
-config.lxdkey = readConfigFile('lxdkey')
-config.lxdcert = readConfigFile('lxdcert')
+config.lxdKey = readConfigFile('lxdKey')
+config.lxdCert = readConfigFile('lxdCert')
 config.lxdTimeout = config.lxdTimeout || 30
 
 config.https = config.key
