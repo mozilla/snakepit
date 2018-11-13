@@ -29,6 +29,7 @@ function to (promise) {
 async function wrapLxdResponse (node, promise) {
     let [err, response] = await to(promise)
     if (err) {
+        console.log(err)
         throw err.message
     }
     let data = response.data
@@ -174,9 +175,9 @@ async function createPit (pitId, drives, workers) {
                     let remoteNode = physicalNodes[remoteEndpoint]
                     let remoteAddress = addresses[remoteEndpoint]
                     let tunnel = 'tunnel.' + remoteNode.id
-                    tunnelConfig[tunnel + '.protocol'] = 'gre',
-                    tunnelConfig[tunnel + '.local']    = localAddress,
-                    tunnelConfig[tunnel + '.remote']   = remoteAddress
+                    tunnelConfig[tunnel + '.protocol'] = 'vxlan',
+                    tunnelConfig[tunnel + '.id']    = pitId
+                    //tunnelConfig[tunnel + '.remote']   = remoteAddress
                 }
             }
             await lxdPost(localNode, 'networks', {
@@ -211,13 +212,11 @@ async function createPit (pitId, drives, workers) {
         await addContainer(worker.node, 'snakepit-worker', containerName, { devices: workerDevices })
     })
 
-    /*
     await setContainerState(headNode, daemonContainerName, 'start')
     await Parallel.each(workers, async function (worker) {
         let containerName = getContainerName(pitId, workers.indexOf(worker) + 1)
         await setContainerState(worker.node, containerName, 'start')
     })
-    */
 }
 exports.createPit = createPit
 
