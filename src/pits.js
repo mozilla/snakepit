@@ -5,7 +5,6 @@ const https = require('https')
 const axios = require('axios')
 const assign = require('assign-deep')
 const Parallel = require('async-parallel')
-const lookupAsync = util.promisify(dns.lookup)
 
 const config = require('./config.js')
 const { headNode, getNodeById, getAllNodes } = require('./nodes.js')
@@ -161,26 +160,16 @@ async function createPit (pitId, drives, workers) {
     let endpoints = Object.keys(physicalNodes)
     if (endpoints.length > 1) {
         network = snakepitPrefix + pitId
-        let addresses = {}
-        await Parallel.each(endpoints, async function (endpoint) {
-            let result = await lookupAsync(url.parse(endpoint).hostname)
-            addresses[endpoint] = result.address
-        })
         await Parallel.each(endpoints, async function (localEndpoint) {
-            let localNode = physicalNodes[localEndpoint]
-            let localAddress = addresses[localEndpoint]
             let tunnelConfig = {}
             for (let remoteEndpoint of endpoints) {
                 if (localEndpoint !== remoteEndpoint) {
-                    let remoteNode = physicalNodes[remoteEndpoint]
-                    let remoteAddress = addresses[remoteEndpoint]
-                    let tunnel = 'tunnel.' + remoteNode.id
+                    let tunnel = 'tunnel.' + physicalNodes[remoteEndpoint].id
                     tunnelConfig[tunnel + '.protocol'] = 'vxlan',
-                    tunnelConfig[tunnel + '.id']    = pitId
-                    //tunnelConfig[tunnel + '.remote']   = remoteAddress
+                    tunnelConfig[tunnel + '.id'] = pitId
                 }
             }
-            await lxdPost(localNode, 'networks', {
+            await lxdPost(physicalNodes[localEndpoint], 'networks', {
                 name: network,
                 config: tunnelConfig
             })
