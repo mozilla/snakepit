@@ -1,0 +1,9 @@
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+AllowAgentForwarding no
+AllowTcpForwarding no
+X11Forwarding no
+Subsystem sftp internal-sftp
+Match User worker
+ChrootDirectory /data
+ForceCommand internal-sftp
