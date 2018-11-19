@@ -1,0 +1,14 @@
+[Unit]
+Description=Machine learning job scheduler data file-system service
+Documentation=https://github.com/mozilla/snakepit
+After=pitinfo.service
+
+[Install]
+WantedBy=multi-user.target
+
+[Mount]
+EnvironmentFile=/etc/pit_info
+What=worker@${PIT_DAEMON_HOST}:
+Where=/data
+Type=fuse.sshfs
+Options=noauto,user,cache=yes,kernel_cache,big_writes,sshfs_sync,Ciphers=aes128-ctr,reconnect,ServerAliveInterval=15,ServerAliveCountMax=100,StrictHostKeyChecking=no

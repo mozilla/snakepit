@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-mkdir -p /data
-hostname=`hostname`
-daemon=`expr match ${hostname} '\(sp[0-9]+\)-[0-9]+'`-0.lxd
-sshfs worker@${daemon} /data -o cache=yes,kernel_cache,big_writes,sshfs_sync,Ciphers=aes128-ctr,reconnect,ServerAliveInterval=15,ServerAliveCountMax=100
-
+source /etc/pit_info
+cd "${PIT_WORK_DIR:=/data}"
+if [ -f "$PIT_RUN_SCRIPT" ]; then
+    bash "$PIT_RUN_SCRIPT" >"${PIT_LOG_FILE:=/var/log/run.log}"
+fi
 # shutdown 0

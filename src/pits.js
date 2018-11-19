@@ -1,11 +1,9 @@
-const dns = require('dns')
-const url = require('url')
-const util = require('util')
 const https = require('https')
 const axios = require('axios')
 const assign = require('assign-deep')
 const Parallel = require('async-parallel')
 
+const utils = require('./utils.js')
 const config = require('./config.js')
 const { headNode, getNodeById, getAllNodes } = require('./nodes.js')
 
@@ -46,31 +44,31 @@ async function wrapLxdResponse (node, promise) {
     }
 }
 
-function callLxd(method, node, resource, data) {
-    let axiosConfig = {
+function callLxd(method, node, resource, data, options) {
+    let axiosConfig = assign({
         method: method,
         url: getUrl(node, resource),
         httpsAgent: agent,
         data: data
-    }
-    //console.log(method, axiosConfig.url, data)
+    }, options || {})
+    //console.log(method, axiosConfig, data)
     return wrapLxdResponse(node, axios(axiosConfig))
 }
 
-function lxdGet (node, resource) {
-    return callLxd('get', node, resource)
+function lxdGet (node, resource, options) {
+    return callLxd('get', node, resource, undefined, options)
 }
 
-function lxdDelete (node, resource) {
-    return callLxd('delete', node, resource)
+function lxdDelete (node, resource, options) {
+    return callLxd('delete', node, resource, undefined, options)
 }
 
-function lxdPut (node, resource, data) {
-    return callLxd('put', node, resource, data)
+function lxdPut (node, resource, data, options) {
+    return callLxd('put', node, resource, data, options)
 }
 
-function lxdPost (node, resource, data) {
-    return callLxd('post', node, resource, data)
+function lxdPost (node, resource, data, options) {
+    return callLxd('post', node, resource, data, options)
 }
 
 function getContainerName (pitId, instance) {
@@ -114,7 +112,7 @@ async function getContainersOnNode (node) {
     return results.filter(result => parseContainerName(result))
 }
 
-async function addContainer (node, image, containerName, options) {
+async function addContainer (node, imageHash, containerName, pitInfo, options) {
     let cert = await getHeadCertificate()
     let containerConfig = assign({
         name: containerName,
@@ -134,11 +132,33 @@ async function addContainer (node, image, containerName, options) {
             server:      config.lxdEndpoint,
             protocol:    'lxd',
             certificate: cert,
-            alias:       image
+            fingerprint: imageHash
         },
     }, options || {})
     //console.log(containerConfig)
-    return await lxdPost(node, 'containers', containerConfig)
+    await lxdPost(node, 'containers', containerConfig)
+    if (pitInfo) {
+        let vars = []
+        for (let name of Object.keys(pitInfo)) {
+            vars.push(name + '=' + utils.shellQuote(pitInfo[name]) + '\n')
+        }
+        console.log(await lxdPost(
+            node, 
+            'containers/' + containerName + '/files?path=/etc/pit_info', 
+            vars.join(''), 
+            {
+                headers: { 
+                    'Content-Type': 'application/octet-stream',
+                    'X-LXD-type':  'file', 
+                    'X-LXD-write': 'overwrite'
+                } 
+            }
+        ))
+        console.log(await lxdGet(
+            node, 
+            'containers/' + containerName + '/files?path=/etc/pit_info'
+        ))
+    }
 }
 
 async function setContainerState (node, containerName, state, force, stateful) {
@@ -151,6 +171,9 @@ async function setContainerState (node, containerName, state, force, stateful) {
 }
 
 async function createPit (pitId, drives, workers) {
+    let daemonHash = (await lxdGet(headNode, 'images/aliases/snakepit-daemon')).target
+    let workerHash = (await lxdGet(headNode, 'images/aliases/snakepit-worker')).target
+
     let physicalNodes = { [headNode.lxdEndpoint]: headNode }
     for (let worker of workers) {
         // we just need one virtual node representant of/on each physical node
@@ -190,7 +213,15 @@ async function createPit (pitId, drives, workers) {
         }
     }
     let daemonContainerName = getContainerName(pitId, 0)
-    await addContainer(headNode, 'snakepit-daemon', daemonContainerName, { devices: daemonDevices })
+    let pitInfo = {
+        PIT_ID:             pitId,
+        PIT_DAEMON_HOST:    daemonContainerName + '.lxd',
+        PIT_WORKER_NUMBER:  workers.length,
+        PIT_WORKER_PREFIX:  snakepitPrefix + pitId + '-',
+        PIT_WORKER_POSTFIX: '.lxd'
+    }
+
+    await addContainer(headNode, daemonHash, daemonContainerName, pitInfo, { devices: daemonDevices })
 
     await Parallel.each(workers, async function (worker) {
         let containerName = getContainerName(pitId, workers.indexOf(worker) + 1)
@@ -198,7 +229,7 @@ async function createPit (pitId, drives, workers) {
         if (network) {
             workerDevices['eth0'] = { nictype: 'bridged', parent: network, type: 'nic' }
         }
-        await addContainer(worker.node, 'snakepit-worker', containerName, { devices: workerDevices })
+        await addContainer(worker.node, workerHash, containerName, pitInfo, { devices: workerDevices })
     })
 
     await setContainerState(headNode, daemonContainerName, 'start')

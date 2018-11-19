@@ -4,10 +4,10 @@ Documentation=https://github.com/mozilla/snakepit
 After=network.target
 
 [Service]
-WorkingDirectory=/code
+User=worker
+WorkingDirectory=/data
 Type=simple
 ExecStart=/usr/bin/run.sh
-Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
