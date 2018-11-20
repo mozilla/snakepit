@@ -1,6 +1,8 @@
 const { EventEmitter } = require('events')
 
+const pits = require('./pits.js')
 const store = require('./store.js')
+const jobfs = require('./jobfs.js')
 const config = require('./config.js')
 const { getAlias } = require('./aliases.js')
 
@@ -32,10 +34,8 @@ exports.getNodeById = function getNodeById (nodeId) {
 }
 
 async function _scanNode(node) {
-    let pitId = await createPit('test' + node.id, { 'snakepit': config.dataRoot })
-    let containerName = await addContainer(pitId, node, 'snakepit-worker', 'scanner')
-    let output = await exec(containerName, "bash -c 'ls -la /data; nvidia-smi'")
-    // TODO: Check output
+    let id = jobfs.newJobDir()
+    await pits.createPit(id, { 'job': jobfs.getJobDirById(id) }, [{ node: node, devices: { 'gpu': { type: 'gpu' } } }])
     return true
 }
 

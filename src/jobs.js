@@ -420,85 +420,86 @@ function _jobAndPath(req, res, cb) {
 
 exports.initApp = function(app) {
     app.post('/jobs', function(req, res) {
-        store.lockAutoRelease('jobs', function() {
-            let id = db.jobIdCounter++
-            let job = req.body
-            var clusterRequest
-            try {
-                clusterRequest = parseClusterRequest(job.clusterRequest)
-            } catch (ex) {
-                res.status(400).send({ message: 'Problem parsing allocation' })
+        let job = req.body
+        var clusterRequest
+        try {
+            clusterRequest = parseClusterRequest(job.clusterRequest)
+        } catch (ex) {
+            res.status(400).send({ message: 'Problem parsing allocation' })
+            return
+        }
+        if (job.continueJob) {
+            let continueJob = jobfs.loadJob(job.continueJob)
+            if (!continueJob) {
+                res.status(404).send({ message: 'The job to continue is not existing' })
                 return
             }
-            if (job.continueJob) {
-                let continueJob = jobfs.loadJob(job.continueJob)
-                if (!continueJob) {
-                    res.status(404).send({ message: 'The job to continue is not existing' })
-                    return
-                }
-                if (!groupsModule.canAccessJob(req.user, continueJob)) {
-                    res.status(403).send({ message: 'Continuing provided job not allowed for current user' })
-                    return
-                }
+            if (!groupsModule.canAccessJob(req.user, continueJob)) {
+                res.status(403).send({ message: 'Continuing provided job not allowed for current user' })
+                return
             }
-            let simulatedReservation = reserveCluster(clusterRequest, req.user, true)
-            if (simulatedReservation) {
-                let dbjob = {
-                    id: id,
-                    token: randomstring.generate({ charset: 'numeric' }),
-                    user: req.user.id,
-                    description: ('' + job.description).substring(0,20),
-                    clusterRequest: job.clusterRequest,
-                    clusterReservation: simulatedReservation,
-                    continueJob: job.continueJob,
-                    origin: job.origin,
-                    hash: job.hash,
-                    archive: job.archive
-                }
-                if (!job.private) {
-                    dbjob.groups = req.user.autoshare
-                }
-                if (job.origin) {
-                    dbjob.provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
-                    if (job.diff) {
-                        dbjob.provisioning += ' with ' +
-                            (job.diff + '').split('\n').length + ' LoC diff'
+        }
+        let simulatedReservation = reserveCluster(clusterRequest, req.user, true)
+        if (simulatedReservation) {
+            jobfs.newJobDir(function(id) {
+                store.lockAutoRelease('jobs', function() {
+                    let dbjob = {
+                        id:                 id,
+                        token:              randomstring.generate({ charset: 'numeric' }),
+                        user:               req.user.id,
+                        description:        ('' + job.description).substring(0,20),
+                        clusterRequest:     job.clusterRequest,
+                        clusterReservation: simulatedReservation,
+                        continueJob:        job.continueJob,
+                        origin:             job.origin,
+                        hash:               job.hash,
+                        archive:            job.archive
                     }
-                } else if (job.archive) {
-                    dbjob.provisioning = 'Archive (' + fs.statSync(job.archive).size + ' bytes)'
-                }
-                _setJobState(dbjob, jobStates.NEW)
-
-                var files = {
-                    'compute.sh': job.compute || 'if [ -f .compute ]; then bash .compute; fi',
-                    'install.sh': job.install || 'if [ -f .install ]; then bash .install; fi',
-                }
-                if (job.diff) {
-                    files['git.patch'] = job.diff + '\n'
-                }
-                let jobDir = jobfs.getJobDir(dbjob)
-                async.forEachOf(files, (content, file, done) => {
-                    let p = path.join(jobDir, file)
-                    fs.writeFile(p, content, err => {
+                    if (!job.private) {
+                        dbjob.groups = req.user.autoshare
+                    }
+                    if (job.origin) {
+                        dbjob.provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
+                        if (job.diff) {
+                            dbjob.provisioning += ' with ' +
+                                (job.diff + '').split('\n').length + ' LoC diff'
+                        }
+                    } else if (job.archive) {
+                        dbjob.provisioning = 'Archive (' + fs.statSync(job.archive).size + ' bytes)'
+                    }
+                    _setJobState(dbjob, jobStates.NEW)
+    
+                    var files = {
+                        'compute.sh': job.compute || 'if [ -f .compute ]; then bash .compute; fi',
+                        'install.sh': job.install || 'if [ -f .install ]; then bash .install; fi',
+                    }
+                    if (job.diff) {
+                        files['git.patch'] = job.diff + '\n'
+                    }
+                    let jobDir = jobfs.getJobDir(dbjob)
+                    async.forEachOf(files, (content, file, done) => {
+                        let p = path.join(jobDir, file)
+                        fs.writeFile(p, content, err => {
+                            if (err) {
+                                jobfs.deleteJobDir(id)
+                                done('Error on persisting ' + file)
+                            } else {
+                                done()
+                            }
+                        })
+                    }, err => {
                         if (err) {
-                            jobfs.deleteJobDir(id)
-                            done('Error on persisting ' + file)
+                            res.status(500).send({ message: err })
                         } else {
-                            done()
+                            db.jobs[id] = dbjob
+                            res.status(200).send({ id: id })
                         }
                     })
-                }, err => {
-                    if (err) {
-                        res.status(500).send({ message: err })
-                    } else {
-                        db.jobs[id] = dbjob
-                        res.status(200).send({ id: id })
-                    }
                 })
-            } else {
-                res.status(406).send({ message: 'Cluster cannot fulfill resource request' })
-            }
-        })
+            })
+        } else {
+            res.status(406).send({ message: 'Cluster cannot fulfill resource request' })
+        }
     })
 
     app.get('/jobs', function(req, res) {

@@ -30,10 +30,18 @@ exports.loadJob = function(jobId) {
 
 exports.saveJob = function(job) {
     let jobPath = exports.getJobDir(job)
-    if (!fs.existsSync(jobPath)) {
-        fs.mkdirSync(jobPath)
-    }
     fs.writeFileSync(path.join(jobPath, 'meta.json'), JSON.stringify(job))
+}
+
+exports.newJobDir = function (callback) {
+    store.lockAsyncRelease('jobs', function(free) {
+        let newId = db.jobIdCounter++
+        free()
+        if (!fs.existsSync(jobPath)) {
+            fs.mkdirSync(jobPath)
+        }
+        callback(newId)
+    })
 }
 
 exports.deleteJobDir = function(jobId, callback) {

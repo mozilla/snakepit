@@ -11,4 +11,4 @@ EnvironmentFile=/etc/pit_info
 What=worker@${PIT_DAEMON_HOST}:
 Where=/data
 Type=fuse.sshfs
-Options=noauto,user,cache=yes,kernel_cache,big_writes,sshfs_sync,Ciphers=aes128-ctr,reconnect,ServerAliveInterval=15,ServerAliveCountMax=100,StrictHostKeyChecking=no
+Options=auto,cache=yes,kernel_cache,big_writes,sshfs_sync,Ciphers=aes128-ctr,reconnect,ServerAliveInterval=15,ServerAliveCountMax=100,StrictHostKeyChecking=no
