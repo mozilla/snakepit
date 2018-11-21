@@ -255,24 +255,24 @@ exports.createPit = createPit
 async function dropPit (pitId) {
     let nodes = {}
     await Parallel.each(getAllNodes(), async node => {
-        let containers = await getContainersOnNode(node)
-        for (let containerName of containers) {
-            let containerInfo = parseContainerName(containerName)
-            if (containerInfo && containerInfo[1] === pitId) {
-                nodes[node.lxdEndpoint] = node
-                await lxdDelete(node, 'containers/' + containerName)
+        let [err, containers] = await to(getContainersOnNode(node))
+        if (containers) {
+            for (let containerName of containers) {
+                let containerInfo = parseContainerName(containerName)
+                if (containerInfo && containerInfo[1] === pitId) {
+                    nodes[node.lxdEndpoint] = node
+                    await to(lxdDelete(node, 'containers/' + containerName))
+                }
             }
         }
     })
     if (nodes.length > 1) {
         Parallel.each(Object.keys(nodes), async function (endpoint) {
-            await lxdDelete(nodes[endpoint], 'networks/' + snakepitPrefix + pitId)
+            await to(lxdDelete(nodes[endpoint], 'networks/' + snakepitPrefix + pitId))
         })
     }
 }
 exports.dropPit = dropPit 
-
-
 
 async function getPits () {
     let [err, containers] = await to(getContainersOnNode(headNode))
