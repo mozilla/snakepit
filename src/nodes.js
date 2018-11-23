@@ -11,14 +11,14 @@ const config = require('./config.js')
 const { getAlias } = require('./aliases.js')
 
 const lxdStatus = {
-    opCreated:  100,
+    created:    100,
     started:    101,
     stopped:    102,
     running:    103,
     canceling:  104,
     pending:    105,
     starting:   106,
-    stoping:    107,
+    stopping:   107,
     aborting:   108,
     freezing:   109,
     frozen:     110,
@@ -29,7 +29,9 @@ const lxdStatus = {
 }
 
 const snakepitPrefix = 'sp'
-const containerNameParser = /sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/g;
+const containerNameParser = /sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/g
+const pitCountExp = /PIT_WORKER_COUNT=([0-9]+)/g
+
 const nodeStates = {
     OFFLINE: 0,
     ONLINE:  1
@@ -185,6 +187,11 @@ async function pushFile (containerName, targetPath, content) {
     )
 }
 
+async function pullFile (containerName, targetPath) {
+    let node = getNodeFromName(containerName)
+    return await lxdPost(node, 'containers/' + containerName + '/files?path=' + targetPath)
+}
+
 async function addContainer (containerName, imageHash, pitInfo, options, script) {
     let node = getNodeFromName(containerName)
     let cert = await getHeadCertificate()
@@ -224,6 +231,7 @@ async function addContainer (containerName, imageHash, pitInfo, options, script)
 
 async function createPit (pitId, drives, workers) {
     try {
+        broadcast('pitStarting', pitId)
         let daemonHash = (await lxdGet(headNode, 'images/aliases/snakepit-daemon')).target
         let workerHash = (await lxdGet(headNode, 'images/aliases/snakepit-worker')).target
 
@@ -269,7 +277,7 @@ async function createPit (pitId, drives, workers) {
         let pitInfo = {
             JOB_NUMBER:         pitId,
             PIT_DAEMON_HOST:    daemonContainerName + '.lxd',
-            PIT_WORKER_NUMBER:  workers.length,
+            PIT_WORKER_COUNT:  workers.length,
             PIT_WORKER_PREFIX:  snakepitPrefix + pitId + '-',
             PIT_WORKER_POSTFIX: '.lxd'
         }
@@ -290,7 +298,9 @@ async function createPit (pitId, drives, workers) {
             let containerName = getContainerName(worer.node.id, pitId, workers.indexOf(worker))
             await setContainerState(containerName, 'start')
         })
+        broadcast('pitStarted', pitId)
     } catch (ex) {
+        broadcast('pitFailed', pitId, ex)
         await dropPit(pitId)
         throw ex
     }
@@ -327,7 +337,14 @@ async function runPit (pitId, drives, workers, timeout) {
 }
 exports.runPit = runPit
 
+async function extractResults (pitId) {
+    let content = await pullFile(containerName, '/etc/pit_info')
+    let workerCount = pitCountExp.match(content)
+    
+}
+
 async function dropPit (pitId) {
+    let results = await extractResults(pitId) 
     let nodes = {}
     await Parallel.each(getAllNodes(), async node => {
         let [err, containers] = await to(getContainersOnNode(node))
@@ -346,6 +363,7 @@ async function dropPit (pitId) {
             await to(lxdDelete(nodes[endpoint], 'networks/' + snakepitPrefix + pitId))
         })
     }
+    broadcast('pitStopped', pitId, results)
 }
 exports.dropPit = dropPit 
 
@@ -497,30 +515,37 @@ exports.initApp = function(app) {
     })
 }
 
-function broadcast(msg) {
-    if (cluster.isMaster) {
-        for(var wid in cluster.workers) {
-            var worker = cluster.workers[wid]
-            worker.send(msg)
-        }
-    } else {
-        process.send(msg)
-    }
-}
-
 process.on('message', msg => {
     if (msg.pitEvent) {
-        exports.emit(msg.pitEvent, msg.pitId)
+        if (cluster.isMaster) {
+            broadcast(msg.pitEvent, ...msg.args)
+        } else {
+            exports.emit(pitEvent, ...args)
+        }
     }
 })
 
-async function tick () {
-    let pits = await getPits()
-    for (let pitId of pits) {
-        if (await pitIsRunning(pitId)) {
-
-        }
+function broadcast(pitEvent, ...args) {
+    let message = {
+        pitEvent: pitEvent,
+        args: args
     }
+    if (cluster.isMaster) {
+        exports.emit(pitEvent, ...args)
+        for(let wid in cluster.workers) {
+            cluster.workers[wid].send(message)
+        }
+    } else {
+        process.send(message)
+    }
+}
+
+async function tick () {
+    Parallel.each(await getPits(), async pitId => {
+        if (!(await pitIsRunning(pitId))) {   
+            await dropPit(pitId)
+        }
+    })
 }
 
 exports.tick = function () {
