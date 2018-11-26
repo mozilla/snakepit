@@ -267,9 +267,9 @@ async function createPit (pitId, drives, workers) {
         if (drives) {
             for (let dest of Object.keys(drives)) {
                 daemonDevices[dest] = {
-                    path: '/' + dest,
+                    path:   '/' + dest,
                     source: drives[dest],
-                    type: 'disk'
+                    type:   'disk'
                 }
             }
         }
@@ -277,28 +277,40 @@ async function createPit (pitId, drives, workers) {
         let pitInfo = {
             JOB_NUMBER:         pitId,
             PIT_DAEMON_HOST:    daemonContainerName + '.lxd',
-            PIT_WORKER_COUNT:  workers.length,
+            PIT_WORKER_COUNT:   workers.length,
             PIT_WORKER_PREFIX:  snakepitPrefix + pitId + '-',
-            PIT_WORKER_POSTFIX: '.lxd'
+            PIT_WORKER_SUFFIX: '.lxd'
         }
 
-        await addContainer(daemonContainerName, daemonHash, pitInfo, { devices: daemonDevices })
-
+        await addContainer(
+            daemonContainerName, 
+            daemonHash, 
+            assign({ PIT_ROLE: 'daemon', PIT_WORKER_INDEX: 'd' }, pitInfo), 
+            { devices: daemonDevices }
+        )
         await Parallel.each(workers, async function (worker) {
-            let containerName = getContainerName(worer.node.id, pitId, workers.indexOf(worker))
+            let index = workers.indexOf(worker)
+            let containerName = getContainerName(worer.node.id, pitId, index)
             let workerDevices = {}
             if (network) {
                 workerDevices['eth0'] = { nictype: 'bridged', parent: network, type: 'nic' }
             }
-            await addContainer(containerName, workerHash, pitInfo, { devices: workerDevices }, worker.script)
+            await addContainer(
+                containerName, 
+                workerHash, 
+                assign({ PIT_ROLE: worker.role || 'worker ' + index, PIT_WORKER_INDEX: index }, pitInfo), 
+                { devices: workerDevices }, 
+                worker.script
+            )
         })
 
-        await setContainerState(daemonContainerName, 'start')
         await Parallel.each(workers, async function (worker) {
             let containerName = getContainerName(worer.node.id, pitId, workers.indexOf(worker))
             await setContainerState(containerName, 'start')
         })
+        await setContainerState(daemonContainerName, 'start')
         broadcast('pitStarted', pitId)
+
     } catch (ex) {
         broadcast('pitFailed', pitId, ex)
         await dropPit(pitId)
@@ -309,11 +321,11 @@ exports.createPit = createPit
 
 function waitForPit (pitId, timeout) {
     return new Promise((resolve, reject) => {
-        let timeouter
+        let timer
         let stopListener = (stoppingPitId, results) => {
             if (stoppingPitId == pitId) {
-                if (timeouter) {
-                    clearTimeout(timeouter)
+                if (timer) {
+                    clearTimeout(timer)
                 }
                 exports.removeListener('pitStopped', stopListener)
                 resolve(results)
@@ -325,7 +337,7 @@ function waitForPit (pitId, timeout) {
         }
         exports.on('pitStopped', stopListener)
         if (timeout) {
-            timeouter = setTimeout(timeoutListener, 1000 * timeout)
+            timer = setTimeout(timeoutListener, 1000 * timeout)
         }
     })
 }
@@ -338,9 +350,22 @@ async function runPit (pitId, drives, workers, timeout) {
 exports.runPit = runPit
 
 async function extractResults (pitId) {
-    let content = await pullFile(containerName, '/etc/pit_info')
+    let daemonName = getDaemonName(pitId)
+    let content = await pullFile(daemonName, '/etc/pit_info')
     let workerCount = pitCountExp.match(content)
-    
+    workerCount = workerCount ? int(workerCount[1]) : 1
+    return await Parallel.map(Array.from(Array(workerCount).keys()), async index => {
+        let workerPath = '/data/workers/' + index + '/'
+        let [errStatus, status] = await pullFile(daemonName, workerPath + 'status')
+        let [errResult, result] = await pullFile(daemonName, workerPath + 'result')
+        let [errLog,    log   ] = await pullFile(daemonName, workerPath + 'worker.log')
+        return {
+            status: status ? ((!isNaN(parseFloat(status)) && isFinite(status)) ? (status * 1) : 1) : 1,
+            result: result,
+            log:    log || '',
+            errors: [errStatus, errResult, errLog]
+        }
+    })
 }
 
 async function dropPit (pitId) {
@@ -392,12 +417,20 @@ exports.getNodeById = function getNodeById (nodeId) {
     return nodeId == 'head' ? headNode : db.nodes[nodeId]
 }
 
-function scanNode(node) {
-    return pits.runPit(id, {}, [{ 
-        node: node, 
+function scanNode(node, callback) {
+    runPit(id, {}, [{ 
+        node: node,
         devices: { 'gpu': { type: 'gpu' } },
         script: 'cat /proc/driver/nvidia/gpus/*/information'
-    }])
+    }]).then(results => {
+        if (results.length > 0) {
+            let raw = results[0]
+            // TODO: Parse result
+            callback(null, [{ type: 'cuda', index: 0 }])
+        } else {
+            callback("No worker responded")
+        }
+    }).catch(err => callback(err))
 }
 
 function setNodeState(node, nodeState) {
@@ -437,9 +470,9 @@ exports.initApp = function(app) {
                 state: nodeStates.ONLINE
             }
             if (newnode.lxdEndpoint) {
-                scanNode(newnode, (code, result) => {
-                    if (code > 0) {
-                        res.status(400).send({ message: 'Node not available:\n' + result })
+                scanNode(newnode, (err, result) => {
+                    if (err) {
+                        res.status(400).send({ message: 'Node not available:\n' + err })
                     } else {
                         newnode.resources = {}
                         for(let resource of result) {

@@ -11,7 +11,7 @@ print_header () {
 
 print_header "Installing dependencies"
 aptget update
-aptget install openssh-server vim iputils-ping
+aptget install openssh-server vim iputils-ping moreutils
 
 print_header "Creating worker user and directory"
 useradd -m -s /usr/sbin/nologin -u 2525 worker
