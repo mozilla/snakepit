@@ -26,5 +26,6 @@ print_header "Creating default pit info file"
 echo 'PIT_DAEMON_HOST="snakepit-daemon.lxd"' >>/etc/pit_info
 
 print_header "Installing daemon service"
+mv run.sh /usr/bin/run.sh
 mv snakepit.service /lib/systemd/system/
 systemctl enable snakepit
