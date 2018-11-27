@@ -4,7 +4,7 @@ Documentation=https://github.com/mozilla/snakepit
 After=network.target
 
 [Service]
-User=worker
+User=root
 WorkingDirectory=/data
 Type=simple
 ExecStart=/usr/bin/run.sh

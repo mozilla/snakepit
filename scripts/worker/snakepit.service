@@ -4,6 +4,7 @@ Documentation=https://github.com/mozilla/snakepit
 After=data.mount
 
 [Service]
+User=root
 WorkingDirectory=/data
 Type=simple
 ExecStart=/usr/bin/run.sh

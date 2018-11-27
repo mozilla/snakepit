@@ -67,7 +67,6 @@ function sleep (ms) {
 async function wrapLxdResponse (node, promise) {
     let [err, response] = await to(promise)
     if (err) {
-        console.log(err)
         throw err.message
     }
     let data = response.data
@@ -81,6 +80,7 @@ async function wrapLxdResponse (node, promise) {
             console.log('Forwarding:', data.operation + '/wait')
             return await wrapLxdResponse(node, axios.get(node.lxdEndpoint + data.operation + '/wait', { httpsAgent: agent }))
         case 'error':
+            console.log('HOLLA!', data)
             throw data.error
     }
 }
@@ -92,7 +92,7 @@ function callLxd(method, node, resource, data, options) {
         httpsAgent: agent,
         data: data
     }, options || {})
-    //console.log(method, axiosConfig, data)
+    console.log(method, axiosConfig.url, data || '')
     return wrapLxdResponse(node, axios(axiosConfig))
 }
 
@@ -328,9 +328,8 @@ async function createPit (pitId, drives, workers) {
         })
         await setContainerState(daemonContainerName, 'start')
         broadcast('pitStarted', pitId)
-
     } catch (ex) {
-        broadcast('pitFailed', pitId, ex)
+        broadcast('pitStartFailed', pitId, ex)
         await dropPit(pitId)
         throw ex
     }
@@ -372,9 +371,10 @@ async function extractResults (pitId) {
     let [err, content] = await to(pullFile(daemonName, '/etc/pit_info'))
     if (content) {
         let workerCount = pitCountExp.exec(content)
-        workerCount = workerCount ? int(workerCount[1]) : 1
+        workerCount = int(workerCount[1])
+        console.log('WORKER COUNT:', workerCount)
         return await Parallel.map(Array.from(Array(workerCount).keys()), async index => {
-            let workerPath = '/data/workers/' + index + '/'
+            let workerPath = '/data/pit/workers/' + index + '/'
             let [errStatus, status] = await to(pullFile(daemonName, workerPath + 'status'))
             let [errResult, result] = await to(pullFile(daemonName, workerPath + 'result'))
             let [errLog,    log   ] = await to(pullFile(daemonName, workerPath + 'worker.log'))
@@ -390,22 +390,21 @@ async function extractResults (pitId) {
 
 async function dropPit (pitId) {
     let results = await extractResults(pitId) 
-    let nodes = {}
-    await Parallel.each(getAllNodes(), async node => {
+    let nodes = getAllNodes()
+    await Parallel.each(nodes, async node => {
         let [err, containers] = await to(getContainersOnNode(node))
         if (containers) {
             for (let containerName of containers) {
                 let containerInfo = parseContainerName(containerName)
                 if (containerInfo && containerInfo[1] === pitId) {
-                    nodes[node.lxdEndpoint] = node
                     await to(setContainerState(containerName, 'stop', true))
                     await to(lxdDelete(node, 'containers/' + containerName))
                 }
             }
         }
     })
-    Parallel.each(Object.keys(nodes), async function (endpoint) {
-        await to(lxdDelete(nodes[endpoint], 'networks/' + snakepitPrefix + pitId))
+    await Parallel.each(nodes, async node => {
+        await to(lxdDelete(node, 'networks/' + snakepitPrefix + pitId))
     })
     broadcast('pitStopped', pitId, results | [])
 }
@@ -425,9 +424,12 @@ async function getPits () {
 exports.getPits = getPits
 
 function getAllNodes () {
-    nodes = [headNode]
+    let nodes = [headNode]
     for (let nodeId of Object.keys(db.nodes)) {
         nodes.push(db.nodes[nodeId])
+    }
+    for (let nodeId of Object.keys(testedNodes)) {
+        nodes.push(testedNodes[nodeId])
     }
     return nodes
 }
@@ -439,6 +441,7 @@ function getNodeById (nodeId) {
 exports.getNodeById = getNodeById
 
 function scanNode(node, callback) {
+    //exports.tick()
     allocatePitId().then(pitId => {
         testedNodes[node.id] = node
         runPit(pitId, {}, [{ 
@@ -603,9 +606,15 @@ function broadcast(pitEvent, ...args) {
     }
 }
 
+var startingPits = {}
+exports.on('pitStarting',    pitId =>        startingPits[pitId] = true)
+exports.on('pitStartFailed', pitId => delete startingPits[pitId])
+exports.on('pitStarted',     pitId => delete startingPits[pitId])
+
 async function tick () {
     Parallel.each(await getPits(), async pitId => {
-        if (!(await pitIsRunning(pitId))) {   
+        if (!startingPits[pitId] && !(await pitIsRunning(pitId))) {  
+            console.log('DROPPING PIT:', pitId) 
             await dropPit(pitId)
         }
     })
