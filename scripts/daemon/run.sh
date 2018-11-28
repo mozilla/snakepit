@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-source /etc/pit_info
+eval $(cat /data/pit/pit_info | sed -E 's/([^=]+)=(.*)$/\1="\2"/')
 
 mkdir -p /data/pit
 chown worker:worker /data/pit
@@ -8,9 +8,9 @@ print_log () {
     echo "[${PIT_ROLE}] $1" >>/data/pit/daemon.log
 }
 
-if [ -f /data/pit/run ]; then
-    print_log "This pit already ran. Shutdown..."
-    shutdown 0
+if [ -f "/data/pit/run" ]; then
+    print_log "This pit already ran. Requesting stop..."
+    touch "/data/pit/stop"
 fi
 touch /data/pit/run
 
@@ -31,8 +31,8 @@ while true; do
     worker_index=0
     while [ ${worker_index} -lt ${PIT_WORKER_COUNT} ]; do
         if [ -f "/data/pit/workers/${worker_index}/stop" ]; then
-            print_log "Worker ${worker_index} requested stop. Shutdown..."
-            shutdown 0
+            print_log "Worker ${worker_index} requested stop. Stopping pit..."
+            touch "/data/pit/stop"
         fi
         ((worker_index++))
     done
