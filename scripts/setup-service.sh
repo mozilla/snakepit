@@ -3,8 +3,9 @@ set -e
 
 lxd_endpoint=$1
 mount_root=$2
+uid=$3
 
-command=$'\n "sudo lxc exec snakepit -- /code/scripts/setup-service.sh '$lxd_endpoint$' '$mount_root'"\n'
+command=$'\n "sudo lxc exec snakepit -- /code/scripts/setup-service.sh '$lxd_endpoint$' '$mount_root' '$uid'"\n'
 if ! curl -k -s $lxd_endpoint/1.0 > /dev/null 2>&1; then
     echo "Problem accessing \"$lxd_endpoint\"."
     echo "You have to enable LXD's REST API access over HTTPS."
@@ -54,6 +55,7 @@ echo -e "# LXD REST certificate.\nlxdcert: \"$config_dir/lxd.crt\"\n" >>$conf
 echo -e "# LXD REST key.\nlxdkey: \"$config_dir/lxd.key\"\n" >>$conf
 echo -e "# Internal path of LXD data drive.\ndataRoot: \"/data\"\n" >>$conf
 echo -e "# External path of LXD data drive (required for mounting).\nmountRoot: \"$mount_root\"\n" >>$conf
+echo -e "# UID of external user that should be mapped to container root (required for write access on mounts).\nmountUid: \"$uid\"\n" >>$conf
 echo -e "# Path to session token secret file.\ntokenSecretPath: \"$token_secret_path\"\n" >>$conf
 
 if systemctl is-active --quiet snakepit; then

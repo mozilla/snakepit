@@ -212,7 +212,7 @@ async function pitRequestedStop (pitId) {
     return true
 }
 
-async function addContainer (containerName, imageHash, pitInfo, options, script) {
+async function addContainer (containerName, imageHash, options) {
     let node = getNodeFromName(containerName)
     let cert = await getHeadCertificate()
     let containerConfig = assign({
@@ -237,16 +237,6 @@ async function addContainer (containerName, imageHash, pitInfo, options, script)
         },
     }, options || {})
     await lxdPost(node, 'containers', containerConfig)
-    if (pitInfo) {
-        let vars = []
-        for (let name of Object.keys(pitInfo)) {
-            vars.push(name + '=' + pitInfo[name] + '\n')
-        }
-        await pushFile(containerName, '/etc/pit_info', vars.join(''))
-    }
-    if (script) {
-        await pushFile(containerName, '/usr/bin/script.sh', script)
-    }
 }
 
 function newPitId () {
@@ -290,7 +280,6 @@ async function startPit (pitId, drives, workers) {
         let pitDir = getPitDir(pitId)
         let daemonHash = (await lxdGet(headNode, 'images/aliases/snakepit-daemon')).target
         let workerHash = (await lxdGet(headNode, 'images/aliases/snakepit-worker')).target
-
         let physicalNodes = { [headNode.lxdEndpoint]: headNode }
         for (let worker of workers) {
             // we just need one virtual node representant of/on each physical node
@@ -328,19 +317,13 @@ async function startPit (pitId, drives, workers) {
             }
         }
         let daemonContainerName = getDaemonName(pitId)
-        let pitInfo = {
-            JOB_NUMBER:         pitId,
-            PIT_DAEMON_HOST:    daemonContainerName + '.lxd',
-            PIT_WORKER_COUNT:   workers.length,
-            PIT_WORKER_PREFIX:  snakepitPrefix + pitId + '-',
-            PIT_WORKER_SUFFIX: '.lxd'
-        }
-
         await addContainer(
             daemonContainerName, 
             daemonHash, 
-            assign({ PIT_ROLE: 'daemon', PIT_WORKER_INDEX: 'd' }, pitInfo), 
-            { devices: daemonDevices }
+            { 
+                devices: daemonDevices,
+                config: { 'raw.idmap': 'both ' + config.mountUid + ' 0' }
+            }
         )
         await Parallel.each(workers, async function createWorker(worker) {
             let index = workers.indexOf(worker)
@@ -349,13 +332,15 @@ async function startPit (pitId, drives, workers) {
             if (network) {
                 workerDevices['eth0'] = { nictype: 'bridged', parent: network, type: 'nic' }
             }
-            await fs.mkdirp(path.join(pitDir, 'workers', '' + index))
+            let workerDir = path.join(pitDir, 'workers', '' + index)
+            await fs.mkdirp(workerDir)
+            if (worker.script) {
+                await fs.writeFile(path.join(workerDir, 'script.sh'), worker.script)
+            }
             await addContainer(
                 containerName, 
                 workerHash, 
-                assign({ PIT_ROLE: worker.role || 'worker ' + index, PIT_WORKER_INDEX: index }, pitInfo), 
-                { devices: workerDevices }, 
-                worker.script
+                { devices: workerDevices }
             )
         })
 
@@ -406,24 +391,14 @@ exports.runPit = runPit
 async function extractResults (pitId) {
     let daemonName = getDaemonName(pitId)
     let [errLog, pitLog] = await to(pullFile(daemonName, '/data/pit/pit.log'))
-    let [errInfo, pitInfo] = await to(pullFile(daemonName, '/etc/pit_info'))
-    let workerResults
-    if (pitInfo) {
-        let workerCount = 1
-        try {
-            workerCount = pitCountExp.exec(content)
-            workerCount = (workerCount && int(workerCount[1])) || 1
-        } catch (e) {}
-        workerResults = await Parallel.map(Array.from(Array(workerCount).keys()), async index => {
-            let workerPath = '/data/pit/workers/' + index + '/'
-            let [errStatus, status] = await to(pullFile(daemonName, workerPath + 'status'))
-            let [errResult, result] = await to(pullFile(daemonName, workerPath + 'result'))
-            return {
-                status: status ? ((!isNaN(parseFloat(status)) && isFinite(status)) ? (status * 1) : 1) : 1,
-                result: result || ''
-            }
-        })
-    }
+    let workers = await fs.readdir(path.join(getPitDir(pitId), 'workers'))
+    let workerResults = await Parallel.map(workers, async workerPath => {
+        let statusFile = path.join(workerPath, 'status')
+        let resultFile = path.join(workerPath, 'result')
+        let status = (await fs.pathExists(statusFile)) ? await Number(fs.readFile(statusFile)) : 1
+        let result = (await fs.pathExists(resultFile)) ? await fs.readFile(resultFile) : ''
+        return { status: status, result: result }
+    })
     return { log: pitLog || '', workers: workerResults || []}
 }
 

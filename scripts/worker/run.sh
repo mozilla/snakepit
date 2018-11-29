@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-eval $(cat /data/pit/pit_info | sed -E 's/([^=]+)=(.*)$/\1="\2"/')
 worker_index=`hostname | sed -E 's/sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/\3/'`
+head_node=`hostname | sed -E 's/sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/sp-head-\2-d.lxd/'`
+
+mkdir /data
+sshfs worker@${head_node}: /data -o cache=yes,kernel_cache,big_writes,sshfs_sync,Ciphers=aes128-ctr,reconnect,ServerAliveInterval=15,ServerAliveCountMax=100,StrictHostKeyChecking=no
 
 worker_dir="/data/pit/workers/${worker_index}"
 while [ ! -d "${worker_dir}" ]; do

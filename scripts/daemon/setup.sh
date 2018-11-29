@@ -23,9 +23,6 @@ echo "worker:${password}" | chpasswd
 print_header "Configuring ssh-daemon"
 mv /root/sshd_config /etc/ssh/sshd_config
 
-print_header "Creating default pit info file"
-echo 'PIT_DAEMON_HOST="snakepit-daemon.lxd"' >>/etc/pit_info
-
 print_header "Installing daemon service"
 mv run.sh /usr/bin/run.sh
 mv snakepit.service /lib/systemd/system/

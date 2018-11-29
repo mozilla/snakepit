@@ -1,11 +1,11 @@
 [Unit]
 Description=snakepit-worker - Machine learning job scheduler worker service
 Documentation=https://github.com/mozilla/snakepit
-After=data.mount
+After=network.target
 
 [Service]
 User=root
-WorkingDirectory=/data
+WorkingDirectory=/root
 Type=simple
 ExecStart=/usr/bin/run.sh
 

@@ -19,14 +19,6 @@ aptget update
 aptget install sshfs vim iputils-ping
 # aptget install nvidia-driver-410 nvidia-utils-410 nvidia-cuda-toolkit
 
-print_header "Creating default pit info file"
-echo 'PIT_DAEMON_HOST="snakepit-daemon.lxd"' >>/etc/pit_info
-
-print_header "Creating data mount"
-mkdir /data
-mv data.mount /lib/systemd/system/
-systemctl enable data.mount
-
 print_header "Installing worker service"
 mv run.sh /usr/bin/run.sh
 mv snakepit.service /lib/systemd/system/

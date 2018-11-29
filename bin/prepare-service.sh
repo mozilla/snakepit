@@ -50,4 +50,4 @@ endpoint="https://${address}:8443"
 echo "Using endpoint: $endpoint"
 
 print_header "Configuring service..."
-$exe /code/scripts/setup-service.sh "$endpoint" "$1"
+$exe /code/scripts/setup-service.sh "$endpoint" "$1" "$uid"
