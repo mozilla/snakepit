@@ -20,7 +20,7 @@ mkdir -p "$root_dir/home"
 mkdir -p "$root_dir/groups"
 mkdir -p "$root_dir/cache"
 mkdir -p "$root_dir/uploads"
-mkdir -p "$root_dir/jobs"
+mkdir -p "$root_dir/pits"
 
 chown -R $owner:$owner "$root_dir"
 chmod -R 700 "$root_dir"

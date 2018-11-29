@@ -57,8 +57,4 @@ config.maxPrepDuration   = config.maxPrepDuration  ? parseDuration(config.maxPre
 config.maxStartDurationn = config.maxStartDuration ? parseDuration(config.maxStartDuration) : 5 * oneMinute
 
 config.dataRoot  = config.dataRoot  || '/snakepit'
-config.jobsDir   = config.jobsDir   || path.join(config.dataRoot, 'jobs')
-config.sharedDir = config.sharedDir || path.join(config.dataRoot, 'shared')
-config.groupsDir = config.groupsDir || path.join(config.dataRoot, 'groups')
-config.homesDir  = config.homesDir  || path.join(config.dataRoot, 'home')
-config.uploadDir = config.uploadDir || path.join(config.dataRoot, 'uploads')
+config.mountRoot = config.mountRoot || config.dataRoot  || '/snakepit'

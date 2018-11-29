@@ -7,6 +7,7 @@ const Parallel = require('async-parallel')
 const { EventEmitter } = require('events')
 
 const store = require('./store.js')
+const utils = require('./utils.js')
 const config = require('./config.js')
 const { getAlias } = require('./aliases.js')
 
@@ -31,6 +32,7 @@ const lxdStatus = {
 const snakepitPrefix = 'sp'
 const containerNameParser = /sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/
 const pitCountExp = /PIT_WORKER_COUNT=([0-9]+)/
+const resourceParser = /resource:([^,]*),([^,]*),([^,]*)/
 
 const nodeStates = {
     OFFLINE: 0,
@@ -258,13 +260,19 @@ function newPitId () {
 }
 
 function getPitDir (pitId) {
-    return path.join(config.pitsDir, pitId + '')
+    return path.join(config.dataRoot, 'pits', pitId + '')
 }
 exports.getPitDir = getPitDir
 
+function getPitDirExternal (pitId) {
+    return path.join(config.mountRoot, 'pits', pitId + '')
+}
+exports.getPitDirExternal = getPitDirExternal
+
 async function createPit () {
     let pitId = await newPitId()
-    await fs.mkdirp(getPitDir(pitId))
+    let pitDir = getPitDir(pitId)
+    await fs.mkdirp(pitDir)
     broadcast('pitCreated', pitId)
     return pitId
 }
@@ -290,25 +298,23 @@ async function startPit (pitId, drives, workers) {
         }
         let network
         let endpoints = Object.keys(physicalNodes)
-        if (endpoints.length > 1) {
-            network = snakepitPrefix + pitId
-            await Parallel.each(endpoints, async function (localEndpoint) {
-                let tunnelConfig = {}
-                for (let remoteEndpoint of endpoints) {
-                    if (localEndpoint !== remoteEndpoint) {
-                        let tunnel = 'tunnel.' + physicalNodes[remoteEndpoint].id
-                        tunnelConfig[tunnel + '.protocol'] = 'vxlan',
-                        tunnelConfig[tunnel + '.id'] = '' + pitId
-                    }
+        network = snakepitPrefix + pitId
+        await Parallel.each(endpoints, async function (localEndpoint) {
+            let tunnelConfig = {}
+            for (let remoteEndpoint of endpoints) {
+                if (localEndpoint !== remoteEndpoint) {
+                    let tunnel = 'tunnel.' + physicalNodes[remoteEndpoint].id
+                    tunnelConfig[tunnel + '.protocol'] = 'vxlan',
+                    tunnelConfig[tunnel + '.id'] = '' + pitId
                 }
-                await lxdPost(physicalNodes[localEndpoint], 'networks', {
-                    name: network,
-                    config: tunnelConfig
-                })
+            }
+            await lxdPost(physicalNodes[localEndpoint], 'networks', {
+                name: network,
+                config: tunnelConfig
             })
-        }
+        })
 
-        let daemonDevices = { 'pit': { path: '/data/pit', source: pitDir, type: 'disk' } }
+        let daemonDevices = { 'pit': { path: '/data/pit', source: getPitDirExternal(pitId), type: 'disk' } }
         if (network) {
             daemonDevices['eth0'] = { nictype: 'bridged', parent: network, type: 'nic' }
         }
@@ -343,7 +349,7 @@ async function startPit (pitId, drives, workers) {
             if (network) {
                 workerDevices['eth0'] = { nictype: 'bridged', parent: network, type: 'nic' }
             }
-            await fs.mkdirp(path.join(pitDir, 'workers', index))
+            await fs.mkdirp(path.join(pitDir, 'workers', '' + index))
             await addContainer(
                 containerName, 
                 workerHash, 
@@ -418,7 +424,7 @@ async function extractResults (pitId) {
             }
         })
     }
-    return { log: pitLog || '', results: workerResults || []}
+    return { log: pitLog || '', workers: workerResults || []}
 }
 
 async function stopPit (pitId) {
@@ -429,7 +435,7 @@ async function stopPit (pitId) {
         if (containers) {
             for (let containerName of containers) {
                 let containerInfo = parseContainerName(containerName)
-                if (containerInfo && containerInfo[1] === pitId) {
+                if (containerInfo && containerInfo[1] == pitId) {
                     await to(setContainerState(containerName, 'stop', true))
                     await to(lxdDelete(node, 'containers/' + containerName))
                 }
@@ -473,30 +479,76 @@ function getNodeById (nodeId) {
 }
 exports.getNodeById = getNodeById
 
-function scanNode(node, callback) {
-    exports.tick()
-    createPit().then(pitId => {
-        testedNodes[node.id] = node
-        runPit(pitId, {}, [{ 
-            node:    node,
-            devices: { 'gpu': { type: 'gpu' } },
-            script:  'cat /proc/ >$RESULT_FILE'
-        }]).then(results => {
-            delete testedNodes[node.id]
-            if (results.length > 0) {
-                let raw = results[0]
-                console.log(raw.result)
-                callback(null, [{ type: 'cuda', index: 0 }])
-            } else {
-                callback('No worker responded')
-            }
-        }).catch(err => {
-            delete testedNodes[node.id]
-            callback(err)
-        })
-    }).catch(err => callback(err))
+async function authenticateNode(node, password) {
+    if (node.lxdEndpoint == headNode.lxdEndpoint) {
+        return
+    }
+    return lxdPost(node, 'certificates', { type: 'client', password: password })
 }
-exports.scanNode = scanNode
+
+async function unauthenticateNode(node) {
+    if (node.lxdEndpoint == headNode.lxdEndpoint) {
+        return
+    }
+    let certificates = await lxdGet(node, 'certificates')
+    certificates = certificates.map(c => {
+        c = c.split('/')
+        return c[c.length - 1]
+    })
+    await Parallel.each(certificates, async c => {
+        let cpath = 'certificates/' + c
+        let cinfo = await lxdGet(node, cpath)
+        if (cinfo.certificate == config.lxdCert) {
+            await lxdDelete(node, cpath)
+        }
+    })
+}
+
+async function addNode(id, lxdEndpoint, password) {
+    exports.tick()
+    let newNode = { 
+        id: id,
+        lxdEndpoint: lxdEndpoint,
+        state: nodeStates.ONLINE,
+        resources: {}
+    }
+    testedNodes[id] = newNode
+    let pitId = await createPit()
+    try {
+        await authenticateNode(newNode, password)
+        let result = await runPit(pitId, {}, [{ 
+            node:    newNode,
+            devices: { 'gpu': { type: 'gpu' } },
+            script:  utils.getScript('scan.sh')
+        }])
+        let workers = result.workers
+        if (workers.length > 0) {
+            console.log('ADDING NODE', id)
+            for (let line of workers[0].result.split('\n')) {
+                let match = resourceParser.exec(line)
+                if (match) {
+                    let resource = { 
+                        type:  match[1],  
+                        name:  match[3],
+                        index: int(match[2])
+                    }
+                    newNode.resources.push(resource)
+                    console.log('FOUND RESOURCE', id, resource)
+                }
+            }
+            //db.nodes[id] = newNode
+        } else {
+            throw new Error('No worker responded')
+        }
+    } catch (ex) {
+        await to(unauthenticateNode(newNode))
+        throw ex
+    } finally {
+        delete testedNodes[id]
+        await to(deletePit(pitId))
+    }
+}
+exports.addNode = addNode
 
 function setNodeState(node, nodeState) {
     node.state = nodeState
@@ -527,27 +579,14 @@ exports.initApp = function(app) {
         if (req.user.admin) {
             let id = req.params.id
             let node = req.body
-            let dbnode = db.nodes[id] || {}
-            let newnode = {
-                id: id,
-                lxdEndpoint: node.lxdEndpoint || dbnode.lxdEndpoint,
-                address: node.address || dbnode.address,
-                state: nodeStates.ONLINE
-            }
-            if (newnode.lxdEndpoint) {
-                scanNode(newnode, (err, result) => {
-                    if (err) {
-                        res.status(400).send({ message: 'Node not available:\n' + err })
-                    } else {
-                        newnode.resources = {}
-                        for(let resource of result) {
-                            if (!node.cvd || resource.type != 'cuda' || node.cvd.includes(resource.index)) {
-                                newnode.resources[resource.type + resource.index] = resource
-                            }
-                        }
-                        db.nodes[id] = newnode
-                        res.status(200).send()
-                    }
+            let dbnode = db.nodes[id]
+            if (dbnode) {
+                res.status(400).send({ message: 'Node with same id already registered' })
+            } else if (node.lxdEndpoint) {
+                addNode(id, node.lxdEndpoint, node.password).then(newNode => {
+                    res.status(200).send()
+                }).catch(err => {
+                    res.status(400).send({ message: 'Problem adding node:\n' + err })
                 })
             } else {
                 res.status(400).send()
@@ -567,7 +606,6 @@ exports.initApp = function(app) {
             res.status(200).json({
                 id:          node.id,
                 lxdEndpoint: node.lxdEndpoint,
-                address:     node.address,
                 state:       node.state,
                 since:       node.since,
                 resources: Object.keys(node.resources).map(resourceId => {

@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const rimraf = require('rimraf')
 const fslib = require('httpfslib')
+const nodes = require('./nodes.js')
 const store = require('./store.js')
 const config = require('./config.js')
 const usersModule = require('./users.js')
@@ -10,7 +11,7 @@ const groupsModule = require('./groups.js')
 var db = store.root
 
 exports.getJobDirById = function(jobId) {
-    return path.join(config.jobsDir, jobId + '')
+    return nodes.getPitDir(jobId)
 }
 
 exports.getJobDir = function(job) {
@@ -58,7 +59,7 @@ exports.initApp = function(app) {
             if (token && job.token && job.token.trim() == token.trim()) {
                 let jfs = fslib.vDir({
                     'job':    () => fslib.real(exports.getJobDir(job)),
-                    'shared': () => fslib.readOnly(fslib.real(config.sharedDir)),
+                    'shared': () => fslib.readOnly(fslib.real(path.join(config.dataRoot, 'shared'))),
                     'groups': () => fslib.vDir(
                         () => groupsModule.getGroups(user),
                         group => groupsModule.isInGroup(user, group) ? fslib.real(groupsModule.getGroupDir(group)) : null

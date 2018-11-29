@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 eval $(cat /data/pit/pit_info | sed -E 's/([^=]+)=(.*)$/\1="\2"/')
-worker_index=`hostname | sed -E 's/sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/\3/')`
+worker_index=`hostname | sed -E 's/sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/\3/'`
 
 worker_dir="/data/pit/workers/${worker_index}"
 while [ ! -d "${worker_dir}" ]; do

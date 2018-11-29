@@ -117,7 +117,7 @@ exports.initApp = function(app) {
         let chunks = []
         req.on('data', chunk => chunks.push(chunk));
         req.on('end', () => fslib.serve(
-            fslib.readOnly(fslib.real(config.sharedDir)), 
+            fslib.readOnly(fslib.real(path.join(config.dataRoot, 'shared'))), 
             Buffer.concat(chunks), 
             result => res.send(result), config.debugJobFS)
         )
@@ -210,7 +210,7 @@ exports.initApp = function(app) {
 }
 
 exports.getGroupDir = function(group) {
-    let groupDir = path.join(config.groupsDir, group)
+    let groupDir = path.join(path.join(config.dataRoot, 'groups'), group)
     if (!fs.existsSync(groupDir)) {
         fs.mkdirSync(groupDir)
     }
