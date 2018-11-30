@@ -204,7 +204,7 @@ exports.initApp = function(app) {
 }
 
 exports.getHomeDir = function(user) {
-    let homeDir = path.join(path.join(config.dataRoot, 'home'), user.id)
+    let homeDir = path.join(config.dataRoot, 'home', user.id)
     if (!fs.existsSync(homeDir)) {
         fs.mkdirSync(homeDir)
     }

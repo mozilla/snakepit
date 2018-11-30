@@ -13,7 +13,7 @@ const config = require('./config.js')
 const nodesModule = require('./nodes.js')
 const groupsModule = require('./groups.js')
 const parseClusterRequest = require('./clusterParser.js').parse
-const { reserveCluster, summarizeClusterReservation } = require('./reservations.js')
+const reservations = require('./reservations.js')
 
 var exports = module.exports = {}
 
@@ -72,9 +72,9 @@ function appendError(job, error) {
 
 function getBasicEnv(job) {
     return {
-        JOB_NUMBER:  job.id,
-        DATA_ROOT:   config.dataRoot,
-        JOB_DIR:     nodesModule.getPitDir(job.id)
+        JOB_NUMBER: job.id,
+        DATA_ROOT:  config.dataRoot,
+        JOB_DIR:    nodesModule.getPitDir(job.id)
     }
 }
 
@@ -118,7 +118,6 @@ function prepareJob(job) {
     } else {
         env.ARCHIVE = job.archive
     }
-    env.NODE = '#'
     setJobState(job, jobStates.PREPARING)
     return utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
@@ -135,10 +134,26 @@ function prepareJob(job) {
     })
 }
 
-function startJob(job, clusterReservation, callback) {
+function startJob (job, clusterReservation, callback) {
     setJobState(job, jobStates.STARTING)
     job.clusterReservation = clusterReservation
-    let jobEnv = _getComputeEnv(job, clusterReservation)
+    let jobEnv = getBasicEnv(job)
+    
+    jobEnv.JOB_DIR = '/data/pit'
+    jobEnv.SRC_DIR = jobEnv.WORK_DIR = '/data/pit/src'
+    let shares = {
+        'shared': path.join(nodesModule.getPitDirExternal(job.id), 'shared'),
+        'home':   path.join(config.mountRoot, 'home', user.id)
+    }
+    jobEnv.DATA_ROOT = '/data'
+    jobEnv.SHARED_DIR = '/data/shared'
+    jobEnv.HOME_DIR = '/data/home'
+    for (let group of groupsModule.getGroups(job.user)) {
+        shares['groups/' + group] = path.join(config.mountRoot, 'groups', group)
+    }
+    jobEnv.GROUPS_DIR = '/data/groups'
+
+    let workers = []
     jobEnv.NUM_GROUPS = clusterReservation.length
     for(let gIndex = 0; gIndex < clusterReservation.length; gIndex++) {
         let groupReservation = clusterReservation[gIndex]
@@ -146,25 +161,57 @@ function startJob(job, clusterReservation, callback) {
         for(let pIndex = 0; pIndex < groupReservation.length; pIndex++) {
             let processReservation = groupReservation[pIndex]
             let node = db.nodes[processReservation.node]
-            jobEnv['HOST_GROUP' + gIndex + '_PROCESS' + pIndex] = node
-            let cudaIndices = []
-            let node = db.nodes[reservation.node]
-            for(let resourceId of Object.keys(reservation.resources)) {
-                let resource = reservation.resources[resourceId]
+            jobEnv['HOST_GROUP' + gIndex + '_PROCESS' + pIndex] = 
+                nodesModule.getWorkerHost(job.id, node, workers.length)
+            let gpus = {}
+            for(let resourceId of Object.keys(processReservation.resources)) {
+                let resource = processReservation.resources[resourceId]
                 if (resource.type == 'cuda') {
-                    cudaIndices.push(resource.index)
+                    gpus['gpu' + resource.index] = {
+                        type:  'gpu',
+                        index: resource.index
+                    }
                 }
             }
-            let processEnv = Object.assign({
-                GROUP_INDEX:          reservation.groupIndex,
-                PROCESS_INDEX:        reservation.processIndex
-            }, jobEnv)
+            workers.push({
+                node: node,
+                options: { devices: gpus },
+                env: Object.assign({
+                    GROUP_INDEX:   processReservation.groupIndex,
+                    PROCESS_INDEX: processReservation.processIndex
+                }, jobEnv),
+                script: job.script
+            })
         }
     }
-    nodesModule.startPit(job.id, {}, []).then(callback)
+    nodesModule.startPit(job.id, shares, workers).then(() => {
+        reservations.fulfillReservation(clusterReservation)
+        setJobState(job, jobStates.RUNNING)
+        callback()
+    }).catch(err => {
+        appendError(job, err)
+        cleanJob(job)
+        callback()
+    })
 }
 
-function cleanJob(job, success) {
+function stopJob (job) {
+    let scheduleIndex = db.schedule.indexOf(job.id)
+    if (scheduleIndex >= 0) {
+        db.schedule.splice(scheduleIndex, 1)
+    }
+    if (job.state == jobStates.PREPARING && preparations[job.id]) {
+        preparations[job.id].kill()
+        delete preparations[job.id]
+        cleanJob(job)
+    } else if (job.state == jobStates.RUNNING) {
+        nodesModule.stopPit(job.id)
+            .then(() => cleanJob(job))
+            .catch(err => cleanJob(job))
+    }
+}
+
+function cleanJob(job) {
     setJobState(job, jobStates.CLEANING)
     utils.runScript('clean.sh', getPreparationEnv(job), (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
@@ -211,7 +258,7 @@ function createJobDescription(dbjob) {
         user:             dbjob.user,
         groups:           dbjob.groups,
         resources:        dbjob.state >= jobStates.STARTING ? 
-                              summarizeClusterReservation(dbjob.clusterReservation, true) : 
+                              reservations.summarizeClusterReservation(dbjob.clusterReservation, true) : 
                               dbjob.clusterRequest,
         state:            dbjob.state,
         since:            duration,
@@ -315,7 +362,7 @@ exports.initApp = function(app) {
                 return
             }
         }
-        let simulatedReservation = reserveCluster(clusterRequest, req.user, true)
+        let simulatedReservation = reservations.reserveCluster(clusterRequest, req.user, true)
         if (simulatedReservation) {
             nodesModule.createPit().then(id => {
                 store.lockAutoRelease('jobs', function() {
@@ -325,6 +372,7 @@ exports.initApp = function(app) {
                         description:        ('' + job.description).substring(0,20),
                         clusterRequest:     job.clusterRequest,
                         clusterReservation: simulatedReservation,
+                        script:             job.script || 'if [ -f .compute ]; then bash .compute; fi',
                         continueJob:        job.continueJob,
                         origin:             job.origin,
                         hash:               job.hash,
@@ -344,10 +392,7 @@ exports.initApp = function(app) {
                     }
                     setJobState(dbjob, jobStates.NEW)
     
-                    var files = {
-                        'compute.sh': job.compute || 'if [ -f .compute ]; then bash .compute; fi',
-                        'install.sh': job.install || 'if [ -f .install ]; then bash .install; fi',
-                    }
+                    var files = {}
                     if (job.diff) {
                         files['git.patch'] = job.diff + '\n'
                     }
@@ -511,11 +556,7 @@ exports.initApp = function(app) {
             if (dbjob) {
                 if (groupsModule.canAccessJob(req.user, dbjob)) {
                     if (dbjob.state <= jobStates.RUNNING) {
-                        let scheduleIndex = db.schedule.indexOf(dbjob.id)
-                        if (scheduleIndex >= 0) {
-                            db.schedule.splice(scheduleIndex, 1)
-                        }
-                        nodesModule.stopPit(dbjob.id)
+                        stopJob(dbjob)
                         res.status(200).send()
                     } else {
                         res.status(412).send({ message: 'Only jobs before or in running state can be stopped' })
@@ -560,7 +601,7 @@ function resimulateReservations() {
     for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
         if (job.state >= jobStates.PREPARING && job.state <= jobStates.WAITING) {
             let clusterRequest = parseClusterRequest(job.clusterRequest)
-            let clusterReservation = reserveCluster(clusterRequest, db.users[job.user], true)
+            let clusterReservation = reservations.reserveCluster(clusterRequest, db.users[job.user], true)
             if (!clusterReservation) {
                 jobs.push(job)
             }
@@ -601,17 +642,6 @@ exports.tick = function() {
             ) {
                 preparations[job.id] = prepareJob(job)
             } else if (
-                job.state == jobStates.STARTING &&
-                stateTime + config.maxStartDuration < Date.now()
-            ) {
-                appendError(job, 'Job exceeded max startup time')
-                setJobState(job, jobStates.STOPPING)
-            } else if (
-                job.state == jobStates.STOPPING &&
-                !preparations.hasOwnProperty(job.id)
-            ) {
-                nodesModule.stopPit(job.id)
-            } else if (
                 job.state == jobStates.DONE && 
                 stateTime + config.keepDoneDuration < Date.now()
             ) {
@@ -621,18 +651,11 @@ exports.tick = function() {
         }
         for(let jobId of Object.keys(preparations)) {
             let job = db.jobs[jobId]
-            if (
-                job && job.state == jobStates.PREPARING
-            ) {
+            if (job && job.state == jobStates.PREPARING) {
                 if (new Date(job.stateChanges[job.state]).getTime() + config.maxPrepDuration < Date.now()) {
                     appendError(job, 'Job exceeded max preparation time')
-                    setJobState(job, jobStates.STOPPING)
+                    stopJob(job)
                 }
-            } else if (
-                job && job.state == jobStates.STOPPING
-            ) {
-                preparations[job.id].kill()
-                setJobState(job, jobStates.DONE)
             } else {
                 delete preparations[jobId]
                 if (!job) {
@@ -644,7 +667,7 @@ exports.tick = function() {
             let job = db.jobs[db.schedule[0]]
             if (job) {
                 let clusterRequest = parseClusterRequest(job.clusterRequest)
-                let clusterReservation = reserveCluster(clusterRequest, db.users[job.user], false)
+                let clusterReservation = reservations.reserveCluster(clusterRequest, db.users[job.user], false)
                 if (clusterReservation) {
                     db.schedule.shift()
                     startJob(job, clusterReservation, goon)

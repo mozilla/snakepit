@@ -22,13 +22,22 @@ exports.getDuration = function(date1, date2) {
     }
 }
 
-exports.shellQuote = function(str) {
+function shellQuote (str) {
     str = '' + str
     str = str.replace(/\\/g, '\\\\')
     str = str.replace(/\'/g, '\\\'')
     str = str.replace(/(?:\r\n|\r|\n)/g, '\\n')
     str = '$\'' + str + '\''
     return str
+}
+exports.shellQuote = shellQuote
+
+exports.envToScript = function (env) {
+    let envScript = []
+    for (let name of Object.keys(env)) {
+        envScript.push(name + '=' + shellQuote(env[name]) + '\n')
+    }
+    return envScript.join('')
 }
 
 var _loadedScripts = {}

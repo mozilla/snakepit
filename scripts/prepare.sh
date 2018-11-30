@@ -1,15 +1,9 @@
 set -e
 set -o pipefail
 
-function ts () {
-    while IFS= read -r line; do printf '[%s][PREP] %s\n' "$(date -u '+%Y-%m-%d %H:%M:%S')" "$line"; done
-}
-
-#INCLUDE jail.sh
-
 mkdir "$JOB_DIR/tmp"
 if [ -n "$CONTINUE_JOB_NUMBER" ]; then
-    cp -r "$DATA_ROOT/jobs/$CONTINUE_JOB_NUMBER/keep" "$JOB_DIR/keep"
+    cp -r "$DATA_ROOT/pits/$CONTINUE_JOB_NUMBER/keep" "$JOB_DIR/keep"
 else
     mkdir "$JOB_DIR/keep"
 fi
@@ -31,18 +25,12 @@ if [ -n "$ORIGIN" ]; then
 elif [ -n "$ARCHIVE" ]; then
     tar -xzf "$ARCHIVE" -C "$job_src_dir"
     rm "$ARCHIVE"
+else
+    mkdir "$job_src_dir"
 fi
 
 cd "$job_src_dir"
-
 patch_file="$JOB_DIR/git.patch"
 if [ -f "$patch_file" ]; then
     cat "$patch_file" | patch -p0
 fi
-
-{
-    echo "Running install script..."
-    jail "bash -e ../install.sh; echo \$? >../exit-status_preparation" 2>&1
-    echo "Finished install script."
-    exit `cat ../exit-status_preparation`
-} 2>&1 | ts >>"${JOB_DIR}/preparation.log"

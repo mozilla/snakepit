@@ -212,6 +212,51 @@ async function pitRequestedStop (pitId) {
     return true
 }
 
+function newPitId () {
+    return new Promise(
+        (resolve, reject) => store.lockAsyncRelease('jobs', function(free) {
+            let newId = db.pitIdCounter++
+            free()
+            resolve(newId)
+        })
+    )
+}
+
+function getDaemonHost (pitId) {
+    return getDaemonName(pitId) + '.lxd'
+}
+exports.getDaemonHost = getDaemonHost
+
+function getWorkerHost (pitId, node, index) {
+    return getContainerName(node.id, pitId, index) + '.lxd'
+}
+exports.getWorkerHost = getWorkerHost
+
+function getPitDir (pitId) {
+    return path.join(config.dataRoot, 'pits', pitId + '')
+}
+exports.getPitDir = getPitDir
+
+function getPitDirExternal (pitId) {
+    return path.join(config.mountRoot, 'pits', pitId + '')
+}
+exports.getPitDirExternal = getPitDirExternal
+
+async function createPit () {
+    let pitId = await newPitId()
+    let pitDir = getPitDir(pitId)
+    await fs.mkdirp(pitDir)
+    broadcast('pitCreated', pitId)
+    return pitId
+}
+exports.createPit = createPit
+
+async function deletePit (pitId) {
+    await fs.remove(getPitDir(pitId))
+    broadcast('pitDeleted', pitId)
+}
+exports.deletePit = deletePit
+
 async function addContainer (containerName, imageHash, options) {
     let node = getNodeFromName(containerName)
     let cert = await getHeadCertificate()
@@ -238,41 +283,6 @@ async function addContainer (containerName, imageHash, options) {
     }, options || {})
     await lxdPost(node, 'containers', containerConfig)
 }
-
-function newPitId () {
-    return new Promise(
-        (resolve, reject) => store.lockAsyncRelease('jobs', function(free) {
-            let newId = db.pitIdCounter++
-            free()
-            resolve(newId)
-        })
-    )
-}
-
-function getPitDir (pitId) {
-    return path.join(config.dataRoot, 'pits', pitId + '')
-}
-exports.getPitDir = getPitDir
-
-function getPitDirExternal (pitId) {
-    return path.join(config.mountRoot, 'pits', pitId + '')
-}
-exports.getPitDirExternal = getPitDirExternal
-
-async function createPit () {
-    let pitId = await newPitId()
-    let pitDir = getPitDir(pitId)
-    await fs.mkdirp(pitDir)
-    broadcast('pitCreated', pitId)
-    return pitId
-}
-exports.createPit = createPit
-
-async function deletePit (pitId) {
-    await fs.remove(getPitDir(pitId))
-    broadcast('pitDeleted', pitId)
-}
-exports.deletePit = deletePit
 
 async function startPit (pitId, drives, workers) {
     try {
@@ -334,13 +344,16 @@ async function startPit (pitId, drives, workers) {
             }
             let workerDir = path.join(pitDir, 'workers', '' + index)
             await fs.mkdirp(workerDir)
+            if (worker.env) {
+                await fs.writeFile(path.join(workerDir, 'env.sh'), utils.envToScript(worker.env))
+            }
             if (worker.script) {
                 await fs.writeFile(path.join(workerDir, 'script.sh'), worker.script)
             }
             await addContainer(
                 containerName, 
                 workerHash, 
-                { devices: workerDevices }
+                assign({ devices: workerDevices }, worker.options || {})
             )
         })
 
