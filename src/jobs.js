@@ -4,9 +4,7 @@ const zlib = require('zlib')
 const tar = require('tar-fs')
 const ndir = require('node-dir')
 const async = require('async')
-const cluster = require('cluster')
 const fslib = require('httpfslib')
-const randomstring = require('randomstring')
 
 const store = require('./store.js')
 const utils = require('./utils.js')
@@ -42,12 +40,6 @@ var db = store.root
 var utilization = {}
 var preparations = {}
 
-process.on('message', msg => {
-    if (msg.utilization) {
-        utilization = msg.utilization
-    }
-})
-
 exports.initDb = function() {
     if (!db.jobIdCounter) {
         db.jobIdCounter = 1
@@ -58,12 +50,10 @@ exports.initDb = function() {
     for (let jobId of Object.keys(db.jobs)) {
         let job = db.jobs[jobId]
         if (job.state == jobStates.PREPARING) {
-            _appendError(job, 'Job was interrupted during preparation')
-            _cleanJob(job)
+            appendError(job, 'Job was interrupted during preparation')
+            cleanJob(job)
         } else if (job.state == jobStates.CLEANING) {
-            _cleanJob(job)
-        } else {
-            _checkRunning(job)
+            cleanJob(job)
         }
     }
     if (!db.schedule) {
@@ -71,77 +61,7 @@ exports.initDb = function() {
     }
 }
 
-function _getJobProcesses() {
-    var jobs = {}
-    for (let nodeId of Object.keys(db.nodes)) {
-        let node = db.nodes[nodeId]
-        if (node.state >= nodesModule.nodeStates.ONLINE) {
-            for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
-                //console.log('Checking resource ' + resource.name + ' (' + resource.index + ') on node ' + node.id)
-                if (resource.job && resource.pid) {
-                    let job = jobs[resource.job] = jobs[resource.job] || {}
-                    let jobnode = job[node.id] = job[node.id] || {}
-                    jobnode[resource.pid] = true
-                }
-            }
-        }
-    }
-    return jobs
-}
-
-function _checkRunning(job) {
-    let counter = 0
-    let clusterReservation = job.clusterReservation
-    if (!clusterReservation ||
-        job.state < jobStates.STARTING ||
-        job.state > jobStates.STOPPING) {
-        return
-    }
-    for(let groupReservation of clusterReservation) {
-        for(let processReservation of groupReservation) {
-            let node = db.nodes[processReservation.node]
-            if (node) {
-                for(let resource of Object.keys(processReservation.resources)
-                    .map(k => node.resources[k])) {
-                    if (resource && resource.job == job.id) {
-                        return
-                    }
-                }
-            }
-        }
-    }
-    _cleanJob(job)
-}
-
-function _freeProcess(nodeId, pid) {
-    let job = 0
-    let node = db.nodes[nodeId]
-    for (let resourceId of Object.keys(node.resources)) {
-        let resource = node.resources[resourceId]
-        if (resource.pid == pid) {
-            //console.log('Freeing resource ' + resource.name + ' for PID ' + pid + ' on node "' + node.id + '"')
-            job = resource.job
-            if (resource.type.startsWith('num:')) {
-                delete node.resources[resourceId]
-            } else {
-                delete resource.pid
-                delete resource.job
-            }
-        }
-    }
-    if (job > 0 && db.jobs[job]) {
-        _checkRunning(db.jobs[job])
-    }
-}
-
-function _setJobState(job, state) {
-    job.state = state
-    job.stateChanges = job.stateChanges || {}
-    job.stateChanges[state] = new Date().toISOString()
-    jobfs.saveJob(job)
-}
-
-function _appendError(job, error) {
+function appendError(job, error) {
     if (job.error) {
         job.error += '\n===========================\n' + error
     } else {
@@ -150,27 +70,46 @@ function _appendError(job, error) {
     job.errorState = job.state
 }
 
-function _getBasicEnv(job) {
-    let user = db.users[job.user]
+function getBasicEnv(job) {
     return {
-        JOB_NUMBER: job.id,
-        DATA_ROOT: config.dataRoot,
-        JOB_DIR: jobfs.getJobDir(job),
-        JOB_FS_URL: config.external + '/jobfs/' + job.id + '/' + job.token,
-        JOB_FS_CERT: config.cert
+        JOB_NUMBER:  job.id,
+        DATA_ROOT:   config.dataRoot,
+        JOB_DIR:     nodesModule.getPitDir(job.id)
     }
 }
 
-function _getPreparationEnv(job) {
-    let env = _getBasicEnv(job)
+function getPreparationEnv(job) {
+    let env = getBasicEnv(job)
     if (job.continueJob) {
         env.CONTINUE_JOB_NUMBER = job.continueJob
     }
     return env
 }
 
-function _prepareJob(job) {
-    let env = _getPreparationEnv(job)
+function setJobState(job, state) {
+    job.state = state
+    job.stateChanges = job.stateChanges || {}
+    job.stateChanges[state] = new Date().toISOString()
+    saveJob(job)
+}
+
+function loadJob (jobId) {
+    let job = db.jobs[jobId]
+    if (job) {
+        return job
+    }
+    let jobPath = path.join(nodesModule.getPitDir(jobId), 'meta.json')
+    if (fs.existsSync(jobPath)) {
+        return JSON.parse(fs.readFileSync(jobPath, 'utf8'))
+    }
+}
+
+function saveJob (job) {
+    fs.writeFileSync(path.join(nodesModule.getPitDir(job.id), 'meta.json'), JSON.stringify(job))
+}
+
+function prepareJob(job) {
+    let env = getPreparationEnv(job)
     if (job.origin) {
         Object.assign(env, {
             ORIGIN: job.origin,
@@ -180,36 +119,26 @@ function _prepareJob(job) {
         env.ARCHIVE = job.archive
     }
     env.NODE = '#'
-    _setJobState(job, jobStates.PREPARING)
+    setJobState(job, jobStates.PREPARING)
     return utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
-            if (code == 0 && fs.existsSync(jobfs.getJobDir(job)) && job.state == jobStates.PREPARING) {
+            if (code == 0 && fs.existsSync(nodesModule.getPitDir(job.id)) && job.state == jobStates.PREPARING) {
                 db.schedule.push(job.id)
-                _setJobState(job, jobStates.WAITING)
+                setJobState(job, jobStates.WAITING)
             } else {
                 if (job.state != jobStates.STOPPING) {
-                    _appendError(job, 'Problem during preparation step - exit code: ' + code + '\n' + stdout + '\n' + stderr)  
+                    appendError(job, 'Problem during preparation step - exit code: ' + code + '\n' + stdout + '\n' + stderr)  
                 }
-                _setJobState(job, jobStates.DONE)
+                setJobState(job, jobStates.DONE)
             }
         })
     })
 }
 
-function _cleanJob(job, success) {
-    _setJobState(job, jobStates.CLEANING)
-    utils.runScript('clean.sh', _getPreparationEnv(job), (code, stdout, stderr) => {
-        store.lockAutoRelease('jobs', () => {
-            if (code > 0) {
-                _appendError(job, 'Problem during cleaning step - exit code: ' + code + '\n' + stderr)
-            }
-            _setJobState(job, jobStates.DONE)
-        })
-    })
-}
-
-function _getComputeEnv(job, clusterReservation) {
-    let jobEnv = _getBasicEnv(job)
+function startJob(job, clusterReservation, callback) {
+    setJobState(job, jobStates.STARTING)
+    job.clusterReservation = clusterReservation
+    let jobEnv = _getComputeEnv(job, clusterReservation)
     jobEnv.NUM_GROUPS = clusterReservation.length
     for(let gIndex = 0; gIndex < clusterReservation.length; gIndex++) {
         let groupReservation = clusterReservation[gIndex]
@@ -217,86 +146,37 @@ function _getComputeEnv(job, clusterReservation) {
         for(let pIndex = 0; pIndex < groupReservation.length; pIndex++) {
             let processReservation = groupReservation[pIndex]
             let node = db.nodes[processReservation.node]
-            let portCount = 0
-            for(let resourceId of Object.keys(processReservation.resources)) {
-                let resource = processReservation.resources[resourceId]
-                if (resource.type == 'num:port') {
-                    let name = 
-                        'GROUP'    + processReservation.groupIndex +
-                        '_PROCESS' + processReservation.processIndex +
-                        '_PORT'    + portCount
-                    jobEnv['HOST_' + name] = node.address + ':' + resource.index
-                    jobEnv[name] = resource.index
-                    portCount++
+            jobEnv['HOST_GROUP' + gIndex + '_PROCESS' + pIndex] = node
+            let cudaIndices = []
+            let node = db.nodes[reservation.node]
+            for(let resourceId of Object.keys(reservation.resources)) {
+                let resource = reservation.resources[resourceId]
+                if (resource.type == 'cuda') {
+                    cudaIndices.push(resource.index)
                 }
             }
-            jobEnv['NODE'] = node.id
-            jobEnv['NUM_PORTS_PER_PROCESS_GROUP' + gIndex] = portCount
+            let processEnv = Object.assign({
+                GROUP_INDEX:          reservation.groupIndex,
+                PROCESS_INDEX:        reservation.processIndex
+            }, jobEnv)
         }
     }
-    return jobEnv
+    nodesModule.startPit(job.id, {}, []).then(callback)
 }
 
-function _startJob(job, clusterReservation, callback) {
-    _setJobState(job, jobStates.STARTING)
-    job.clusterReservation = clusterReservation
-    let jobEnv = _getComputeEnv(job, clusterReservation)
-    async.each([].concat.apply([], clusterReservation), (reservation, done) => {
-        let cudaIndices = []
-        let ports = []
-        let node = db.nodes[reservation.node]
-        for(let resourceId of Object.keys(reservation.resources)) {
-            let resource = reservation.resources[resourceId]
-            if (resource.type == 'cuda') {
-                cudaIndices.push(resource.index)
-            } else if (resource.type == 'num:port') {
-                ports.push(resource.index)
+function cleanJob(job, success) {
+    setJobState(job, jobStates.CLEANING)
+    utils.runScript('clean.sh', getPreparationEnv(job), (code, stdout, stderr) => {
+        store.lockAutoRelease('jobs', () => {
+            if (code > 0) {
+                appendError(job, 'Problem during cleaning step - exit code: ' + code + '\n' + stderr)
             }
-        }
-        let processEnv = Object.assign({
-            GROUP_INDEX:          reservation.groupIndex,
-            PROCESS_INDEX:        reservation.processIndex,
-            PORTS:                ports.join(','),
-            EXTRA_WAIT_TIME:      Math.floor(2 * config.pollInterval / 1000),
-            ALLOWED_CUDA_DEVICES: cudaIndices.join(',')
-        }, jobEnv)
-        nodesModule.runScriptOnNode(node, 'run.sh', processEnv, (code, stdout, stderr) => {
-            if (code == 0) {
-                let pid = 0
-                stdout.split('\n').forEach(line => {
-                    let [key, value] = line.split(':')
-                    if (key == 'pid' && value) {
-                        pid = value
-                    }
-                })
-                for(let resourceId of Object.keys(reservation.resources)) {
-                    let resource = node.resources[resourceId]
-                    let resourceReservation = reservation.resources[resourceId]
-                    if (!resource && resourceReservation.type.startsWith('num:')) {
-                        node.resources[resourceId] = {
-                            type: resourceReservation.type,
-                            index: resourceReservation.index,
-                            job: job.id,
-                            pid: pid
-                        }
-                    } else {
-                        resource.job = job.id
-                        resource.pid = pid
-                    }
-                }
-            } else {
-                _appendError(job, 'Problem during startup (process ' + 
-                    reservation.groupIndex + ':' + reservation.processIndex + 
-                    ') - exit code: ' + code + '\n' + stderr
-                )
-                _setJobState(job, jobStates.STOPPING)
-            }
-            done()
+            setJobState(job, jobStates.DONE)
         })
-    }, callback)
+    })
 }
 
-function _createJobDescription(dbjob) {
+function createJobDescription(dbjob) {
     let stateChange = new Date(dbjob.stateChanges[dbjob.state])
     let duration = utils.getDuration(new Date(), stateChange)
     let utilComp = 0
@@ -341,9 +221,9 @@ function _createJobDescription(dbjob) {
     }
 }
 
-function _getJobDescription(jobId, user, extended) {
-    let dbjob = jobfs.loadJob(jobId)
-    let job = dbjob ? _createJobDescription(dbjob) : null
+function getJobDescription(jobId, user, extended) {
+    let dbjob = loadJob(jobId)
+    let job = dbjob ? createJobDescription(dbjob) : null
     if (job && extended) {
         job.stateChanges = dbjob.stateChanges
         if (dbjob.error) {
@@ -356,54 +236,50 @@ function _getJobDescription(jobId, user, extended) {
     return job
 }
 
-function _sendLog(req, res, job, logFile, stopState) {
-    if (groupsModule.canAccessJob(req.user, job)) {
-        res.writeHead(200, {
-            'Connection': 'keep-alive',
-            'Content-Type': 'text/plain',
-            'Cache-Control': 'no-cache'
+function sendLog(req, res, job) {
+    res.writeHead(200, {
+        'Connection': 'keep-alive',
+        'Content-Type': 'text/plain',
+        'Cache-Control': 'no-cache'
+    })
+    req.connection.setTimeout(60 * 60 * 1000)
+    let logPath = path.join(nodesModule.getPitDir(job.id), 'pit.log')
+    let written = 0
+    let writeStream = cb => {
+        let stream = fs.createReadStream(logPath, { start: written })
+        stream.on('data', chunk => {
+            res.write(chunk)
+            written += chunk.length
         })
-        req.connection.setTimeout(60 * 60 * 1000)
-        let logPath = path.join(jobfs.getJobDir(job), logFile)
-        let written = 0
-        let writeStream = cb => {
-            let stream = fs.createReadStream(logPath, { start: written })
-            stream.on('data', chunk => {
-                res.write(chunk)
-                written += chunk.length
-            })
-            stream.on('end', cb)
-        }
-        let poll = () => {
-            if (job.state <= stopState) {
-                if (fs.existsSync(logPath)) {
-                    fs.stat(logPath, (err, stats) => {
-                        if (!err && stats.size > written) {
-                            writeStream(() => setTimeout(poll, config.pollInterval))
-                        } else  {
-                            setTimeout(poll, config.pollInterval)
-                        }
-                    })
-                } else {
-                    setTimeout(poll, config.pollInterval)
-                }
-            } else if (fs.existsSync(logPath)) {
-                writeStream(res.end.bind(res))
-            } else {
-                res.status(404).send()
-            }
-        }
-        poll()
-    } else {
-        res.status(403).send()
+        stream.on('end', cb)
     }
+    let poll = () => {
+        if (job.state <= jobStates.STOPPING) {
+            if (fs.existsSync(logPath)) {
+                fs.stat(logPath, (err, stats) => {
+                    if (!err && stats.size > written) {
+                        writeStream(() => setTimeout(poll, config.pollInterval))
+                    } else  {
+                        setTimeout(poll, config.pollInterval)
+                    }
+                })
+            } else {
+                setTimeout(poll, config.pollInterval)
+            }
+        } else if (fs.existsSync(logPath)) {
+            writeStream(res.end.bind(res))
+        } else {
+            res.status(404).send()
+        }
+    }
+    poll()
 }
 
-function _jobAndPath(req, res, cb) {
-    var dbjob = jobfs.loadJob(req.params.id)
+function handleJobAndPath(req, res, cb) {
+    var dbjob = loadJob(req.params.id)
     if (dbjob) {
         if (groupsModule.canAccessJob(req.user, dbjob)) {
-            let jobDir = jobfs.getJobDir(dbjob)
+            let jobDir = nodesModule.getPitDir(dbjob.id)
             let newPath = path.resolve(jobDir, req.params[0] || '')
             if (newPath.startsWith(jobDir)) {
                 cb(dbjob, newPath)
@@ -429,7 +305,7 @@ exports.initApp = function(app) {
             return
         }
         if (job.continueJob) {
-            let continueJob = jobfs.loadJob(job.continueJob)
+            let continueJob = loadJob(job.continueJob)
             if (!continueJob) {
                 res.status(404).send({ message: 'The job to continue is not existing' })
                 return
@@ -441,11 +317,10 @@ exports.initApp = function(app) {
         }
         let simulatedReservation = reserveCluster(clusterRequest, req.user, true)
         if (simulatedReservation) {
-            jobfs.newJobDir(function(id) {
+            nodesModule.createPit().then(id => {
                 store.lockAutoRelease('jobs', function() {
                     let dbjob = {
                         id:                 id,
-                        token:              randomstring.generate({ charset: 'numeric' }),
                         user:               req.user.id,
                         description:        ('' + job.description).substring(0,20),
                         clusterRequest:     job.clusterRequest,
@@ -467,7 +342,7 @@ exports.initApp = function(app) {
                     } else if (job.archive) {
                         dbjob.provisioning = 'Archive (' + fs.statSync(job.archive).size + ' bytes)'
                     }
-                    _setJobState(dbjob, jobStates.NEW)
+                    setJobState(dbjob, jobStates.NEW)
     
                     var files = {
                         'compute.sh': job.compute || 'if [ -f .compute ]; then bash .compute; fi',
@@ -476,7 +351,7 @@ exports.initApp = function(app) {
                     if (job.diff) {
                         files['git.patch'] = job.diff + '\n'
                     }
-                    let jobDir = jobfs.getJobDir(dbjob)
+                    let jobDir = nodesModule.getPitDir(dbjob.id)
                     async.forEachOf(files, (content, file, done) => {
                         let p = path.join(jobDir, file)
                         fs.writeFile(p, content, err => {
@@ -496,14 +371,14 @@ exports.initApp = function(app) {
                         }
                     })
                 })
-            })
+            }).catch(err => res.status(500).send({ message: 'Cannot create pit directory' }))
         } else {
             res.status(406).send({ message: 'Cluster cannot fulfill resource request' })
         }
     })
 
     app.get('/jobs', function(req, res) {
-        fs.readdir(config.jobsDir, (err, files) => {
+        fs.readdir(path.join(config.dataRoot, 'pits'), (err, files) => {
             if (err || !files) {
                 res.status(500).send()
             } else {
@@ -524,14 +399,14 @@ exports.initApp = function(app) {
         waiting = waiting.concat(jobs.filter(j => j.state == jobStates.NEW))
         let done = jobs.filter(j => j.state >= jobStates.CLEANING).sort((a,b) => b.id - a.id).slice(0, 20)
         res.status(200).send({
-            running: running.map(j => _createJobDescription(j)),
-            waiting: waiting.map(j => _createJobDescription(j)),
-            done:    done   .map(j => _createJobDescription(j))
+            running: running.map(j => createJobDescription(j)),
+            waiting: waiting.map(j => createJobDescription(j)),
+            done:    done   .map(j => createJobDescription(j))
         })
     })
 
     app.get('/jobs/:id', function(req, res) {
-        let job = _getJobDescription(req.params.id, req.user, true)
+        let job = getJobDescription(req.params.id, req.user, true)
         if (job) {
             res.status(200).send(job)
         } else {
@@ -540,10 +415,10 @@ exports.initApp = function(app) {
     })
 
     app.get('/jobs/:id/targz', function(req, res) {
-        let dbjob = jobfs.loadJob(req.params.id)
+        let dbjob = loadJob(req.params.id)
         if (dbjob) {
             if (groupsModule.canAccessJob(req.user, dbjob)) {
-                let jobdir = jobfs.getJobDir(dbjob)
+                let jobdir = nodesModule.getPitDir(dbjob.id)
                 res.status(200).type('tar.gz')
                 tar.pack(jobdir).pipe(zlib.createGzip()).pipe(res)
             } else {
@@ -555,7 +430,7 @@ exports.initApp = function(app) {
     })
 
     app.get('/jobs/:id/stats/(*)?', function(req, res) {
-        _jobAndPath(req, res, (dbjob, resource) => {
+        handleJobAndPath(req, res, (dbjob, resource) => {
             fs.stat(resource, (err, stats) => {
                 if (err || !(stats.isDirectory() || stats.isFile())) {
                     res.status(404).send()
@@ -573,7 +448,7 @@ exports.initApp = function(app) {
     })
 
     app.get('/jobs/:id/content/(*)?', function(req, res) {
-        _jobAndPath(req, res, (dbjob, resource) => {
+        handleJobAndPath(req, res, (dbjob, resource) => {
             fs.stat(resource, (err, stats) => {
                 if (err || !(stats.isDirectory() || stats.isFile())) {
                     res.status(404).send()
@@ -598,33 +473,11 @@ exports.initApp = function(app) {
         })
     })
 
-    app.get('/jobs/:id/preplog', function(req, res) {
-        let dbjob = jobfs.loadJob(req.params.id)
+    app.get('/jobs/:id/log', function(req, res) {
+        let dbjob = loadJob(req.params.id)
         if (dbjob) {
             if (groupsModule.canAccessJob(req.user, dbjob)) {
-                _sendLog(req, res, dbjob, 'preparation.log', jobStates.PREPARING)
-            } else {
-                res.status(403).send()
-            }
-        } else {
-            res.status(404).send()
-        }
-    })
-
-    app.get('/jobs/:id/groups/:group/processes/:proc/log', function(req, res) {
-        let dbjob = jobfs.loadJob(req.params.id)
-        if (dbjob) {
-            if (groupsModule.canAccessJob(req.user, dbjob)) {
-                let group = Number(req.params.group)
-                let proc = Number(req.params.proc)
-                if (dbjob.clusterReservation &&
-                    group < dbjob.clusterReservation.length &&
-                    proc < dbjob.clusterReservation[group].length
-                ) {
-                    _sendLog(req, res, dbjob, 'process_' + group + '_' + proc + '.log', jobStates.STOPPING)
-                } else {
-                    res.status(404).send()
-                }
+                sendLog(req, res, dbjob)
             } else {
                 res.status(403).send()
             }
@@ -634,13 +487,13 @@ exports.initApp = function(app) {
     })
 
     app.post('/jobs/:id/fs', function(req, res) {
-        var dbjob = jobfs.loadJob(req.params.id)
+        var dbjob = loadJob(req.params.id)
         if (dbjob) {
             if (groupsModule.canAccessJob(req.user, dbjob)) {
                 let chunks = []
                 req.on('data', chunk => chunks.push(chunk));
                 req.on('end', () => fslib.serve(
-                    fslib.readOnly(fslib.real(jobfs.getJobDir(dbjob))), 
+                    fslib.readOnly(fslib.real(nodesModule.getPitDir(dbjob.id))), 
                     Buffer.concat(chunks), 
                     result => res.send(result), config.debugJobFS)
                 )
@@ -654,7 +507,7 @@ exports.initApp = function(app) {
 
     app.post('/jobs/:id/stop', function(req, res) {
         store.lockAutoRelease('jobs', function() {
-            let dbjob = jobfs.loadJob(req.params.id)
+            let dbjob = loadJob(req.params.id)
             if (dbjob) {
                 if (groupsModule.canAccessJob(req.user, dbjob)) {
                     if (dbjob.state <= jobStates.RUNNING) {
@@ -662,7 +515,7 @@ exports.initApp = function(app) {
                         if (scheduleIndex >= 0) {
                             db.schedule.splice(scheduleIndex, 1)
                         }
-                        _setJobState(dbjob, jobStates.STOPPING)
+                        nodesModule.stopPit(dbjob.id)
                         res.status(200).send()
                     } else {
                         res.status(412).send({ message: 'Only jobs before or in running state can be stopped' })
@@ -679,20 +532,16 @@ exports.initApp = function(app) {
     app.delete('/jobs/:id', function(req, res) {
         store.lockAutoRelease('jobs', function() {
             var id = Number(req.params.id)
-            var dbjob = jobfs.loadJob(id)
+            var dbjob = loadJob(id)
             if (dbjob) {
                 if (groupsModule.canAccessJob(req.user, dbjob)) {
                     if (dbjob.state >= jobStates.DONE) {
                         if (db.jobs[id]) {
                             delete db.jobs[id]
                         }
-                        jobfs.deleteJobDir(id, err => {
-                            if (err) {
-                                res.status(500).send()
-                            } else {
-                                res.status(200).send()
-                            }
-                        })
+                        nodesModule.deletePit(id)
+                            .then(() => res.status(200).send())
+                            .catch(err => res.status(500).send())
                     } else {
                         res.status(412).send({ message: 'Only done or archived jobs can be deleted' })
                     }
@@ -706,7 +555,7 @@ exports.initApp = function(app) {
     })
 }
 
-function _resimulateReservations() {
+function resimulateReservations() {
     let jobs = []
     for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
         if (job.state >= jobStates.PREPARING && job.state <= jobStates.WAITING) {
@@ -720,8 +569,8 @@ function _resimulateReservations() {
     if (jobs.length > 0) {
         store.lockAutoRelease('jobs', function() {
             for (let job of jobs) {
-                _appendError(job, 'Cluster cannot fulfill resource request anymore')
-                _setJobState(job, jobStates.DONE)
+                appendError(job, 'Cluster cannot fulfill resource request anymore')
+                setJobState(job, jobStates.DONE)
                 let index = db.schedule.indexOf(job.id)
                 if (index >= 0) {
                     db.schedule.splice(index, 1)
@@ -730,161 +579,84 @@ function _resimulateReservations() {
         })
     }
 }
-
-groupsModule.on('restricted', _resimulateReservations)
+groupsModule.on('restricted', resimulateReservations)
 
 groupsModule.on('changed', (type, entity) => {
     if (type == 'job' && entity) {
-        jobfs.saveJob(entity)
-    }
-})
-
-var realProcesses = {}
-var utilization = {}
-
-nodesModule.on('data', (nodeId, nodePids, nodeUtilization) => {
-    realProcesses[nodeId] = nodePids
-    utilization[nodeId] = nodeUtilization
-})
-
-nodesModule.on('state', (nodeId, nodeState) => {
-    if (nodeState == nodesModule.nodeStates.OFFLINE) {
-        delete realProcesses[nodeId]
-        delete utilization[nodeId]
-        _resimulateReservations()
+        saveJob(entity)
     }
 })
 
 exports.tick = function() {
-    if (Object.keys(realProcesses).length < Object.keys(db.nodes).length) {
-        console.log('Waiting for feedback from all nodes...')
-        setTimeout(exports.tick, config.pollInterval)
-        return
-    }
-    for(let worker of Object.keys(cluster.workers).map(k => cluster.workers[k])) {
-        worker.send({ utilization: utilization })
-    }
     store.lockAsyncRelease('jobs', release => {
         let goon = () => {
             release()
             setTimeout(exports.tick, config.pollInterval)
         }
-        let processes = _getJobProcesses()
-        let toStop = []
-        for(let jobId of Object.keys(processes)) {
-            let toStart = 0
-            let job = db.jobs[jobId]
-            if (job.state < jobStates.STARTING || job.state > jobStates.STOPPING) {
-                continue
-            }
-            let toStopForJob = []
-            let jobProcesses = processes[jobId]
-            for(let nodeId of Object.keys(jobProcesses)) {
-                let nodeProcesses = jobProcesses[nodeId]
-                let realNodeProcesses = realProcesses[nodeId]
-                if (realNodeProcesses) {
-                    for(let pid of Object.keys(nodeProcesses)) {
-                        if (job.state == jobStates.STARTING) {
-                            if (!realNodeProcesses[pid]) {
-                                toStart++
-                            }
-                        } else {
-                            if (realNodeProcesses[pid]) {
-                                toStopForJob.push({ node: nodeId, pid: pid })
-                            } else {
-                                _setJobState(job, jobStates.STOPPING)
-                                _freeProcess(nodeId, pid)
-                            }
-                        }
-                    }
-                } else if (job.state == jobStates.STARTING) {
-                    toStart += nodeProcesses.length
-                } else {
-                    _setJobState(job, jobStates.STOPPING)
-                }
-            }
-            if (job.state == jobStates.STOPPING && toStopForJob.length > 0) {
-                toStop = toStop.concat(toStopForJob)
-            } else if (job.state == jobStates.STARTING && toStart == 0) {
-                _setJobState(job, jobStates.RUNNING)
+        for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
+            let stateTime = new Date(job.stateChanges[job.state]).getTime()
+            if (
+                job.state == jobStates.NEW && 
+                Object.keys(preparations).length < config.maxParallelPrep
+            ) {
+                preparations[job.id] = prepareJob(job)
+            } else if (
+                job.state == jobStates.STARTING &&
+                stateTime + config.maxStartDuration < Date.now()
+            ) {
+                appendError(job, 'Job exceeded max startup time')
+                setJobState(job, jobStates.STOPPING)
+            } else if (
+                job.state == jobStates.STOPPING &&
+                !preparations.hasOwnProperty(job.id)
+            ) {
+                nodesModule.stopPit(job.id)
+            } else if (
+                job.state == jobStates.DONE && 
+                stateTime + config.keepDoneDuration < Date.now()
+            ) {
+                setJobState(job, jobStates.ARCHIVED)
+                delete db.jobs[job.id]
             }
         }
-        async.each(toStop, (proc, done) => {
-            nodesModule.runScriptOnNode(db.nodes[proc.node], 'kill.sh', { PID: proc.pid }, (code, stdout, stderr) => {
-                if (code == 0) {
-                    console.log('Ended PID: ' + proc.pid)
-                } else {
-                    console.log('Problem ending PID: ' + proc.pid)
+        for(let jobId of Object.keys(preparations)) {
+            let job = db.jobs[jobId]
+            if (
+                job && job.state == jobStates.PREPARING
+            ) {
+                if (new Date(job.stateChanges[job.state]).getTime() + config.maxPrepDuration < Date.now()) {
+                    appendError(job, 'Job exceeded max preparation time')
+                    setJobState(job, jobStates.STOPPING)
                 }
-                done()
-            })
-        }, err => {
-            for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
-                let stateTime = new Date(job.stateChanges[job.state]).getTime()
-                if (
-                    job.state == jobStates.DONE && 
-                    stateTime + config.keepDoneDuration < Date.now()
-                ) {
-                    _setJobState(job, jobStates.ARCHIVED)
-                    delete db.jobs[job.id]
-                } else if (
-                    job.state == jobStates.NEW && 
-                    Object.keys(preparations).length < config.maxParallelPrep
-                ) {
-                    preparations[job.id] = _prepareJob(job)
-                } else if (
-                    job.state == jobStates.STARTING &&
-                    stateTime + config.maxStartDuration < Date.now()
-                ) {
-                    _appendError(job, 'Job exceeded max startup time')
-                    _setJobState(job, jobStates.STOPPING)
-                }
-                if (
-                    job.state == jobStates.STOPPING &&
-                    !preparations.hasOwnProperty(job.id)
-                ) {
-                    _checkRunning(job)
+            } else if (
+                job && job.state == jobStates.STOPPING
+            ) {
+                preparations[job.id].kill()
+                setJobState(job, jobStates.DONE)
+            } else {
+                delete preparations[jobId]
+                if (!job) {
+                    console.error('Removed preparation process for orphan job ' + jobId)
                 }
             }
-            for(let jobId of Object.keys(preparations)) {
-                let job = db.jobs[jobId]
-                if (
-                    job && job.state == jobStates.PREPARING
-                ) {
-                    if (new Date(job.stateChanges[job.state]).getTime() + config.maxPrepDuration < Date.now()) {
-                        _appendError(job, 'Job exceeded max preparation time')
-                        _setJobState(job, jobStates.STOPPING)
-                    }
-                } else if (
-                    job && job.state == jobStates.STOPPING
-                ) {
-                    preparations[job.id].kill()
-                    _setJobState(job, jobStates.DONE)
-                } else {
-                    delete preparations[jobId]
-                    if (!job) {
-                        console.error('Removed preparation process for orphan job ' + jobId)
-                    }
-                }
-            }
-            if (db.schedule.length > 0) {
-                let job = db.jobs[db.schedule[0]]
-                if (job) {
-                    let clusterRequest = parseClusterRequest(job.clusterRequest)
-                    let clusterReservation = reserveCluster(clusterRequest, db.users[job.user], false)
-                    if (clusterReservation) {
-                        db.schedule.shift()
-                        _startJob(job, clusterReservation, goon)
-                    } else {
-                        goon()
-                    }
-                } else {
+        }
+        if (db.schedule.length > 0) {
+            let job = db.jobs[db.schedule[0]]
+            if (job) {
+                let clusterRequest = parseClusterRequest(job.clusterRequest)
+                let clusterReservation = reserveCluster(clusterRequest, db.users[job.user], false)
+                if (clusterReservation) {
                     db.schedule.shift()
+                    startJob(job, clusterReservation, goon)
+                } else {
                     goon()
                 }
             } else {
+                db.schedule.shift()
                 goon()
             }
-        })
+        } else {
+            goon()
+        }
     })
 }

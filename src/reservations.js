@@ -77,6 +77,46 @@ function _reserveProcess(node, clusterReservation, resourceList, user, simulatio
     return nodeReservation
 }
 
+exports.fulfillReservation = function (clusterReservation) {
+    for (let groupReservation of clusterReservation) {
+        for (let reservation of groupReservation) {
+            let node = db.nodes[reservation.node]
+            for(let resourceId of Object.keys(reservation.resources)) {
+                let resource = node.resources[resourceId]
+                let resourceReservation = reservation.resources[resourceId]
+                if (!resource && resourceReservation.type.startsWith('num:')) {
+                    node.resources[resourceId] = {
+                        type: resourceReservation.type,
+                        index: resourceReservation.index,
+                        job: job.id
+                    }
+                } else {
+                    resource.job = job.id
+                }
+            }
+        }
+    }
+}
+
+exports.freeReservation = function (clusterReservation) {
+    for (let groupReservation of clusterReservation) {
+        for (let reservation of groupReservation) {
+            let node = db.nodes[reservation.node]
+            for(let resourceId of Object.keys(reservation.resources)) {
+                let resource = node.resources[resourceId]
+                let resourceReservation = reservation.resources[resourceId]
+                if (resource) {
+                    if (resourceReservation.type.startsWith('num:')) {
+                        delete node.resources[resourceId]
+                    } else {
+                        delete resource.job
+                    }
+                }
+            }
+        }
+    }
+}
+
 exports.reserveCluster = function(clusterRequest, user, simulation) {
     let quotients = {}
     let aq = node => {

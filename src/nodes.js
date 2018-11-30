@@ -389,17 +389,24 @@ async function runPit (pitId, drives, workers, timeout) {
 exports.runPit = runPit
 
 async function extractResults (pitId) {
-    let daemonName = getDaemonName(pitId)
-    let [errLog, pitLog] = await to(pullFile(daemonName, '/data/pit/pit.log'))
-    let workers = await fs.readdir(path.join(getPitDir(pitId), 'workers'))
-    let workerResults = await Parallel.map(workers, async workerPath => {
-        let statusFile = path.join(workerPath, 'status')
-        let resultFile = path.join(workerPath, 'result')
-        let status = (await fs.pathExists(statusFile)) ? await Number(fs.readFile(statusFile)) : 1
-        let result = (await fs.pathExists(resultFile)) ? await fs.readFile(resultFile) : ''
-        return { status: status, result: result }
-    })
-    return { log: pitLog || '', workers: workerResults || []}
+    let pitDir = getPitDir(pitId)
+    if (await fs.pathExists(pitDir)) {
+        let [errLog, pitLog] = await to(fs.readFile(path.join(pitDir, 'pit.log')))
+        let workersDir = path.join(pitDir, 'workers')
+        let [errWorkers, workers] = await to(fs.readdir(workersDir))
+        let [errResults, workerResults] = await to(Parallel.map(workers || [], async worker => {
+            let workerDir = path.join(workersDir, worker)
+            let [errStatus, statusContent] = await to(fs.readFile(path.join(workerDir, 'status')))
+            let status = statusContent ? Number(statusContent.toString()) : 1
+            let [errResult, resultContent] = await to(fs.readFile(path.join(workerDir, 'result')))
+            let result = resultContent ?        resultContent.toString()  : ''
+            return { status: status, result: result }
+        }))
+        console.log(errResults)
+        return { log: (pitLog || '').toString(), workers: workerResults || []}
+    } else {
+        return { log: 'No pit directory', workers: [] }
+    }
 }
 
 async function stopPit (pitId) {
@@ -485,7 +492,7 @@ async function addNode(id, lxdEndpoint, password) {
         id: id,
         lxdEndpoint: lxdEndpoint,
         state: nodeStates.ONLINE,
-        resources: {}
+        resources: []
     }
     testedNodes[id] = newNode
     let pitId = await createPit()
@@ -498,22 +505,22 @@ async function addNode(id, lxdEndpoint, password) {
         }])
         let workers = result.workers
         if (workers.length > 0) {
-            console.log('ADDING NODE', id)
+            console.log('ADDING NODE', id, workers)
             for (let line of workers[0].result.split('\n')) {
                 let match = resourceParser.exec(line)
                 if (match) {
                     let resource = { 
                         type:  match[1],  
                         name:  match[3],
-                        index: int(match[2])
+                        index: Number(match[2])
                     }
                     newNode.resources.push(resource)
                     console.log('FOUND RESOURCE', id, resource)
                 }
             }
-            //db.nodes[id] = newNode
+            db.nodes[id] = newNode
         } else {
-            throw new Error('No worker responded')
+            throw new Error('Node scanning failed')
         }
     } catch (ex) {
         await to(unauthenticateNode(newNode))
