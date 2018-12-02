@@ -1,5 +1,6 @@
 const cluster = require('cluster')
 const cpus = require('os').cpus().length
+const log = require('./logger.js')
 const config = require('./config.js')
 const modules = 'jobfs users groups nodes jobs aliases'
     .split(' ').map(name => require('./' + name + '.js'))
@@ -44,7 +45,7 @@ if (cluster.isMaster) {
         } else {
             http.createServer(app).listen(config.port, config.interface)
         }
-        console.log('Snakepit service running on ' + config.interface + ':' + config.port)
+        log.info('Snakepit service running on ' + config.interface + ':' + config.port)
     } catch (ex) {
         console.error('Failure during startup: ' + ex)
         process.exit(100)

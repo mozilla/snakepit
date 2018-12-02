@@ -1,4 +1,5 @@
 const fs = require('fs-extra')
+const path = require('path')
 const https = require('https')
 const axios = require('axios')
 const cluster = require('cluster')
@@ -6,6 +7,7 @@ const assign = require('assign-deep')
 const Parallel = require('async-parallel')
 const { EventEmitter } = require('events')
 
+const log = require('./logger.js')
 const store = require('./store.js')
 const utils = require('./utils.js')
 const config = require('./config.js')
@@ -31,7 +33,6 @@ const lxdStatus = {
 
 const snakepitPrefix = 'sp'
 const containerNameParser = /sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/
-const pitCountExp = /PIT_WORKER_COUNT=([0-9]+)/
 const resourceParser = /resource:([^,]*),([^,]*),([^,]*)/
 
 const nodeStates = {
@@ -40,7 +41,7 @@ const nodeStates = {
 }
 exports.nodeStates = nodeStates
 
-const headNode = { id: 'head', lxdEndpoint: config.lxdEndpoint }
+const headNode = { id: 'head', endpoint: config.endpoint }
 exports.headNode = headNode
 
 var testedNodes = {}
@@ -54,8 +55,6 @@ var agent = new https.Agent({
 var headInfo
 var exports = module.exports = {}
 var db = store.root
-var observers = {}
-var toRemove = {}
 
 var exports = module.exports = new EventEmitter()
 
@@ -84,9 +83,10 @@ async function wrapLxdResponse (node, promise) {
                     return data
                 }
             case 'async':
-                console.log('Forwarding:', data.operation + '/wait')
-                return await wrapLxdResponse(node, axios.get(node.lxdEndpoint + data.operation + '/wait', { httpsAgent: agent }))
+                log.debug('Forwarding:', data.operation + '/wait')
+                return await wrapLxdResponse(node, axios.get(node.endpoint + data.operation + '/wait', { httpsAgent: agent }))
             case 'error':
+                log.debug('LXD error', data.error)
                 throw data.error
         }
     }
@@ -99,7 +99,7 @@ function callLxd(method, node, resource, data, options) {
         httpsAgent: agent,
         data: data
     }, options || {})
-    console.log(method, axiosConfig.url, data || '')
+    log.debug(method, axiosConfig.url, data || '')
     return wrapLxdResponse(node, axios(axiosConfig))
 }
 
@@ -152,15 +152,23 @@ async function getHeadCertificate () {
 }
 
 function getUrl (node, resource) {
-    return node.lxdEndpoint + '/1.0' + (resource ? ('/' + resource) : '')
+    return node.endpoint + '/1.0' + (resource ? ('/' + resource) : '')
 }
 
 async function getContainersOnNode (node) {
     let results = await lxdGet(node, 'containers')
-    return results.map(v => {
-        v = v.split('/')
-        return v.length > 0 ? v[v.length - 1] : null
-    }).filter(v => v && parseContainerName(v))
+    var containers = []
+    for (let result of results) {
+        let split = result.split('/')
+        if (split.length > 0) {
+            let container = split[split.length - 1]
+            let containerInfo = parseContainerName(container)
+            if (containerInfo && containerInfo[0] == node.id) {
+                containers.push(container)
+            }
+        }
+    }
+    return containers
 }
 
 function setContainerState (containerName, state, force, stateful) {
@@ -206,7 +214,7 @@ async function pitRequestedStop (pitId) {
     let containerName = getDaemonName(pitId)
     let [err, content] = await to(pullFile(containerName, '/data/pit/stop'))
     if (err) {
-        console.log('ERROR getting stop file:', err.response.status)
+        log.debug('ERROR getting stop file:', err.response.status)
         return false
     }
     return true
@@ -275,7 +283,7 @@ async function addContainer (containerName, imageHash, options) {
         source: {
             type:        'image',
             mode:        'pull',
-            server:      config.lxdEndpoint,
+            server:      config.endpoint,
             protocol:    'lxd',
             certificate: cert,
             fingerprint: imageHash
@@ -290,10 +298,10 @@ async function startPit (pitId, drives, workers) {
         let pitDir = getPitDir(pitId)
         let daemonHash = (await lxdGet(headNode, 'images/aliases/snakepit-daemon')).target
         let workerHash = (await lxdGet(headNode, 'images/aliases/snakepit-worker')).target
-        let physicalNodes = { [headNode.lxdEndpoint]: headNode }
+        let physicalNodes = { [headNode.endpoint]: headNode }
         for (let worker of workers) {
             // we just need one virtual node representant of/on each physical node
-            physicalNodes[worker.node.lxdEndpoint] = worker.node
+            physicalNodes[worker.node.endpoint] = worker.node
         }
         let network
         let endpoints = Object.keys(physicalNodes)
@@ -307,10 +315,14 @@ async function startPit (pitId, drives, workers) {
                     tunnelConfig[tunnel + '.id'] = '' + pitId
                 }
             }
-            await lxdPost(physicalNodes[localEndpoint], 'networks', {
-                name: network,
-                config: tunnelConfig
-            })
+            try {
+                await lxdPost(physicalNodes[localEndpoint], 'networks', {
+                    name: network,
+                    config: tunnelConfig
+                })
+            } catch (ex) {
+                log.debug('AAAAAAAAAAAAAAAA', localEndpoint, ex.toString())
+            }
         })
 
         let daemonDevices = { 'pit': { path: '/data/pit', source: getPitDirExternal(pitId), type: 'disk' } }
@@ -345,7 +357,7 @@ async function startPit (pitId, drives, workers) {
             let workerDir = path.join(pitDir, 'workers', '' + index)
             await fs.mkdirp(workerDir)
             if (worker.env) {
-                await fs.writeFile(path.join(workerDir, 'env.sh'), utils.envToScript(worker.env))
+                await fs.writeFile(path.join(workerDir, 'env.sh'), utils.envToScript(worker.env, true))
             }
             if (worker.script) {
                 await fs.writeFile(path.join(workerDir, 'script.sh'), worker.script)
@@ -364,7 +376,7 @@ async function startPit (pitId, drives, workers) {
         await setContainerState(daemonContainerName, 'start')
         broadcast('pitStarted', pitId)
     } catch (ex) {
-        broadcast('pitStartFailed', pitId, ex)
+        broadcast('pitStartFailed', pitId)
         await stopPit(pitId)
         throw ex
     }
@@ -415,7 +427,6 @@ async function extractResults (pitId) {
             let result = resultContent ?        resultContent.toString()  : ''
             return { status: status, result: result }
         }))
-        console.log(errResults)
         return { log: (pitLog || '').toString(), workers: workerResults || []}
     } else {
         return { log: 'No pit directory', workers: [] }
@@ -425,21 +436,24 @@ async function extractResults (pitId) {
 async function stopPit (pitId) {
     let results = await extractResults(pitId) 
     let nodes = getAllNodes()
-    await Parallel.each(nodes, async node => {
+    for (let node of nodes) {
+        log.debug('CHECKING NODE', node.id)
         let [err, containers] = await to(getContainersOnNode(node))
         if (containers) {
+            log.debug('NODE', node.id, 'HAS CONTAINERS', containers)
             for (let containerName of containers) {
+                log.debug('CHECKING DROP', containerName)
                 let containerInfo = parseContainerName(containerName)
                 if (containerInfo && containerInfo[1] == pitId) {
-                    await to(setContainerState(containerName, 'stop', true))
-                    await to(lxdDelete(node, 'containers/' + containerName))
+                    let [errStop] = await to(setContainerState(containerName, 'stop', true))
+                    let [errDelete] = await to(lxdDelete(node, 'containers/' + containerName))
                 }
             }
         }
-    })
-    await Parallel.each(nodes, async node => {
+    }
+    await to(Parallel.each(nodes, async node => {
         await to(lxdDelete(node, 'networks/' + snakepitPrefix + pitId))
-    })
+    }))
     broadcast('pitStopped', pitId, results)
 }
 exports.stopPit = stopPit
@@ -475,14 +489,14 @@ function getNodeById (nodeId) {
 exports.getNodeById = getNodeById
 
 async function authenticateNode(node, password) {
-    if (node.lxdEndpoint == headNode.lxdEndpoint) {
+    if (node.endpoint == headNode.endpoint) {
         return
     }
-    return lxdPost(node, 'certificates', { type: 'client', password: password })
+    await lxdPost(node, 'certificates', { type: 'client', password: password })
 }
 
 async function unauthenticateNode(node) {
-    if (node.lxdEndpoint == headNode.lxdEndpoint) {
+    if (node.endpoint == headNode.endpoint) {
         return
     }
     let certificates = await lxdGet(node, 'certificates')
@@ -499,12 +513,10 @@ async function unauthenticateNode(node) {
     })
 }
 
-async function addNode(id, lxdEndpoint, password) {
-    exports.tick()
+async function addNode(id, endpoint, password) {
     let newNode = { 
         id: id,
-        lxdEndpoint: lxdEndpoint,
-        state: nodeStates.ONLINE,
+        endpoint: endpoint,
         resources: []
     }
     testedNodes[id] = newNode
@@ -518,7 +530,7 @@ async function addNode(id, lxdEndpoint, password) {
         }])
         let workers = result.workers
         if (workers.length > 0) {
-            console.log('ADDING NODE', id, workers)
+            log.debug('ADDING NODE', id, workers)
             for (let line of workers[0].result.split('\n')) {
                 let match = resourceParser.exec(line)
                 if (match) {
@@ -528,19 +540,23 @@ async function addNode(id, lxdEndpoint, password) {
                         index: Number(match[2])
                     }
                     newNode.resources.push(resource)
-                    console.log('FOUND RESOURCE', id, resource)
+                    log.debug('FOUND RESOURCE', id, resource)
                 }
             }
             db.nodes[id] = newNode
+            return db.nodes[id]
         } else {
             throw new Error('Node scanning failed')
         }
     } catch (ex) {
+        log.debug(ex.toString())
         await to(unauthenticateNode(newNode))
         throw ex
     } finally {
+        log.debug('REMOVING FROM TESTED', id)
         delete testedNodes[id]
         await to(deletePit(pitId))
+        
     }
 }
 exports.addNode = addNode
@@ -549,12 +565,6 @@ function setNodeState(node, nodeState) {
     node.state = nodeState
     node.since = new Date().toISOString()
     exports.emit('state', node.id, node.state)
-    if (toRemove[node.id] && node.state == nodeStates.OFFLINE) {
-        setTimeout(() => {
-            delete toRemove[node.id]
-            delete db.nodes[node.id]
-        }, 1000)
-    }
 }
 
 exports.initDb = function() {
@@ -577,11 +587,12 @@ exports.initApp = function(app) {
             let dbnode = db.nodes[id]
             if (dbnode) {
                 res.status(400).send({ message: 'Node with same id already registered' })
-            } else if (node.lxdEndpoint) {
-                addNode(id, node.lxdEndpoint, node.password).then(newNode => {
+            } else if (node.endpoint && node.password) {
+                addNode(id, node.endpoint, node.password).then(newNode => {
+                    setNodeState(newNode, nodeStates.ONLINE)
                     res.status(200).send()
                 }).catch(err => {
-                    res.status(400).send({ message: 'Problem adding node:\n' + err })
+                    res.status(400).send({ message: 'OOO Problem adding node:\n' + err })
                 })
             } else {
                 res.status(400).send()
@@ -600,7 +611,7 @@ exports.initApp = function(app) {
         if (node) {
             res.status(200).json({
                 id:          node.id,
-                lxdEndpoint: node.lxdEndpoint,
+                endpoint:    node.endpoint,
                 state:       node.state,
                 since:       node.since,
                 resources: Object.keys(node.resources).map(resourceId => {
@@ -629,14 +640,12 @@ exports.initApp = function(app) {
         if (req.user.admin) {
             let node = db.nodes[req.params.id]
             if (node) {
-                toRemove[node.id] = true
-                let p = observers[node.id]
-                if (p) {
-                    p.kill()
-                } else {
-                    setNodeState(node, nodeStates.OFFLINE)
+                setNodeState(node, nodeStates.OFFLINE)
+                let rmNode = () => {
+                    delete db.nodes[req.params.id]
+                    res.status(200).send()
                 }
-                res.status(200).send()
+                unauthenticateNode(node).then(rmNode).catch(rmNode)
             } else {
                 res.status(404).send()
             }
@@ -651,7 +660,7 @@ process.on('message', msg => {
         if (cluster.isMaster) {
             broadcast(msg.pitEvent, ...msg.args)
         } else {
-            exports.emit(pitEvent, ...args)
+            exports.emit(msg.pitEvent, ...msg.args)
         }
     }
 })
@@ -661,7 +670,7 @@ function broadcast(pitEvent, ...args) {
         pitEvent: pitEvent,
         args: args
     }
-    console.log('BROADCAST', pitEvent, ...args)
+    log.debug('BROADCAST', pitEvent, ...args)
     if (cluster.isMaster) {
         exports.emit(pitEvent, ...args)
         for(let wid in cluster.workers) {
@@ -673,9 +682,11 @@ function broadcast(pitEvent, ...args) {
 }
 
 async function tick () {
-    Parallel.each(await getPits(), async pitId => {
+    let [err, pits] = await to(getPits())
+    log.debug('PITS', pits)
+    await Parallel.each(pits, async pitId => {
         if (await pitRequestedStop(pitId)) {  
-            console.log('DROPPING PIT:', pitId) 
+            log.debug('DROPPING PIT:', pitId) 
             await stopPit(pitId)
         }
     })

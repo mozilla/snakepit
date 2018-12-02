@@ -32,10 +32,10 @@ function shellQuote (str) {
 }
 exports.shellQuote = shellQuote
 
-exports.envToScript = function (env) {
+exports.envToScript = function (env, doExport) {
     let envScript = []
     for (let name of Object.keys(env)) {
-        envScript.push(name + '=' + shellQuote(env[name]) + '\n')
+        envScript.push((doExport ? 'export ' : '') + name + '=' + shellQuote(env[name]) + '\n')
     }
     return envScript.join('')
 }

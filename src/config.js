@@ -33,6 +33,8 @@ function readConfigFile(name) {
     return fs.existsSync(config[name]) ? fs.readFileSync(config[name]).toString() : undefined
 }
 
+config.logLevel = typeof config.logLevel === 'undefined' ? 1 : Number(config.logLevel)
+
 config.tokenSecret = readConfigFile('tokenSecretPath')
 
 config.key = readConfigFile('keyPemPath')

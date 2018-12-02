@@ -11,13 +11,17 @@ while [ ! -d "${worker_dir}" ]; do
     sleep 1
 done
 
+source "${worker_dir}/env.sh"
+cd "${WORK_DIR}"
+export RESULT_FILE="${worker_dir}/result"
+
 log_file="${worker_dir}/worker.log"
 print_log () {
     echo "[worker ${worker_index}] $1" >>"${log_file}"
 }
 
 print_log "Worker ${worker_index} started"
-RESULT_FILE="${worker_dir}/result" bash "${worker_dir}/script.sh" 2>&1 | awk '{print "[worker '${worker_index}'] " $0}' >>"${log_file}"
+bash "${worker_dir}/script.sh" 2>&1 | awk '{print "[worker '${worker_index}'] " $0}' >>"${log_file}"
 exit_code=${PIPESTATUS[0]}
 echo "$exit_code" >"${worker_dir}/status"
 print_log "Worker ${worker_index} ended with exit code ${exit_code}"
