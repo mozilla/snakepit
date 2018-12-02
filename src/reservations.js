@@ -3,7 +3,7 @@ const { MultiRange } = require('multi-integer-range')
 const store = require('./store.js')
 const config = require('./config.js')
 const groupsModule = require('./groups.js')
-const { nodeStates } = require('./nodes.js')
+const nodesModule = require('./nodes.js')
 
 var exports = module.exports = {}
 
@@ -25,48 +25,24 @@ function _reserveProcess(node, clusterReservation, resourceList, user, simulatio
     if (!node || !node.resources) {
         return null
     }
-    var resourceCounter = 1
-    let reserveNumeric = function(type, minIndex, maxIndex) {
-        for(let i = minIndex; resourceCounter > 0 && i <= maxIndex; i++) {
-            let resourceId = type + i
-            let nodeResource = node.resources[resourceId]
-            if (!_isReserved(clusterReservation, node.id, resourceId) &&
-                (!nodeResource || !nodeResource.job || simulation)
-            ) {
-                nodeReservation.resources[resourceId] = {
-                    type: 'num:' + type,
-                    index: i
-                }
-                resourceCounter--
-            }
-        }
-    }
-    reserveNumeric('proc', 0, config.maxProcesses, 1)
-    if (resourceCounter > 0) {
-        return null
-    }
     for (let resource of resourceList) {
-        resourceCounter = resource.count
+        let resourceCounter = resource.count
         //console.log('Looking for ' + resource.count + ' x ' + resource.name)
-        if (resource.name == 'port') {
-            reserveNumeric('port', node.minPort || 1024, node.maxPort || 65535)
-        } else {
-            let name = db.aliases[resource.name] ? db.aliases[resource.name].name : resource.name
-            for(let resourceId of Object.keys(node.resources)) {
-                //console.log('Testing ' + resourceId)
-                if (resourceCounter > 0) {
-                    let nodeResource = node.resources[resourceId]
-                    if (nodeResource.name == name &&
-                        !_isReserved(clusterReservation, node.id, resourceId) &&
-                        (!nodeResource.job || simulation) &&
-                        groupsModule.canAccessResource(user, nodeResource)
-                    ) {
-                        nodeReservation.resources[resourceId] = {
-                            type: nodeResource.type,
-                            index: nodeResource.index
-                        }
-                        resourceCounter--
+        let name = db.aliases[resource.name] ? db.aliases[resource.name].name : resource.name
+        for(let resourceId of Object.keys(node.resources)) {
+            //console.log('Testing ' + resourceId)
+            if (resourceCounter > 0) {
+                let nodeResource = node.resources[resourceId]
+                if (nodeResource.name == name &&
+                    !_isReserved(clusterReservation, node.id, resourceId) &&
+                    (!nodeResource.job || simulation) &&
+                    groupsModule.canAccessResource(user, nodeResource)
+                ) {
+                    nodeReservation.resources[resourceId] = {
+                        type: nodeResource.type,
+                        index: nodeResource.index
                     }
+                    resourceCounter--
                 }
             }
         }
@@ -77,22 +53,13 @@ function _reserveProcess(node, clusterReservation, resourceList, user, simulatio
     return nodeReservation
 }
 
-exports.fulfillReservation = function (clusterReservation) {
+exports.fulfillReservation = function (clusterReservation, jobId) {
     for (let groupReservation of clusterReservation) {
         for (let reservation of groupReservation) {
             let node = db.nodes[reservation.node]
             for(let resourceId of Object.keys(reservation.resources)) {
                 let resource = node.resources[resourceId]
-                let resourceReservation = reservation.resources[resourceId]
-                if (!resource && resourceReservation.type.startsWith('num:')) {
-                    node.resources[resourceId] = {
-                        type: resourceReservation.type,
-                        index: resourceReservation.index,
-                        job: job.id
-                    }
-                } else {
-                    resource.job = job.id
-                }
+                resource.job = jobId
             }
         }
     }
@@ -104,13 +71,8 @@ exports.freeReservation = function (clusterReservation) {
             let node = db.nodes[reservation.node]
             for(let resourceId of Object.keys(reservation.resources)) {
                 let resource = node.resources[resourceId]
-                let resourceReservation = reservation.resources[resourceId]
                 if (resource) {
-                    if (resourceReservation.type.startsWith('num:')) {
-                        delete node.resources[resourceId]
-                    } else {
-                        delete resource.job
-                    }
+                    delete resource.job
                 }
             }
         }
@@ -129,7 +91,7 @@ exports.reserveCluster = function(clusterRequest, user, simulation) {
     }
     let nodes = Object.keys(db.nodes)
         .map(k => db.nodes[k])
-        .filter(node => node.state == nodeStates.ONLINE || simulation)
+        .filter(node => node.state == nodesModule.nodeStates.ONLINE || simulation)
         .sort((a, b) => aq(a) - aq(b))
     let clusterReservation = []
     for(let groupIndex = 0; groupIndex < clusterRequest.length; groupIndex++) {

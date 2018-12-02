@@ -1,4 +1,4 @@
-const fs = require('fs')
+const fs = require('fs-extra')
 const path = require('path')
 const zlib = require('zlib')
 const tar = require('tar-fs')
@@ -6,6 +6,7 @@ const ndir = require('node-dir')
 const async = require('async')
 const fslib = require('httpfslib')
 
+const log = require('./logger.js')
 const store = require('./store.js')
 const utils = require('./utils.js')
 const jobfs = require('./jobfs.js')
@@ -141,17 +142,20 @@ function startJob (job, clusterReservation, callback) {
     
     jobEnv.JOB_DIR = '/data/pit'
     jobEnv.SRC_DIR = jobEnv.WORK_DIR = '/data/pit/src'
+    fs.mkdirpSync(path.join(config.dataRoot, 'shared'))
+    fs.mkdirpSync(path.join(config.dataRoot, 'home', job.user))
     let shares = {
-        'shared': path.join(nodesModule.getPitDirExternal(job.id), 'shared'),
-        'home':   path.join(config.mountRoot, 'home', user.id)
+        'shared': path.join(config.mountRoot, 'shared'),
+        'home':   path.join(config.mountRoot, 'home', job.user)
     }
     jobEnv.DATA_ROOT = '/data'
     jobEnv.SHARED_DIR = '/data/shared'
-    jobEnv.HOME_DIR = '/data/home'
-    for (let group of groupsModule.getGroups(job.user)) {
-        shares['groups/' + group] = path.join(config.mountRoot, 'groups', group)
+    jobEnv.USER_DIR = '/data/home'
+    for (let group of groupsModule.getGroups(db.users[job.user])) {
+        fs.mkdirpSync(path.join(config.dataRoot, 'groups', group))
+        shares['group-' + group] = path.join(config.mountRoot, 'groups', group)
+        jobEnv[group.toUpperCase() + '_GROUP_DIR'] = '/data/group-' + group
     }
-    jobEnv.GROUPS_DIR = '/data/groups'
 
     let workers = []
     jobEnv.NUM_GROUPS = clusterReservation.length
@@ -169,7 +173,7 @@ function startJob (job, clusterReservation, callback) {
                 if (resource.type == 'cuda') {
                     gpus['gpu' + resource.index] = {
                         type:  'gpu',
-                        index: resource.index
+                        id:    '' + resource.index
                     }
                 }
             }
@@ -185,11 +189,12 @@ function startJob (job, clusterReservation, callback) {
         }
     }
     nodesModule.startPit(job.id, shares, workers).then(() => {
-        reservations.fulfillReservation(clusterReservation)
+        reservations.fulfillReservation(clusterReservation, job.id)
         setJobState(job, jobStates.RUNNING)
         callback()
     }).catch(err => {
-        appendError(job, err)
+        log.debug('START PROBLEM', err)
+        appendError(job, 'Problem while starting: ' + err.toString())
         cleanJob(job)
         callback()
     })
@@ -200,14 +205,20 @@ function stopJob (job) {
     if (scheduleIndex >= 0) {
         db.schedule.splice(scheduleIndex, 1)
     }
+    let finalizeJob = err => {
+        if (err) {
+            appendError(job, 'Problem while stopping: ' + err.toString())
+        }
+        cleanJob(job)
+    }
     if (job.state == jobStates.PREPARING && preparations[job.id]) {
+        setJobState(job, jobStates.STOPPING)
         preparations[job.id].kill()
         delete preparations[job.id]
-        cleanJob(job)
+        finalizeJob()
     } else if (job.state == jobStates.RUNNING) {
-        nodesModule.stopPit(job.id)
-            .then(() => cleanJob(job))
-            .catch(err => cleanJob(job))
+        setJobState(job, jobStates.STOPPING)
+        nodesModule.stopPit(job.id).then(finalizeJob).catch(finalizeJob)
     }
 }
 
@@ -290,6 +301,7 @@ function sendLog(req, res, job) {
         'Cache-Control': 'no-cache'
     })
     req.connection.setTimeout(60 * 60 * 1000)
+    let interval = config.pollInterval / 10
     let logPath = path.join(nodesModule.getPitDir(job.id), 'pit.log')
     let written = 0
     let writeStream = cb => {
@@ -305,13 +317,13 @@ function sendLog(req, res, job) {
             if (fs.existsSync(logPath)) {
                 fs.stat(logPath, (err, stats) => {
                     if (!err && stats.size > written) {
-                        writeStream(() => setTimeout(poll, config.pollInterval))
+                        writeStream(() => setTimeout(poll, interval))
                     } else  {
-                        setTimeout(poll, config.pollInterval)
+                        setTimeout(poll, interval)
                     }
                 })
             } else {
-                setTimeout(poll, config.pollInterval)
+                setTimeout(poll, interval)
             }
         } else if (fs.existsSync(logPath)) {
             writeStream(res.end.bind(res))
@@ -628,12 +640,49 @@ groupsModule.on('changed', (type, entity) => {
     }
 })
 
+/*
+nodesModule.on('pitStarting', pitId => {
+    let job = db.jobs[pitId]
+    if (job) {
+        setJobState(job, jobStates.STARTING)
+    }
+})
+*/
+
+nodesModule.on('pitStopping', pitId => {
+    let job = db.jobs[pitId]
+    if (job) {
+        setJobState(job, jobStates.STOPPING)
+    }
+})
+
+nodesModule.on('pitStopped', pitId => {
+    let job = db.jobs[pitId]
+    if (job) {
+        cleanJob(job)
+    }
+})
+
+nodesModule.on('pitReport', pits => {
+    pits = pits.reduce((hashMap, obj) => {
+        hashMap[obj] = true
+        return hashMap
+    }, {})
+    for (let jobId of Object.keys(db.jobs)) {
+        let job = db.jobs[jobId]
+        if (job.state == jobStates.RUNNING && !pits[jobId]) {
+            stopJob(job)
+        }
+    }
+})
+
 exports.tick = function() {
     store.lockAsyncRelease('jobs', release => {
         let goon = () => {
             release()
             setTimeout(exports.tick, config.pollInterval)
         }
+        let running = {}
         for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
             let stateTime = new Date(job.stateChanges[job.state]).getTime()
             if (
@@ -647,7 +696,16 @@ exports.tick = function() {
             ) {
                 setJobState(job, jobStates.ARCHIVED)
                 delete db.jobs[job.id]
+            } else if (job.state >= jobStates.STARTING && job.state <= jobStates.STOPPING) {
+                running[job.id] = job
             }
+        }
+        for (let node of Object.keys(db.nodes).map(k => db.nodes[k])) {
+            for (let resource of node.resources || []) {
+                if (resource.job && !running[resource.job]) {
+                    delete resource.job
+                }
+            }   
         }
         for(let jobId of Object.keys(preparations)) {
             let job = db.jobs[jobId]
@@ -668,6 +726,7 @@ exports.tick = function() {
             if (job) {
                 let clusterRequest = parseClusterRequest(job.clusterRequest)
                 let clusterReservation = reservations.reserveCluster(clusterRequest, db.users[job.user], false)
+                log.debug('STARTING SCHEDULED JOB', job.id, job.user, JSON.stringify(clusterRequest), clusterReservation)
                 if (clusterReservation) {
                     db.schedule.shift()
                     startJob(job, clusterReservation, goon)

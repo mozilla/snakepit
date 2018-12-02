@@ -35,6 +35,16 @@ const snakepitPrefix = 'sp'
 const containerNameParser = /sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/
 const resourceParser = /resource:([^,]*),([^,]*),([^,]*)/
 
+var emitter = new EventEmitter()
+var exports = module.exports = emitter
+var headInfo
+var db = store.root
+var agent = new https.Agent({ 
+    key: config.lxdKey, 
+    cert: config.lxdCert,
+    rejectUnauthorized: false
+})
+
 const nodeStates = {
     OFFLINE: 0,
     ONLINE:  1
@@ -44,19 +54,44 @@ exports.nodeStates = nodeStates
 const headNode = { id: 'head', endpoint: config.endpoint }
 exports.headNode = headNode
 
-var testedNodes = {}
+function broadcast(message, ignore) {
+    for(let wid in cluster.workers) {
+        let worker = cluster.workers[wid]
+        if (worker !== ignore) {
+            worker.send(message)
+        }
+    }
+}
 
-var agent = new https.Agent({ 
-    key: config.lxdKey, 
-    cert: config.lxdCert,
-    rejectUnauthorized: false
+function emit(pitEvent, ...args) {
+    emitter.emit(pitEvent, ...args)
+    let message = {
+        pitEvent: pitEvent,
+        args: args
+    }
+    if (cluster.isMaster) {
+        log.debug(pitEvent, ...args)
+        broadcast(message)
+    } else {
+        process.send(message)
+    }
+}
+
+if (cluster.isMaster) {
+    cluster.on('fork', worker => {
+        worker.on('message', message => {
+            if (message.pitEvent) {
+                broadcast(message, worker)
+            }
+        })
+    })
+}
+
+process.on('message', message => {
+    if (message.pitEvent) {
+        emitter.emit(message.pitEvent, ...message.args)
+    }
 })
-
-var headInfo
-var exports = module.exports = {}
-var db = store.root
-
-var exports = module.exports = new EventEmitter()
 
 function to (promise) {
     return promise.then(data => [null, data]).catch(err => [err])
@@ -138,11 +173,15 @@ function getNodeFromName (containerName) {
     return node
 }
 
+function getNodeInfo (node) {
+    return lxdGet(node, '')
+}
+
 async function getHeadInfo () {
     if (headInfo) {
         return headInfo
     }
-    return headInfo = await lxdGet(headNode, '')
+    return headInfo = await getNodeInfo(headNode)
 }
 exports.getHeadInfo = getHeadInfo
 
@@ -213,11 +252,7 @@ async function pullFile (containerName, targetPath) {
 async function pitRequestedStop (pitId) {
     let containerName = getDaemonName(pitId)
     let [err, content] = await to(pullFile(containerName, '/data/pit/stop'))
-    if (err) {
-        log.debug('ERROR getting stop file:', err.response.status)
-        return false
-    }
-    return true
+    return !err
 }
 
 function newPitId () {
@@ -254,14 +289,14 @@ async function createPit () {
     let pitId = await newPitId()
     let pitDir = getPitDir(pitId)
     await fs.mkdirp(pitDir)
-    broadcast('pitCreated', pitId)
+    emit('pitCreated', pitId)
     return pitId
 }
 exports.createPit = createPit
 
 async function deletePit (pitId) {
     await fs.remove(getPitDir(pitId))
-    broadcast('pitDeleted', pitId)
+    emit('pitDeleted', pitId)
 }
 exports.deletePit = deletePit
 
@@ -294,7 +329,7 @@ async function addContainer (containerName, imageHash, options) {
 
 async function startPit (pitId, drives, workers) {
     try {
-        broadcast('pitStarting', pitId)
+        emit('pitStarting', pitId)
         let pitDir = getPitDir(pitId)
         let daemonHash = (await lxdGet(headNode, 'images/aliases/snakepit-daemon')).target
         let workerHash = (await lxdGet(headNode, 'images/aliases/snakepit-worker')).target
@@ -315,14 +350,10 @@ async function startPit (pitId, drives, workers) {
                     tunnelConfig[tunnel + '.id'] = '' + pitId
                 }
             }
-            try {
-                await lxdPost(physicalNodes[localEndpoint], 'networks', {
-                    name: network,
-                    config: tunnelConfig
-                })
-            } catch (ex) {
-                log.debug('AAAAAAAAAAAAAAAA', localEndpoint, ex.toString())
-            }
+            await lxdPost(physicalNodes[localEndpoint], 'networks', {
+                name: network,
+                config: tunnelConfig
+            })
         })
 
         let daemonDevices = { 'pit': { path: '/data/pit', source: getPitDirExternal(pitId), type: 'disk' } }
@@ -344,7 +375,7 @@ async function startPit (pitId, drives, workers) {
             daemonHash, 
             { 
                 devices: daemonDevices,
-                config: { 'raw.idmap': 'both ' + config.mountUid + ' 0' }
+                config: { 'raw.idmap': 'both ' + config.mountUid + ' 2525' }
             }
         )
         await Parallel.each(workers, async function createWorker(worker) {
@@ -374,9 +405,9 @@ async function startPit (pitId, drives, workers) {
             await setContainerState(containerName, 'start')
         })
         await setContainerState(daemonContainerName, 'start')
-        broadcast('pitStarted', pitId)
+        emit('pitStarted', pitId)
     } catch (ex) {
-        broadcast('pitStartFailed', pitId)
+        emit('pitStartFailed', pitId)
         await stopPit(pitId)
         throw ex
     }
@@ -434,15 +465,13 @@ async function extractResults (pitId) {
 }
 
 async function stopPit (pitId) {
+    emit('pitStopping', pitId)
     let results = await extractResults(pitId) 
     let nodes = getAllNodes()
     for (let node of nodes) {
-        log.debug('CHECKING NODE', node.id)
         let [err, containers] = await to(getContainersOnNode(node))
         if (containers) {
-            log.debug('NODE', node.id, 'HAS CONTAINERS', containers)
             for (let containerName of containers) {
-                log.debug('CHECKING DROP', containerName)
                 let containerInfo = parseContainerName(containerName)
                 if (containerInfo && containerInfo[1] == pitId) {
                     let [errStop] = await to(setContainerState(containerName, 'stop', true))
@@ -454,7 +483,7 @@ async function stopPit (pitId) {
     await to(Parallel.each(nodes, async node => {
         await to(lxdDelete(node, 'networks/' + snakepitPrefix + pitId))
     }))
-    broadcast('pitStopped', pitId, results)
+    emit('pitStopped', pitId, results)
 }
 exports.stopPit = stopPit
 
@@ -476,15 +505,12 @@ function getAllNodes () {
     for (let nodeId of Object.keys(db.nodes)) {
         nodes.push(db.nodes[nodeId])
     }
-    for (let nodeId of Object.keys(testedNodes)) {
-        nodes.push(testedNodes[nodeId])
-    }
     return nodes
 }
 exports.getAllNodes = getAllNodes
 
 function getNodeById (nodeId) {
-    return nodeId == 'head' ? headNode : (testedNodes[nodeId] || db.nodes[nodeId])
+    return nodeId == 'head' ? headNode : db.nodes[nodeId]
 }
 exports.getNodeById = getNodeById
 
@@ -513,13 +539,13 @@ async function unauthenticateNode(node) {
     })
 }
 
-async function addNode(id, endpoint, password) {
+async function addNode (id, endpoint, password) {
     let newNode = { 
         id: id,
         endpoint: endpoint,
         resources: []
     }
-    testedNodes[id] = newNode
+    db.nodes[id] = newNode
     let pitId = await createPit()
     try {
         await authenticateNode(newNode, password)
@@ -549,22 +575,33 @@ async function addNode(id, endpoint, password) {
             throw new Error('Node scanning failed')
         }
     } catch (ex) {
-        log.debug(ex.toString())
-        await to(unauthenticateNode(newNode))
+        log.debug('ADDING NODE FAILED', ex.toString())
+        if (db.nodes[id]) {
+            removeNode(db.nodes[id])
+        }
         throw ex
     } finally {
-        log.debug('REMOVING FROM TESTED', id)
-        delete testedNodes[id]
         await to(deletePit(pitId))
-        
     }
 }
 exports.addNode = addNode
 
+async function removeNode (node) {
+    setNodeState(node, nodeStates.OFFLINE)
+    await to(unauthenticateNode(node))
+    if (db.nodes[req.params.id]) {
+        delete db.nodes[req.params.id]
+    }
+}
+exports.removeNode = removeNode
+
 function setNodeState(node, nodeState) {
-    node.state = nodeState
-    node.since = new Date().toISOString()
-    exports.emit('state', node.id, node.state)
+    if (node.state != nodeState) {
+        log.debug('BOA')
+        node.state = nodeState
+        node.since = new Date().toISOString()
+        emit('state', node.id, node.state)
+    }
 }
 
 exports.initDb = function() {
@@ -592,7 +629,7 @@ exports.initApp = function(app) {
                     setNodeState(newNode, nodeStates.ONLINE)
                     res.status(200).send()
                 }).catch(err => {
-                    res.status(400).send({ message: 'OOO Problem adding node:\n' + err })
+                    res.status(400).send({ message: 'Problem adding node:\n' + err })
                 })
             } else {
                 res.status(400).send()
@@ -640,12 +677,9 @@ exports.initApp = function(app) {
         if (req.user.admin) {
             let node = db.nodes[req.params.id]
             if (node) {
-                setNodeState(node, nodeStates.OFFLINE)
-                let rmNode = () => {
-                    delete db.nodes[req.params.id]
-                    res.status(200).send()
-                }
-                unauthenticateNode(node).then(rmNode).catch(rmNode)
+                removeNode(node)
+                    .then(() => res.status(404).send())
+                    .catch(err => res.status(500).send({ message: 'Problem removing node:\n' + err }))
             } else {
                 res.status(404).send()
             }
@@ -655,38 +689,20 @@ exports.initApp = function(app) {
     })
 }
 
-process.on('message', msg => {
-    if (msg.pitEvent) {
-        if (cluster.isMaster) {
-            broadcast(msg.pitEvent, ...msg.args)
-        } else {
-            exports.emit(msg.pitEvent, ...msg.args)
-        }
-    }
-})
-
-function broadcast(pitEvent, ...args) {
-    let message = {
-        pitEvent: pitEvent,
-        args: args
-    }
-    log.debug('BROADCAST', pitEvent, ...args)
-    if (cluster.isMaster) {
-        exports.emit(pitEvent, ...args)
-        for(let wid in cluster.workers) {
-            cluster.workers[wid].send(message)
-        }
-    } else {
-        process.send(message)
-    }
-}
-
 async function tick () {
+    let nodes = getAllNodes()
+    await to(Parallel.each(nodes, async node => {
+        let [infoErr, info] = await to(getNodeInfo(node))
+        if (info) {
+            setNodeState(node, nodeStates.ONLINE)
+        } else {
+            setNodeState(node, nodeStates.OFFLINE)
+        }
+    }))
     let [err, pits] = await to(getPits())
-    log.debug('PITS', pits)
+    emit('pitReport', pits)
     await Parallel.each(pits, async pitId => {
         if (await pitRequestedStop(pitId)) {  
-            log.debug('DROPPING PIT:', pitId) 
             await stopPit(pitId)
         }
     })

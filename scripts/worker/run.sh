@@ -21,7 +21,7 @@ print_log () {
 }
 
 print_log "Worker ${worker_index} started"
-bash "${worker_dir}/script.sh" 2>&1 | awk '{print "[worker '${worker_index}'] " $0}' >>"${log_file}"
+stdbuf -oL bash "${worker_dir}/script.sh" 2>&1 | stdbuf -oL awk '{print "[worker '${worker_index}'] " $0}' >>"${log_file}"
 exit_code=${PIPESTATUS[0]}
 echo "$exit_code" >"${worker_dir}/status"
 print_log "Worker ${worker_index} ended with exit code ${exit_code}"
