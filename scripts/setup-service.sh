@@ -51,8 +51,8 @@ echo -e "# Local interface the snakepit service should use (e.g. 192.168.1.1).\n
 echo -e "# Local port of the snakepit service.\nport: 80\n" >>$conf
 echo -e "# External URL.\nexternal: \"http://snakepit.lxd\"\n" >>$conf
 echo -e "# LXD REST URL.\nlxdEndpoint: \"$lxd_endpoint\"\n" >>$conf
-echo -e "# LXD REST certificate.\nlxdcert: \"$config_dir/lxd.crt\"\n" >>$conf
-echo -e "# LXD REST key.\nlxdkey: \"$config_dir/lxd.key\"\n" >>$conf
+echo -e "# LXD REST certificate.\nlxdCert: \"$config_dir/lxd.crt\"\n" >>$conf
+echo -e "# LXD REST key.\nlxdKey: \"$config_dir/lxd.key\"\n" >>$conf
 echo -e "# Internal path of LXD data drive.\ndataRoot: \"/data\"\n" >>$conf
 echo -e "# External path of LXD data drive (required for mounting).\nmountRoot: \"$mount_root\"\n" >>$conf
 echo -e "# UID of external user that should be mapped to container root (required for write access on mounts).\nmountUid: \"$uid\"\n" >>$conf

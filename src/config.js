@@ -29,8 +29,12 @@ function tryConfigFile(fun, verb) {
 var content = tryConfigFile(() => fs.readFileSync(filename), 'reading')
 var config = module.exports = tryConfigFile(() => yaml.safeLoad(content), 'parsing')
 
-function readConfigFile(name) {
-    return fs.existsSync(config[name]) ? fs.readFileSync(config[name]).toString() : undefined
+function readConfigFile(name, mandatory) {
+    if (fs.existsSync(config[name])) {
+        return fs.readFileSync(config[name]).toString()
+    } else if (mandatory) {
+        throw new Error('Unable to read mandatory config file: ' + name)
+    }
 }
 
 config.logLevel = typeof config.logLevel === 'undefined' ? 1 : Number(config.logLevel)
@@ -39,8 +43,8 @@ config.tokenSecret = readConfigFile('tokenSecretPath')
 
 config.key = readConfigFile('keyPemPath')
 config.cert = readConfigFile('certPemPath')
-config.lxdKey = readConfigFile('lxdKey')
-config.lxdCert = readConfigFile('lxdCert')
+config.lxdKey = readConfigFile('lxdKey', true)
+config.lxdCert = readConfigFile('lxdCert', true)
 config.lxdTimeout = config.lxdTimeout || 30
 
 config.https = config.key

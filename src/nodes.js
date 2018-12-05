@@ -44,6 +44,7 @@ var agent = new https.Agent({
     cert: config.lxdCert,
     rejectUnauthorized: false
 })
+log.debug(config.lxdCert)
 
 const nodeStates = {
     OFFLINE: 0,
@@ -350,10 +351,15 @@ async function startPit (pitId, drives, workers) {
                     tunnelConfig[tunnel + '.id'] = '' + pitId
                 }
             }
-            await lxdPost(physicalNodes[localEndpoint], 'networks', {
-                name: network,
-                config: tunnelConfig
-            })
+            try {
+                await lxdPost(physicalNodes[localEndpoint], 'networks', {
+                    name: network,
+                    config: tunnelConfig
+                })
+            } catch (ex) {
+                log.error('PROBLEM CREATING NETWORK', network, ex)
+                throw ex
+            }
         })
 
         let daemonDevices = { 'pit': { path: '/data/pit', source: getPitDirExternal(pitId), type: 'disk' } }
@@ -575,7 +581,7 @@ async function addNode (id, endpoint, password) {
             throw new Error('Node scanning failed')
         }
     } catch (ex) {
-        log.debug('ADDING NODE FAILED', ex.toString())
+        log.debug('ADDING NODE FAILED', ex)
         if (db.nodes[id]) {
             removeNode(db.nodes[id])
         }
@@ -589,9 +595,7 @@ exports.addNode = addNode
 async function removeNode (node) {
     setNodeState(node, nodeStates.OFFLINE)
     await to(unauthenticateNode(node))
-    if (db.nodes[req.params.id]) {
-        delete db.nodes[req.params.id]
-    }
+    delete db.nodes[node.id]
 }
 exports.removeNode = removeNode
 
@@ -693,6 +697,7 @@ async function tick () {
     let nodes = getAllNodes()
     await to(Parallel.each(nodes, async node => {
         let [infoErr, info] = await to(getNodeInfo(node))
+        if (infError) log.debug(infError)
         if (info) {
             setNodeState(node, nodeStates.ONLINE)
         } else {
