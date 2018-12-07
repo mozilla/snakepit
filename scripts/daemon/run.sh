@@ -9,7 +9,7 @@ if [ -f "/data/pit/run" ]; then
     print_log "This pit already ran. Requesting stop..."
     touch "/data/pit/stop"
 fi
-touch /data/pit/run
+touch "/data/pit/run"
 
 for worker_dir in /data/pit/workers/*/ ; do
     worker_dir=${worker_dir%*/}

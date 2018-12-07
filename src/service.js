@@ -16,8 +16,8 @@ if (cluster.isMaster) {
             process.exit(100) // Preventing fork-loop on startup problems
         }
         var worker = cluster.fork();
-        console.log('Worker ' + deadWorker.process.pid + ' died.')
-        console.log('Worker ' + worker.process.pid + ' born.')
+        log.error('Worker ' + deadWorker.process.pid + ' died.')
+        log.info('Worker ' + worker.process.pid + ' born.')
     })
 } else {
     try {
@@ -47,7 +47,7 @@ if (cluster.isMaster) {
         }
         log.info('Snakepit service running on ' + config.interface + ':' + config.port)
     } catch (ex) {
-        console.error('Failure during startup: ' + ex)
+        log.error('Failure during startup: ' + ex)
         process.exit(100)
     }
 }

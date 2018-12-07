@@ -9,9 +9,9 @@ const { EventEmitter } = require('events')
 
 const log = require('./logger.js')
 const store = require('./store.js')
-const utils = require('./utils.js')
 const config = require('./config.js')
 const { getAlias } = require('./aliases.js')
+const { to, getScript, envToScript } = require('./utils.js')
 
 const lxdStatus = {
     created:    100,
@@ -93,14 +93,6 @@ process.on('message', message => {
         emitter.emit(message.pitEvent, ...message.args)
     }
 })
-
-function to (promise) {
-    return promise.then(data => [null, data]).catch(err => [err])
-}
-
-function sleep (ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 async function wrapLxdResponse (node, promise) {
     let response = await promise
@@ -369,7 +361,7 @@ async function startPit (pitId, drives, workers) {
         if (drives) {
             for (let dest of Object.keys(drives)) {
                 daemonDevices[dest] = {
-                    path:   '/data/' + dest,
+                    path:   dest,
                     source: drives[dest],
                     type:   'disk'
                 }
@@ -394,7 +386,7 @@ async function startPit (pitId, drives, workers) {
             let workerDir = path.join(pitDir, 'workers', '' + index)
             await fs.mkdirp(workerDir)
             if (worker.env) {
-                await fs.writeFile(path.join(workerDir, 'env.sh'), utils.envToScript(worker.env, true))
+                await fs.writeFile(path.join(workerDir, 'env.sh'), envToScript(worker.env, true))
             }
             if (worker.script) {
                 await fs.writeFile(path.join(workerDir, 'script.sh'), worker.script)
@@ -558,7 +550,7 @@ async function addNode (id, endpoint, password) {
         let result = await runPit(pitId, {}, [{ 
             node:    newNode,
             devices: { 'gpu': { type: 'gpu' } },
-            script:  utils.getScript('scan.sh')
+            script:  getScript('scan.sh')
         }])
         let workers = result.workers
         if (workers.length > 0) {
@@ -697,7 +689,6 @@ async function tick () {
     let nodes = getAllNodes()
     await to(Parallel.each(nodes, async node => {
         let [infoErr, info] = await to(getNodeInfo(node))
-        if (infError) log.debug(infError)
         if (info) {
             setNodeState(node, nodeStates.ONLINE)
         } else {

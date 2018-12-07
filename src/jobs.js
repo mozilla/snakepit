@@ -145,15 +145,15 @@ function startJob (job, clusterReservation, callback) {
     fs.mkdirpSync(path.join(config.dataRoot, 'shared'))
     fs.mkdirpSync(path.join(config.dataRoot, 'home', job.user))
     let shares = {
-        'shared': path.join(config.mountRoot, 'shared'),
-        'home':   path.join(config.mountRoot, 'home', job.user)
+        '/ro/shared': path.join(config.mountRoot, 'shared'),
+        '/data/home':   path.join(config.mountRoot, 'home', job.user)
     }
     jobEnv.DATA_ROOT = '/data'
-    jobEnv.SHARED_DIR = '/data/shared'
+    jobEnv.SHARED_DIR = '/data/ro/shared'
     jobEnv.USER_DIR = '/data/home'
     for (let group of groupsModule.getGroups(db.users[job.user])) {
         fs.mkdirpSync(path.join(config.dataRoot, 'groups', group))
-        shares['group-' + group] = path.join(config.mountRoot, 'groups', group)
+        shares['/data/group-' + group] = path.join(config.mountRoot, 'groups', group)
         jobEnv[group.toUpperCase() + '_GROUP_DIR'] = '/data/group-' + group
     }
 

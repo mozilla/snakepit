@@ -1,0 +1,11 @@
+[Unit]
+Description=Read-only data directory
+
+[Mount]
+What=/ro
+Where=/data/ro
+Type=fuse.bindfs
+Options=ro
+
+[Install]
+WantedBy=multi-user.target

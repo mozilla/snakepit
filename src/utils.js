@@ -5,7 +5,7 @@ const { spawn } = require('child_process')
 
 var exports = module.exports = {}
 
-exports.getDuration = function(date1, date2) {
+exports.getDuration = function (date1, date2) {
     let delta = Math.abs(date2 - date1) / 1000
     let days = Math.floor(delta / 86400)
     delta -= days * 86400
@@ -15,8 +15,8 @@ exports.getDuration = function(date1, date2) {
     delta -= minutes * 60
     let seconds = Math.floor(delta % 60)
     return {
-        days: days,
-        hours: hours,
+        days:    days,
+        hours:   hours,
         minutes: minutes,
         seconds: seconds
     }
@@ -44,7 +44,7 @@ var _loadedScripts = {}
 
 const _includePrefix = '#INCLUDE '
 
-function _getScript(scriptName, alreadyIncluded) {
+function _getScript (scriptName, alreadyIncluded) {
     if (alreadyIncluded.hasOwnProperty(scriptName)) {
         return ''
     }
@@ -100,4 +100,12 @@ exports.runScript = function(scriptName, env, callback) {
     stdinStream.push(null)
     stdinStream.pipe(p.stdin)
     return p
+}
+
+exports.to = function (promise) {
+    return promise.then(data => [null, data]).catch(err => [err])
+}
+
+exports.sleep = function (ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
