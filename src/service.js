@@ -2,7 +2,7 @@ const cluster = require('cluster')
 const cpus = require('os').cpus().length
 const log = require('./logger.js')
 const config = require('./config.js')
-const modules = 'jobfs users groups nodes jobs aliases'
+const modules = 'users groups nodes jobs aliases'
     .split(' ').map(name => require('./' + name + '.js'))
 
 if (cluster.isMaster) {
@@ -22,7 +22,6 @@ if (cluster.isMaster) {
 } else {
     try {
         const http = require('http')
-        const https = require('https')
         const morgan = require('morgan')
         const express = require('express')
         const bodyParser = require('body-parser')
@@ -40,11 +39,7 @@ if (cluster.isMaster) {
             res.status(500).send('Something broke')
         })
 
-        if (config.https) {
-            https.createServer({ key: config.key, cert: config.cert }, app).listen(config.port, config.interface)
-        } else {
-            http.createServer(app).listen(config.port, config.interface)
-        }
+        http.createServer(app).listen(config.port, config.interface)
         log.info('Snakepit service running on ' + config.interface + ':' + config.port)
     } catch (ex) {
         log.error('Failure during startup: ' + ex)

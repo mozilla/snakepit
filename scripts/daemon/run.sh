@@ -1,32 +1,33 @@
 #!/usr/bin/env bash
 
-touch /data/pit/daemon.log
+pit_root="/data/rw/pit"
+touch ${pit_root}/daemon.log
 print_log () {
-    echo "[daemon] $1" >>/data/pit/daemon.log
+    echo "[daemon] $1" >>${pit_root}/daemon.log
 }
 
-if [ -f "/data/pit/run" ]; then
+if [ -f "${pit_root}/run" ]; then
     print_log "This pit already ran. Requesting stop..."
-    touch "/data/pit/stop"
+    touch "${pit_root}/stop"
 fi
-touch "/data/pit/run"
+touch "${pit_root}/run"
 
-for worker_dir in /data/pit/workers/*/ ; do
+for worker_dir in ${pit_root}/workers/*/ ; do
     worker_dir=${worker_dir%*/}
     touch "${worker_dir}/worker.log"
-    chown -R worker:worker "$worker_dir"
+    chown -R worker:worker "${worker_dir}"
 done
 
-tail -F -q /data/pit/daemon.log /data/pit/workers/**/worker.log | ts '[%Y-%m-%d %H:%M:%S]' >/data/pit/pit.log &
+tail -F -q ${pit_root}/daemon.log ${pit_root}/workers/**/worker.log | ts '[%Y-%m-%d %H:%M:%S]' >${pit_root}/pit.log &
 
 print_log "Pit daemon started"
 while true; do
-    for worker_dir in /data/pit/workers/*/ ; do
+    for worker_dir in ${pit_root}/workers/*/ ; do
         worker_dir=${worker_dir%*/}
         worker_index=${worker_dir##*/}
         if [ -f "${worker_dir}/stop" ]; then
             print_log "Worker ${worker_index} requested stop. Stopping pit..."
-            touch "/data/pit/stop"
+            touch "${pit_root}/stop"
         fi
     done
 	sleep 1

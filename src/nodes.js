@@ -40,11 +40,10 @@ var exports = module.exports = emitter
 var headInfo
 var db = store.root
 var agent = new https.Agent({ 
-    key: config.lxdKey, 
-    cert: config.lxdCert,
+    key: config.clientKey, 
+    cert: config.clientCert,
     rejectUnauthorized: false
 })
-log.debug(config.lxdCert)
 
 const nodeStates = {
     OFFLINE: 0,
@@ -213,39 +212,8 @@ function setContainerState (containerName, state, force, stateful) {
     })
 }
 
-function getContainerState (containerName) {
-    return lxdGet(getNodeFromName(containerName), 'containers/' + containerName + '/state')
-}
-
-async function getPitState (pitId) {
-    return (await getContainerState(getDaemonName(pitId))).status_code
-}
-
-async function pushFile (containerName, targetPath, content) {
-    let node = getNodeFromName(containerName)
-    await lxdPost(
-        node, 
-        'containers/' + containerName + '/files?path=' + targetPath, 
-        content, 
-        {
-            headers: { 
-                'Content-Type': 'application/octet-stream',
-                'X-LXD-type':   'file', 
-                'X-LXD-write':  'overwrite'
-            } 
-        }
-    )
-}
-
-async function pullFile (containerName, targetPath) {
-    let node = getNodeFromName(containerName)
-    return await lxdGet(node, 'containers/' + containerName + '/files?path=' + targetPath)
-}
-
-async function pitRequestedStop (pitId) {
-    let containerName = getDaemonName(pitId)
-    let [err, content] = await to(pullFile(containerName, '/data/pit/stop'))
-    return !err
+function pitRequestedStop (pitId) {
+    return fs.pathExists(path.join(getPitDir(pitId), 'stop'))
 }
 
 function newPitId () {
@@ -269,7 +237,7 @@ function getWorkerHost (pitId, node, index) {
 exports.getWorkerHost = getWorkerHost
 
 function getPitDir (pitId) {
-    return path.join(config.dataRoot, 'pits', pitId + '')
+    return '/data/pits/' + pitId
 }
 exports.getPitDir = getPitDir
 
@@ -349,12 +317,12 @@ async function startPit (pitId, drives, workers) {
                     config: tunnelConfig
                 })
             } catch (ex) {
-                log.error('PROBLEM CREATING NETWORK', network, ex)
+                log.error('PROBLEM CREATING NETWORK', network, ex.toString())
                 throw ex
             }
         })
 
-        let daemonDevices = { 'pit': { path: '/data/pit', source: getPitDirExternal(pitId), type: 'disk' } }
+        let daemonDevices = { 'pit': { path: '/data/rw/pit', source: getPitDirExternal(pitId), type: 'disk' } }
         if (network) {
             daemonDevices['eth0'] = { nictype: 'bridged', parent: network, type: 'nic' }
         }
@@ -689,6 +657,9 @@ async function tick () {
     let nodes = getAllNodes()
     await to(Parallel.each(nodes, async node => {
         let [infoErr, info] = await to(getNodeInfo(node))
+        if (infoErr) {
+            log.error('PROBLEM ACCESSING NODE ' + node.id, infoErr.toString())
+        }
         if (info) {
             setNodeState(node, nodeStates.ONLINE)
         } else {

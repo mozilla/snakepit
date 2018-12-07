@@ -10,7 +10,9 @@ print_header () {
 }
 
 mkdir /ro
-mkdir -p /data/ro
+mkdir /data
+mkdir /data/ro
+mkdir /data/rw
 
 print_header "Installing dependencies"
 aptget update

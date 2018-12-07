@@ -46,16 +46,11 @@ openssl rand -base64 32 >"$token_secret_path"
 conf="$config_dir/snakepit.conf"
 touch "$conf"
 chmod 644 "$conf"
-cp "/code/scripts/snakepit.conf.template" "$conf"
-echo -e "# Local interface the snakepit service should use (e.g. 192.168.1.1).\ninterface: 0.0.0.0\n" >>$conf
-echo -e "# Local port of the snakepit service.\nport: 80\n" >>$conf
-echo -e "# External URL.\nexternal: \"http://snakepit.lxd\"\n" >>$conf
-echo -e "# LXD REST URL.\nlxdEndpoint: \"$lxd_endpoint\"\n" >>$conf
-echo -e "# LXD REST certificate.\nlxdCert: \"$config_dir/lxd.crt\"\n" >>$conf
-echo -e "# LXD REST key.\nlxdKey: \"$config_dir/lxd.key\"\n" >>$conf
-echo -e "# Internal path of LXD data drive.\ndataRoot: \"/data\"\n" >>$conf
+echo -e "# LXD REST URL.\nendpoint: \"$lxd_endpoint\"\n" >>$conf
+echo -e "# LXD REST client certificate file.\nclientCert: \"$config_dir/lxd.crt\"\n" >>$conf
+echo -e "# LXD REST client key file.\nclientKey: \"$config_dir/lxd.key\"\n" >>$conf
 echo -e "# External path of LXD data drive (required for mounting).\nmountRoot: \"$mount_root\"\n" >>$conf
-echo -e "# UID of external user that should be mapped to container root (required for write access on mounts).\nmountUid: \"$uid\"\n" >>$conf
+echo -e "# UID of external user that should be mapped to worker/root user (required for write access on mounts).\nmountUid: \"$uid\"\n" >>$conf
 echo -e "# Path to session token secret file.\ntokenSecretPath: \"$token_secret_path\"\n" >>$conf
 
 if systemctl is-active --quiet snakepit; then

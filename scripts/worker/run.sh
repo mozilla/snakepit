@@ -3,7 +3,7 @@ worker_index=`hostname | sed -E 's/sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*
 head_node=`hostname | sed -E 's/sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/sp-head-\2-d.lxd/'`
 
 mkdir /data
-worker_dir="/data/pit/workers/${worker_index}"
+worker_dir="/data/rw/pit/workers/${worker_index}"
 while ! sshfs worker@${head_node}: /data -o cache=yes,kernel_cache,big_writes,sshfs_sync,Ciphers=aes128-ctr,reconnect,ServerAliveInterval=15,ServerAliveCountMax=100,StrictHostKeyChecking=no ; do
     sleep 2
 done

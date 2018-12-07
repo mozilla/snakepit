@@ -37,30 +37,28 @@ function readConfigFile(name, mandatory) {
     }
 }
 
-config.logLevel = typeof config.logLevel === 'undefined' ? 1 : Number(config.logLevel)
-
-config.tokenSecret = readConfigFile('tokenSecretPath')
-
-config.key = readConfigFile('keyPemPath')
-config.cert = readConfigFile('certPemPath')
-config.lxdKey = readConfigFile('lxdKey', true)
-config.lxdCert = readConfigFile('lxdCert', true)
-config.lxdTimeout = config.lxdTimeout || 30
-
-config.https = config.key
-
 config.interface  = process.env.SNAKEPIT_INTERFACE   || config.interface || '0.0.0.0'
-config.port       = process.env.SNAKEPIT_PORT        || config.port      || (config.https ? 443 : 80)
-config.external   = process.env.SNAKEPIT_EXTERNAL    || config.external  || ('https://' + config.fqdn + ':' + config.port)
+config.port       = process.env.SNAKEPIT_PORT        || config.port      || 80
 
+config.logLevel = typeof config.logLevel === 'undefined' ? 1 : Number(config.logLevel)
 config.debugHttp  = process.env.SNAKEPIT_DEBUG_HTTP  || config.debugHttp
 config.debugJobFS = process.env.SNAKEPIT_DEBUG_JOBFS || config.debugJobFS
 
-config.pollInterval      = config.pollInterval     ? Number(config.pollInterval)            : oneSecond
-config.maxParallelPrep   = config.maxParallelPrep  ? Number(config.maxParallelPrep)         : 2
-config.keepDoneDuration  = config.keepDoneDuration ? parseDuration(config.keepDoneDuration) : 7 * oneDay
-config.maxPrepDuration   = config.maxPrepDuration  ? parseDuration(config.maxPrepDuration)  : oneHour
-config.maxStartDurationn = config.maxStartDuration ? parseDuration(config.maxStartDuration) : 5 * oneMinute
+config.tokenSecret = readConfigFile('tokenSecretPath', true)
+config.tokenTTL    = parseDuration(config.tokenTTL || '1d')
+config.hashRounds  = config.hashRounds || 10
 
-config.dataRoot  = config.dataRoot  || '/snakepit'
-config.mountRoot = config.mountRoot || config.dataRoot  || '/snakepit'
+if (!config.endpoint) {
+    throw new Error('Missing field: endpoint')
+}
+config.clientKey = readConfigFile('clientKey', true)
+config.clientCert = readConfigFile('clientCert', true)
+config.timeout = config.timeout || 30
+
+config.pollInterval     = config.pollInterval     ? Number(config.pollInterval)            : oneSecond
+config.maxParallelPrep  = config.maxParallelPrep  ? Number(config.maxParallelPrep)         : 2
+config.keepDoneDuration = parseDuration(config.keepDoneDuration || '1d')
+config.maxPrepDuration  = parseDuration(config.maxPrepDuration  || '1h')
+config.maxStartDuration = parseDuration(config.maxStartDuration || '5m')
+
+config.mountRoot = config.mountRoot || '/snakepit'

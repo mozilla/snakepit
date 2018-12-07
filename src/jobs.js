@@ -9,7 +9,6 @@ const fslib = require('httpfslib')
 const log = require('./logger.js')
 const store = require('./store.js')
 const utils = require('./utils.js')
-const jobfs = require('./jobfs.js')
 const config = require('./config.js')
 const nodesModule = require('./nodes.js')
 const groupsModule = require('./groups.js')
@@ -74,7 +73,7 @@ function appendError(job, error) {
 function getBasicEnv(job) {
     return {
         JOB_NUMBER: job.id,
-        DATA_ROOT:  config.dataRoot,
+        DATA_ROOT:  '/data',
         JOB_DIR:    nodesModule.getPitDir(job.id)
     }
 }
@@ -140,21 +139,21 @@ function startJob (job, clusterReservation, callback) {
     job.clusterReservation = clusterReservation
     let jobEnv = getBasicEnv(job)
     
-    jobEnv.JOB_DIR = '/data/pit'
-    jobEnv.SRC_DIR = jobEnv.WORK_DIR = '/data/pit/src'
-    fs.mkdirpSync(path.join(config.dataRoot, 'shared'))
-    fs.mkdirpSync(path.join(config.dataRoot, 'home', job.user))
+    jobEnv.JOB_DIR = '/data/rw/pit'
+    jobEnv.SRC_DIR = jobEnv.WORK_DIR = '/data/rw/pit/src'
+    fs.mkdirpSync('/data/shared')
+    fs.mkdirpSync('/data/home/' + job.user)
     let shares = {
-        '/ro/shared': path.join(config.mountRoot, 'shared'),
-        '/data/home':   path.join(config.mountRoot, 'home', job.user)
+        '/ro/shared':    path.join(config.mountRoot, 'shared'),
+        '/data/rw/home': path.join(config.mountRoot, 'home', job.user)
     }
     jobEnv.DATA_ROOT = '/data'
     jobEnv.SHARED_DIR = '/data/ro/shared'
-    jobEnv.USER_DIR = '/data/home'
+    jobEnv.USER_DIR = '/data/rw/home'
     for (let group of groupsModule.getGroups(db.users[job.user])) {
-        fs.mkdirpSync(path.join(config.dataRoot, 'groups', group))
-        shares['/data/group-' + group] = path.join(config.mountRoot, 'groups', group)
-        jobEnv[group.toUpperCase() + '_GROUP_DIR'] = '/data/group-' + group
+        fs.mkdirpSync('/data/groups/' + group)
+        shares['/data/rw/group-' + group] = path.join(config.mountRoot, 'groups', group)
+        jobEnv[group.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + group
     }
 
     let workers = []
@@ -413,7 +412,6 @@ exports.initApp = function(app) {
                         let p = path.join(jobDir, file)
                         fs.writeFile(p, content, err => {
                             if (err) {
-                                jobfs.deleteJobDir(id)
                                 done('Error on persisting ' + file)
                             } else {
                                 done()
@@ -435,7 +433,7 @@ exports.initApp = function(app) {
     })
 
     app.get('/jobs', function(req, res) {
-        fs.readdir(path.join(config.dataRoot, 'pits'), (err, files) => {
+        fs.readdir('/data/pits', (err, files) => {
             if (err || !files) {
                 res.status(500).send()
             } else {

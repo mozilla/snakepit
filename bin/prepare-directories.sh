@@ -2,11 +2,11 @@
 
 owner=snakepit
 if [ -z "$1" ]; then
-    root_dir=/var/snakepit
+    root_dir="/var/snakepit"
 else
-    root_dir=$1
+    root_dir="$1"
     if ! [ -z "$2" ]; then
-        owner=$2
+        owner="$2"
     fi
 fi
 if ! id "$owner" >/dev/null 2>&1; then
@@ -19,7 +19,6 @@ mkdir -p "$root_dir/shared"
 mkdir -p "$root_dir/home"
 mkdir -p "$root_dir/groups"
 mkdir -p "$root_dir/cache"
-mkdir -p "$root_dir/uploads"
 mkdir -p "$root_dir/pits"
 
 chown -R $owner:$owner "$root_dir"
