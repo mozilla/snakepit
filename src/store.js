@@ -1,7 +1,5 @@
 const fs = require('fs')
-const path = require('path')
 const cluster = require('cluster')
-const config = require('./config.js')
 
 var exports = module.exports = {}
 

@@ -58,4 +58,4 @@ if systemctl is-active --quiet snakepit; then
 fi
 cp /code/scripts/snakepit.service /lib/systemd/system/
 systemctl enable snakepit
-systemctl start snakepit
+reboot

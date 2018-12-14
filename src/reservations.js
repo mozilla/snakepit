@@ -1,7 +1,6 @@
 const { MultiRange } = require('multi-integer-range')
 
 const store = require('./store.js')
-const config = require('./config.js')
 const groupsModule = require('./groups.js')
 const nodesModule = require('./nodes.js')
 
