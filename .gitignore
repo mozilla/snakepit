@@ -1,11 +1,6 @@
-data
-config
 src/clusterParser.js
-db.json
-db.bak
 .pitconnect.txt
 .pituser.txt
-mnt
 *.pem
 *.key
 *.crt
