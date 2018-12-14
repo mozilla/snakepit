@@ -29,7 +29,7 @@ $exe systemctl isolate multi-user.target
 
 print_header "Installing dependencies..."
 $exe bash -c 'DEBIAN_FRONTEND=noninteractive apt-get -yq update && \
-    apt-get install -yq curl jq nodejs npm git build-essential'
+    apt-get install -yq curl jq nodejs npm git build-essential vim iputils-ping'
 
 if [ $# -ne 2 ]; then
     print_header "Cloning snakepit code base"
@@ -37,14 +37,11 @@ if [ $# -ne 2 ]; then
 fi
 
 print_header "Getting endpoint address"
-if lxc network show snakebr0 > /dev/null 2>&1; then
-    address=`lxc network get snakebr0 ipv4.address`
-else
-    if ! lxc network show lxdbr0 > /dev/null 2>&1; then
-        lxc network create lxdbr0
-    fi
-    address=`lxc network get lxdbr0 ipv4.address`
+if ! lxc network show lxdbr0 > /dev/null 2>&1; then
+    lxc network create lxdbr0
+    lxc network attach lxdbr0 snakepit default eth0
 fi
+address=`lxc network get lxdbr0 ipv4.address`
 address="`echo "$address" | cut -d/ -f 1`"
 endpoint="https://${address}:8443"
 echo "Using endpoint: $endpoint"

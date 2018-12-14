@@ -1,14 +1,13 @@
 #!/bin/bash
 
-owner=snakepit
-if [ -z "$1" ]; then
-    root_dir="/var/snakepit"
-else
-    root_dir="$1"
-    if ! [ -z "$2" ]; then
-        owner="$2"
-    fi
+if [ $# -ne 2 ] ; then
+    echo "Usage: prepare-directories.sh <user> <data-root>"
+    exit 1
 fi
+
+$owner=$1
+$root_dir=$2
+
 if ! id "$owner" >/dev/null 2>&1; then
     echo "Unknown user: $owner"
     exit 1

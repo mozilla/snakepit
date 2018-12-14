@@ -124,7 +124,8 @@ function callLxd(method, node, resource, data, options) {
         method: method,
         url: getUrl(node, resource),
         httpsAgent: agent,
-        data: data
+        data: data,
+        timeout: 2000
     }, options || {})
     log.debug(method, axiosConfig.url, data || '')
     return wrapLxdResponse(node, axios(axiosConfig))
@@ -561,7 +562,6 @@ exports.removeNode = removeNode
 
 function setNodeState(node, nodeState) {
     if (node.state != nodeState) {
-        log.debug('BOA')
         node.state = nodeState
         node.since = new Date().toISOString()
         emit('state', node.id, node.state)

@@ -5,11 +5,12 @@ lxd_endpoint=$1
 mount_root=$2
 uid=$3
 
-command=$'\n "sudo lxc exec snakepit -- /code/scripts/setup-service.sh '$lxd_endpoint$' '$mount_root' '$uid'"\n'
+command="sudo lxc exec snakepit -- /code/scripts/setup-service.sh $lxd_endpoint \"$mount_root\" $uid"
 if ! curl -k -s $lxd_endpoint/1.0 > /dev/null 2>&1; then
     echo "Problem accessing \"$lxd_endpoint\"."
-    echo "You have to enable LXD's REST API access over HTTPS."
-    echo "Please call $command with the appropriate LXD REST service endpoint."
+    echo "Please call"
+    echo $command
+    echo "with the appropriate LXD REST service endpoint."
     exit 1
 fi
 
@@ -34,9 +35,13 @@ json=$(curl \
     -d "{\"type\": \"client\", \"password\": \"$password\"}" \
 )
 if [[ "`echo $json | jq '.status_code'`" -ne "200" ]]; then
-    echo "Problem authenticating at \"$lxd_endpoint\". Please call $command again and provide the correct password."
+    echo "Problem authenticating at \"$lxd_endpoint\". Please call"
+    echo $command 
+    echo "again and provide the correct password."
     exit 2
 fi
+
+echo "Successfully authenticated snakepit service at local LXD endpoint."
 
 token_secret_path="$config_dir/token-secret.txt"
 touch "$token_secret_path"

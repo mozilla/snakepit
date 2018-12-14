@@ -37,28 +37,28 @@ function readConfigFile(name, mandatory) {
     }
 }
 
-config.interface  = process.env.SNAKEPIT_INTERFACE   || config.interface || '0.0.0.0'
-config.port       = process.env.SNAKEPIT_PORT        || config.port      || 80
+config.interface        = process.env.SNAKEPIT_INTERFACE   || config.interface || '0.0.0.0'
+config.port             = process.env.SNAKEPIT_PORT        || config.port      || 80
 
-config.logLevel = typeof config.logLevel === 'undefined' ? 1 : Number(config.logLevel)
-config.debugHttp  = process.env.SNAKEPIT_DEBUG_HTTP  || config.debugHttp
-config.debugJobFS = process.env.SNAKEPIT_DEBUG_JOBFS || config.debugJobFS
+config.logLevel         = typeof config.logLevel === 'undefined' ? 1 : Number(config.logLevel)
+config.debugHttp        = process.env.SNAKEPIT_DEBUG_HTTP  || config.debugHttp
+config.debugJobFS       = process.env.SNAKEPIT_DEBUG_JOBFS || config.debugJobFS
 
-config.tokenSecret = readConfigFile('tokenSecretPath', true)
-config.tokenTTL    = parseDuration(config.tokenTTL || '1d')
-config.hashRounds  = config.hashRounds || 10
+config.tokenSecret      = readConfigFile('tokenSecretPath', true)
+config.tokenTTL         = parseDuration(config.tokenTTL || '1d')
+config.hashRounds       = config.hashRounds || 10
 
 if (!config.endpoint) {
     throw new Error('Missing field: endpoint')
 }
-config.clientKey = readConfigFile('clientKey', true)
-config.clientCert = readConfigFile('clientCert', true)
-config.timeout = config.timeout || 30
+config.clientKey        = readConfigFile('clientKey', true)
+config.clientCert       = readConfigFile('clientCert', true)
+config.timeout          = parseDuration(config.timeout || '30s')
 
-config.pollInterval     = config.pollInterval     ? Number(config.pollInterval)            : oneSecond
-config.maxParallelPrep  = config.maxParallelPrep  ? Number(config.maxParallelPrep)         : 2
+config.pollInterval     = config.pollInterval     ? Number(config.pollInterval)    : oneSecond
+config.maxParallelPrep  = config.maxParallelPrep  ? Number(config.maxParallelPrep) : 2
 config.keepDoneDuration = parseDuration(config.keepDoneDuration || '1d')
 config.maxPrepDuration  = parseDuration(config.maxPrepDuration  || '1h')
 config.maxStartDuration = parseDuration(config.maxStartDuration || '5m')
 
-config.mountRoot = config.mountRoot || '/snakepit'
+config.mountRoot        = config.mountRoot || '/snakepit'
