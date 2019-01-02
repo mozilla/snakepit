@@ -20,10 +20,10 @@ function _isReserved(clusterReservation, nodeId, resourceId) {
 }
 
 function _reserveProcess(node, clusterReservation, resourceList, user, simulation) {
-    var nodeReservation = { node: node.id, resources: {} }
     if (!node || !node.resources) {
         return null
     }
+    let nodeReservation = { node: node.id, resources: {} }
     for (let resource of resourceList) {
         let resourceCounter = resource.count
         //console.log('Looking for ' + resource.count + ' x ' + resource.name)
@@ -52,32 +52,6 @@ function _reserveProcess(node, clusterReservation, resourceList, user, simulatio
     return nodeReservation
 }
 
-exports.fulfillReservation = function (clusterReservation, jobId) {
-    for (let groupReservation of clusterReservation) {
-        for (let reservation of groupReservation) {
-            let node = db.nodes[reservation.node]
-            for(let resourceId of Object.keys(reservation.resources)) {
-                let resource = node.resources[resourceId]
-                resource.job = jobId
-            }
-        }
-    }
-}
-
-exports.freeReservation = function (clusterReservation) {
-    for (let groupReservation of clusterReservation) {
-        for (let reservation of groupReservation) {
-            let node = db.nodes[reservation.node]
-            for(let resourceId of Object.keys(reservation.resources)) {
-                let resource = node.resources[resourceId]
-                if (resource) {
-                    delete resource.job
-                }
-            }
-        }
-    }
-}
-
 exports.reserveCluster = function(clusterRequest, user, simulation) {
     let quotients = {}
     let aq = node => {
@@ -85,7 +59,7 @@ exports.reserveCluster = function(clusterRequest, user, simulation) {
             return quotients[node.id]
         }
         let resources = Object.keys(node.resources).map(k => node.resources[k])
-        let allocated = resources.filter(resource => resource.job && !(resource.type && resource.type.startsWith('num:')))
+        let allocated = resources.filter(resource => !!resource.job)
         return quotients[node.id] = resources.length / (allocated.length + 1)
     }
     let nodes = Object.keys(db.nodes)
@@ -115,6 +89,32 @@ exports.reserveCluster = function(clusterRequest, user, simulation) {
         }
     }
     return clusterReservation
+}
+
+exports.fulfillReservation = function (clusterReservation, jobId) {
+    for (let groupReservation of clusterReservation) {
+        for (let reservation of groupReservation) {
+            let node = db.nodes[reservation.node]
+            for(let resourceId of Object.keys(reservation.resources)) {
+                let resource = node.resources[resourceId]
+                resource.job = jobId
+            }
+        }
+    }
+}
+
+exports.freeReservation = function (clusterReservation) {
+    for (let groupReservation of clusterReservation) {
+        for (let reservation of groupReservation) {
+            let node = db.nodes[reservation.node]
+            for(let resourceId of Object.keys(reservation.resources)) {
+                let resource = node.resources[resourceId]
+                if (resource) {
+                    delete resource.job
+                }
+            }
+        }
+    }
 }
 
 exports.summarizeClusterReservation = function(clusterReservation, skipNumerical) {
