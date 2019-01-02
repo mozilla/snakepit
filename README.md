@@ -44,7 +44,7 @@ you should follow the [snakepit-client user-guide](https://github.com/mozilla/sn
 * At least one machine with at least one GPU (at the moment there is only support for Nvidia GPUs)
 * Latest Nvidia drivers for each GPU
 * [LXD](https://linuxcontainers.org/lxd/) (3.0+) installed on each machine
-* A frontend web-server of your choice on the main machine (optional but recommended)
+* A front-end web-server of your choice on the main machine (optional but recommended)
 * git
 
 ### Configuring LXD
@@ -55,7 +55,7 @@ So on each machine of your cluster you have to call
 ```
 $ sudo lxd init
 ```
-During the following questionaire you'll be asked, if you want to create a new storage pool.
+During the following questionnaire you'll be asked, if you want to create a new storage pool.
 It is highly recommended to create a copy-on-write one on base of `zfs` or `btrfs`.
 Each machine's storage pool should have at least 10 GB of space.
 On the following question you should respond with `yes`:
@@ -94,7 +94,7 @@ Now it's time to prepare the snakepit service:
 This will create the `snakepit` LXD container and bind the data-root to its internal directory `/data`
 and `/path/to/snakepit/clone` to its internal directory `/code`. If you omit `/path/to/snakepit/clone`,
 the script will clone the project another time within the container into `/code`.
-The sript is also automatically mapping the outer directory-owner of
+The script is also automatically mapping the outer directory-owner of
 the data-root (in our case user `snakepit`) to its inner `root` user.
 
 If you get a line with "Problem accessing https://...:8443", you have to figure out the URL for
@@ -116,8 +116,8 @@ This is a highly automated process and should not require any interaction.
 ### Access to Snakepit service
 
 The snakepit service itself only provides unencrypted HTTP access. 
-Therefore it is highly recommended to run snakepit behind a frontend web server with HTTPS configuration.
-The frontend server has to forward requests to port 80 of the address of the `eth0` interface of 
+Therefore it is highly recommended to run snakepit behind a front-end web server with HTTPS configuration.
+The front-end server has to forward requests to port 80 of the address of the `eth0` interface of 
 the snakepit service (`sudo lxc exec snakepit -- ip addr`).
 You can check connectivity through
 ```
@@ -127,7 +127,7 @@ Here I am
 
 For clients to be able to connect to the service, they have to have access to a so called `.pitconnect.txt` file.
 Its first line has to be the (outer) service URL without trailing slash.
-If you have/want to go for a self-signed HTTPS certificate of your frontend server,
+If you have/want to go for a self-signed HTTPS certificate of your front-end server,
 you can add the certificate content under that first line in the `.pitconnect.txt` file.
 The `.pitconnect.txt` is considered public and in case of a self-signed certificate
 it is to be distributed to users on a separate channel (like email).
@@ -176,7 +176,7 @@ If the node had been added successfully, you should take a look at the node's GP
 ```
 $ pit show node:n0
 Node name: n0
-State:     OFFLINE
+State:     ONLINE
 Resources: 
   0: "GeForce GTX 1070" (cuda 0)
   1: "GeForce GTX 1070" (cuda 1)
@@ -187,7 +187,7 @@ Time to define a model name alias:
 $ pit add alias:gtx1070 name="GeForce GTX 1070"
 $ pit show node:n0
 Node name: n0
-State:     OFFLINE
+State:     ONLINE
 Resources: 
   0: "GeForce GTX 1070" aka "gtx1070" (cuda 0)
   1: "GeForce GTX 1070" aka "gtx1070" (cuda 1)
