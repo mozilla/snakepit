@@ -29,7 +29,7 @@ $exe systemctl isolate multi-user.target
 
 print_header "Installing dependencies..."
 $exe bash -c 'DEBIAN_FRONTEND=noninteractive apt-get -yq update && \
-    apt-get install -yq curl jq nodejs npm git git-lfs build-essential vim iputils-ping && \
+    apt-get install -yq curl jq nodejs npm git git-lfs build-essential vim iputils-ping postgresql postgresql-contrib && \
     git lfs install'
 
 if [ $# -ne 2 ]; then
