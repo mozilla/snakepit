@@ -1,8 +1,8 @@
 const fs = require('fs')
 const path = require('path')
-const fslib = require('./httpfs.js')
-const store = require('./store.js')
-const config = require('./config.js')
+const fslib = require('../utils/httpfs.js')
+const store = require('../store.js')
+const config = require('../config.js')
 const { EventEmitter } = require('events')
 
 var exports = module.exports = new EventEmitter()

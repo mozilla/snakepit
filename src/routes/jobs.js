@@ -5,15 +5,15 @@ const tar = require('tar-fs')
 const ndir = require('node-dir')
 const async = require('async')
 
-const log = require('./logger.js')
-const store = require('./store.js')
-const utils = require('./utils.js')
-const fslib = require('./httpfs.js')
-const config = require('./config.js')
-const nodesModule = require('./nodes.js')
+const log = require('../logger.js')
+const store = require('../store.js')
+const utils = require('../utils/utils.js')
+const fslib = require('../utils/httpfs.js')
+const config = require('../config.js')
+const nodesModule = require('../nodes.js')
 const groupsModule = require('./groups.js')
-const parseClusterRequest = require('./clusterParser.js').parse
-const reservations = require('./reservations.js')
+const parseClusterRequest = require('../clusterParser.js').parse
+const reservations = require('../reservations.js')
 
 var exports = module.exports = {}
 
