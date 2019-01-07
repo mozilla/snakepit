@@ -1,4 +1,3 @@
-const fs = require('fs')
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const Router = require('express-promise-router')
@@ -6,11 +5,9 @@ const Router = require('express-promise-router')
 const config = require('../config.js')
 const fslib = require('../utils/httpfs.js')
 
-var router = module.exports = new Router()
+const User = require('../models/User-model.js')
 
-router.get('/hello', async (req, res) => {
-    res.send('Here I am')
-})
+var router = module.exports = new Router()
 
 router.get('/:id/exists', async (req, res) => {
     res.status(db.users[req.params.id] ? 200 : 404).send()
@@ -53,37 +50,40 @@ router.ensureAdmin = (req, res, next) => {
 
 router.put('/:id', async (req, res) => {
     let id = req.params.id
+    if (!/[a-z]+/.test(id)) {
+        res.status(404).send()
+    }
     let user = req.body
     authorize(req, res, false, () => {
-        if (db.users[id] && (!req.user || (req.user && req.user.id !== id && !req.user.admin))) {
+        let dbuser = await User.findById(id)
+        if (dbuser && (!req.user || (req.user && req.user.id !== id && !req.user.admin))) {
             res.status(403).send()
         } else {
-            let dbuser = db.users[id] || {}
+            let dbuser = dbuser || User.build({ id: id })
             function setUser(hash) {
-                let admin = dbuser.admin
                 if (Object.keys(db.users).length === 0) {
-                    admin = true
+                    dbuser.admin = true
                 } else if (req.user && req.user.admin) {
                     if (user.admin == 'yes') {
-                        admin = true
+                        dbuser.admin = true
                     } else if (user.admin == 'no') {
-                        admin = false
-                    } else {
-                        admin = dbuser.admin
+                        dbuser.admin = false
                     }
                 } else if (user.admin == 'yes') {
                     res.status(403).send()
                     return
                 }
-                let newuser = {
-                    id: id,
-                    fullname: user.fullname || dbuser.fullname,
-                    email: user.email || dbuser.email,
-                    password: hash,
-                    autoshare: user.autoshare || dbuser.autoshare,
-                    admin: admin
+                if (user.fullname) {
+                    dbuser.fullname = user.fullname
                 }
-                db.users[id] = newuser
+                if (user.email) {
+                    dbuser.email = user.email
+                }
+                if (user.autoshare) {
+                    dbuser.autoshare = user.autoshare
+                }
+                dbuser.password = hash
+                await dbuser.save()
                 res.status(200).send()
             }
             if (user.password) {
