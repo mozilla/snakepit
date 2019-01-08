@@ -2,8 +2,8 @@ const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
 
 var Alias = sequelize.define('alias', {
-    id: Sequelize.STRING,
-    name: Sequelize.STRING
+    id:         { type: Sequelize.STRING },
+    name:       { type: Sequelize.STRING }
 })
 
 Alias.getAlias = async name => {

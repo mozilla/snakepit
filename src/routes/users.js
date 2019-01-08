@@ -133,8 +133,8 @@ router.post('/:id/authenticate', targetUser, async (req, res) => {
     })
 })
 
-router.get('/users', router.ensureAdmin, async (req, res) => {
-    res.json(Object.keys(db.users))
+router.get('/', router.ensureAdmin, async (req, res) => {
+    res.json(User.findAll().map(user => user.id))
 })
 
 router.use(router.ensureSignedIn)

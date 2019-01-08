@@ -1,11 +1,16 @@
+const Router = require('express-promise-router')
+
+const { ensureSignedIn, ensureAdmin } = require('./users.js')
+
+const router = module.exports = new Router()
+
+router.use(ensureSignedIn)
+
 const fs = require('fs')
-const path = require('path')
 const fslib = require('../utils/httpfs.js')
 const store = require('../store.js')
 const config = require('../config.js')
-const { EventEmitter } = require('events')
 
-var exports = module.exports = new EventEmitter()
 var db = store.root
 
 function _emitRestricted() {
@@ -111,16 +116,6 @@ exports.initApp = function(app) {
         } else {
             res.status(403).send()
         }
-    })
-
-    app.post('/shared', function(req, res) {
-        let chunks = []
-        req.on('data', chunk => chunks.push(chunk));
-        req.on('end', () => fslib.serve(
-            fslib.readOnly(fslib.real('/data/shared')), 
-            Buffer.concat(chunks), 
-            result => res.send(result), config.debugJobFS)
-        )
     })
 
     app.put('/users/:user/groups/:group', function(req, res) {

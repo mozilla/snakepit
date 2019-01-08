@@ -7,26 +7,11 @@ const fs = require('fs-extra')
 const homePrefix = '/data/home/'
 
 var User = sequelize.define('user', {
-    userame: {
-        type: Sequelize.STRING,
-        allowNull: false
-    },
-    password: {
-        type: Sequelize.STRING,
-        allowNull: false
-    },
-    admin: {
-        type: Sequelize.BOOLEAN,
-        allowNull: false
-    },
-    fullname: {
-        type: Sequelize.STRING,
-        allowNull: true
-    },
-    email: {
-        type: Sequelize.STRING,
-        allowNull: true
-    }
+    userame:    { type: Sequelize.STRING,  primaryKey: true },
+    password:   { type: Sequelize.STRING,  allowNull: false },
+    admin:      { type: Sequelize.BOOLEAN, allowNull: false },
+    fullname:   { type: Sequelize.STRING,  allowNull: true },
+    email:      { type: Sequelize.STRING,  allowNull: true }
 })
 
 User.belongsToMany(Group, { through: 'UserGroup' })
@@ -45,6 +30,11 @@ User.afterDestroy(async user => {
         await fs.remove(homeDir)
     }
 })
+
+User.prototype.isMemberOf = async group => {
+    group = Group.findById(group)
+    return group && this.hasGroup(group)
+}
 
 User.prototype.getHomeDir = () => homePrefix + this.username
 
