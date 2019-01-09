@@ -37,19 +37,4 @@ exports.initApp = function(app) {
             res.status(403).send()
         }
     })
-
-    app.put('/nodes/:node/resources/:resource/groups/:group', function(req, res) {
-        _addGroup(_getResource(req), req, res, entity => {
-            _emitEntityChange('resource', entity)
-        })
-    })
-
-    app.delete('/nodes/:node/resources/:resource/groups/:group', function(req, res) {
-        _removeGroup(_getResource(req), req, res, entity => {
-            _emitEntityChange('resource', entity)
-            _emitRestricted()
-        })
-    })
-
-    
 }

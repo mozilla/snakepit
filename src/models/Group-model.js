@@ -6,6 +6,23 @@ var Group = sequelize.define('group', {
     title:      { type: Sequelize.STRING, allowNull: true }
 })
 
-Group.prototype.getGroupDir = () => '/data/groups/' + this.groupname
+const groupPrefix = '/data/groups/'
+
+Group.afterCreate(async group => {
+    let groupDir = groupPrefix + group.id
+    if (!(await fs.pathExists(groupDir))) {
+        await fs.mkdirp(groupDir)
+    }
+})
+
+Group.afterDestroy(async group => {
+    let groupDir = groupPrefix + group.id
+    if (await fs.pathExists(groupDir)) {
+        await fs.remove(groupDir)
+    }
+})
+
+Group.getGroupDir = (groupId) => groupPrefix + groupId
+Group.prototype.getGroupDir = () => Group.getGroupDir(this.id)
 
 module.exports = Group

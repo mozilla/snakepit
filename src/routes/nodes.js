@@ -95,7 +95,7 @@ router.put('/:id/groups/:group', (req, res) => {
     }
 })
 
-router.delete('/:node/groups/:group', (req, res) => {
+router.delete('/:id/groups/:group', (req, res) => {
     if (req.user.admin) {
         let node = db.nodes[req.params.node]
         if (node) {
@@ -115,4 +115,17 @@ router.delete('/:node/groups/:group', (req, res) => {
         res.status(403).send()
     }
     _emitRestricted()
+})
+
+router.put('/:id/resources/:resource/groups/:group', async (req, res) => {
+    _addGroup(_getResource(req), req, res, entity => {
+        _emitEntityChange('resource', entity)
+    })
+})
+
+router.delete('/:id/resources/:resource/groups/:group', async (req, res) => {
+    _removeGroup(_getResource(req), req, res, entity => {
+        _emitEntityChange('resource', entity)
+        _emitRestricted()
+    })
 })

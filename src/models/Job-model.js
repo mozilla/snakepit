@@ -39,4 +39,6 @@ User.prototype.canAccessJob = async (resource) => {
     return true
 }
 
+Job.prototype.getJobDir = () => Pit.getPitDir(this.id)
+
 module.exports = Job

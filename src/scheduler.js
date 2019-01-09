@@ -70,14 +70,14 @@ function getBasicEnv(job) {
     return {
         JOB_NUMBER: job.id,
         DATA_ROOT:  '/data',
-        JOB_DIR:    nodesModule.getPitDir(job.id)
+        JOB_DIR:    job.getJobDir()
     }
 }
 
 function getPreparationEnv(job) {
     let env = getBasicEnv(job)
-    if (job.continueJob) {
-        env.CONTINUE_JOB_NUMBER = job.continueJob
+    if (job.continues) {
+        env.CONTINUE_JOB_NUMBER = job.continues
     }
     return env
 }
@@ -87,21 +87,6 @@ function setJobState(job, state) {
     job.stateChanges = job.stateChanges || {}
     job.stateChanges[state] = new Date().toISOString()
     saveJob(job)
-}
-
-function loadJob (jobId) {
-    let job = db.jobs[jobId]
-    if (job) {
-        return job
-    }
-    let jobPath = path.join(nodesModule.getPitDir(jobId), 'meta.json')
-    if (fs.existsSync(jobPath)) {
-        return JSON.parse(fs.readFileSync(jobPath, 'utf8'))
-    }
-}
-
-function saveJob (job) {
-    fs.writeFileSync(path.join(nodesModule.getPitDir(job.id), 'meta.json'), JSON.stringify(job))
 }
 
 function prepareJob(job) {

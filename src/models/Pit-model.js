@@ -3,11 +3,11 @@ const sequelize = require('./db.js')
 
 const fs = require('fs-extra')
 
-const pitPrefix = '/data/pits/'
-
 var Pit = sequelize.define('pit', {
     id:         { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true }
 })
+
+const pitPrefix = '/data/pits/'
 
 Pit.afterCreate(async pit => {
     let pitDir = pitPrefix + pit.id
@@ -22,5 +22,8 @@ Pit.afterDestroy(async pit => {
         await fs.remove(pitDir)
     }
 })
+
+Pit.getPitDir = (pitId) => pitPrefix + pitId
+Pit.prototype.getPitDir = () => Pit.getPitDir(this.id)
 
 module.exports = Pit

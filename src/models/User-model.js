@@ -4,8 +4,6 @@ const Group = require('./Group-model.js')
 
 const fs = require('fs-extra')
 
-const homePrefix = '/data/home/'
-
 var User = sequelize.define('user', {
     id:         { type: Sequelize.STRING,  primaryKey: true },
     password:   { type: Sequelize.STRING,  allowNull: false },
@@ -17,25 +15,28 @@ var User = sequelize.define('user', {
 User.belongsToMany(Group, { through: 'UserGroup' })
 Group.belongsToMany(User, { through: 'UserGroup' })
 
-User.beforeCreate(async user => {
-    let homeDir = homePrefix + user.id
-    if (!(await fs.pathExists(homeDir))) {
-        await fs.mkdirp(homeDir)
-    }
-})
-
-User.afterDestroy(async user => {
-    let homeDir = homePrefix + user.id
-    if (await fs.pathExists(homeDir)) {
-        await fs.remove(homeDir)
-    }
-})
+const userPrefix = '/data/home/'
 
 User.prototype.isMemberOf = async group => {
     group = Group.findById(group)
     return group && this.hasGroup(group)
 }
 
-User.prototype.getHomeDir = () => homePrefix + this.id
+User.afterCreate(async user => {
+    let userDir = userPrefix + user.id
+    if (!(await fs.pathExists(userDir))) {
+        await fs.mkdirp(userDir)
+    }
+})
+
+User.afterDestroy(async user => {
+    let userDir = userPrefix + user.id
+    if (await fs.pathExists(userDir)) {
+        await fs.remove(userDir)
+    }
+})
+
+User.getUserDir = (userId) => userPrefix + userId
+User.prototype.getUserDir = () => User.getUserDir(this.id)
 
 module.exports = User
