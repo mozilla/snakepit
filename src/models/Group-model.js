@@ -2,7 +2,7 @@ const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
 
 var Group = sequelize.define('group', {
-    groupname:  { type: Sequelize.STRING, allowNull: false },
+    id:         { type: Sequelize.STRING, allowNull: false, primaryKey: true },
     title:      { type: Sequelize.STRING, allowNull: true }
 })
 

@@ -6,6 +6,7 @@ const config = require('../config.js')
 const fslib = require('../utils/httpfs.js')
 
 const User = require('../models/User-model.js')
+const Group = require('../models/Group-model.js')
 
 var router = module.exports = new Router()
 
@@ -163,6 +164,22 @@ router.get('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
     await req.targetUser.destroy()
+    res.send()
+})
+
+function targetGroup (req, res, next) {
+    req.targetGroup = Group.findById(req.params.group)
+    req.targetGroup ? next() : res.status(404).send()
+}
+
+router.put('/:id/groups/:group', targetGroup, async (req, res) => {
+    await req.targetUser.addGroup(req.targetGroup)
+    res.send()
+})
+
+router.delete('/:id/groups/:group', targetGroup, async (req, res) => {
+    await req.targetUser.removeGroup(req.targetGroup)
+    clusterEvents.emit('userGotRestricted', req.targetUser.id)
     res.send()
 })
 

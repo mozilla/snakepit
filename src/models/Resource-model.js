@@ -3,6 +3,7 @@ const sequelize = require('./db.js')
 const Group = require('./Group-model.js')
 
 var Resource = sequelize.define('resource', {
+    id:         { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
     type:       { type: Sequelize.STRING,  allowNull: false },
     index:      { type: Sequelize.INTEGER, allowNull: false },
     name:       { type: Sequelize.STRING,  allowNull: false }

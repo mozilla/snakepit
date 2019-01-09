@@ -202,6 +202,19 @@ router.post('/', async (req, res) => {
     }
 })
 
+router.put('/:id/groups/:group', async (req, res) => {
+    _addGroup(db.jobs[req.params.job], req, res, entity => {
+        _emitEntityChange('job', entity)
+    })
+})
+
+router.delete('/:id/groups/:group', async (req, res) => {
+    _removeGroup(db.jobs[req.params.job], req, res, entity => {
+        _emitEntityChange('job', entity)
+        _emitRestricted()
+    })
+})
+
 router.get('/', async (req, res) => {
     fs.readdir('/data/pits', (err, files) => {
         if (err || !files) {

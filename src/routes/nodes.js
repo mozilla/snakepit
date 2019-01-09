@@ -70,3 +70,49 @@ router.delete('/:id', async (req, res) => {
         res.status(403).send()
     }
 })
+
+router.put('/:id/groups/:group', (req, res) => {
+    if (req.user.admin) {
+        let node = db.nodes[req.params.node]
+        if (node) {
+            let group = req.params.group
+            for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
+                if (resource.groups) {
+                    if (!resource.groups.includes(group)) {
+                        resource.groups.push(group)
+                        _emitEntityChange('resource', resource)
+                    }
+                } else {
+                    resource.groups = [ group ]
+                }
+            }
+            res.status(200).send()
+        } else {
+            res.status(404).send()
+        }
+    } else {
+        res.status(403).send()
+    }
+})
+
+router.delete('/:node/groups/:group', (req, res) => {
+    if (req.user.admin) {
+        let node = db.nodes[req.params.node]
+        if (node) {
+            let group = req.params.group
+            for (let resource of Object.keys(node.resources).map(k => node.resources[k])) {
+                let index = resource.groups ? resource.groups.indexOf(group) : -1
+                if (index >= 0) {
+                    _removeGroupByIndex(resource, index)
+                    _emitEntityChange('resource', resource)
+                }
+            }
+            res.status(200).send()
+        } else {
+            res.status(404).send()
+        }
+    } else {
+        res.status(403).send()
+    }
+    _emitRestricted()
+})

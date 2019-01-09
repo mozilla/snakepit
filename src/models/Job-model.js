@@ -1,14 +1,18 @@
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
+const Group = require('./Pit-model.js')
 const Group = require('./Group-model.js')
 const State = require('./State-model.js')
 const ProcessGroup = require('./ProcessGroup-model.js')
 
 var Job = sequelize.define('job', {
+    id:         { type: Sequelize.INTEGER, primaryKey: true },
     title:      { type: Sequelize.STRING,  allowNull: false },
     request:    { type: Sequelize.STRING,  allowNull: false },
     continues:  { type: Sequelize.INTEGER, allowNull: true }
 })
+
+Job.belongsTo(Pit, { foreignKey: 'id' })
 
 Job.hasMany(State)
 

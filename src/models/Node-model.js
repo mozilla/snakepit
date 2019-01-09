@@ -11,16 +11,8 @@ var Node = sequelize.define('node', {
 
 Node.hasMany(Resource)
 
-Node.initDb = function() {
-    if (!db.nodes) {
-        db.nodes = {}
-    }
-    for (let node of Object.keys(db.nodes).map(k => db.nodes[k])) {
-        node.state = nodeStates.OFFLINE
-        if (node.since) {
-            delete node.since
-        }
-    }
+Node.startup = () => {
+    Node.update({ online: false, since: Date.now() })
 }
 
 module.exports = Node
