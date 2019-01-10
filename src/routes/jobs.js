@@ -2,8 +2,12 @@ const zlib = require('zlib')
 const tar = require('tar-fs')
 const ndir = require('node-dir')
 const async = require('async')
+const Router = require('express-promise-router')
+
 const fslib = require('../utils/httpfs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
+
+var router = module.exports = new Router()
 
 function createJobDescription(dbjob) {
     let stateChange = new Date(dbjob.stateChanges[dbjob.state])

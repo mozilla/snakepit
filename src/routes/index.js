@@ -20,7 +20,7 @@ router.post('/shared', async (req, res) => {
 
 router.use('/users',   require('./users'))
 router.use('/groups',  require('./groups'))
-router.use('/jobs',    require('../scheduler'))
+router.use('/jobs',    require('./jobs'))
 router.use('/nodes',   require('./nodes'))
 router.use('/aliases', require('./aliases'))
 

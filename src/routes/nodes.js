@@ -1,8 +1,12 @@
+const Router = require('express-promise-router')
+
 const clusterEvents = require('../utils/clusterEvents.js')
 const { getAlias } = require('../models/Alias-model.js')
 const Group = require('../models/Group-model.js')
 const Resource = require('../models/Resource-model.js')
 const { ensureSignedIn, ensureAdmin } = require('./users.js')
+
+var router = module.exports = new Router()
 
 router.use(ensureSignedIn)
 

@@ -45,7 +45,8 @@ if (cluster.isMaster) {
         http.createServer(app).listen(config.port, config.interface)
         log.info('Snakepit service running on ' + config.interface + ':' + config.port)
     } catch (ex) {
-        log.error('Failure during startup: ' + ex)
+        log.error('Failure during startup: ', ex, ex.stack)
+        
         process.exit(100)
     }
 }

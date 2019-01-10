@@ -15,35 +15,35 @@ router.get('/:id/exists', async (req, res) => {
     res.status(db.users[req.params.id] ? 200 : 404).send()
 })
 
-function authorize (req, res, needsUser, callback) {
-    let token = req.get('X-Auth-Token')
-    if (token) {
-        jwt.verify(token, config.tokenSecret, function(err, decoded) {
-            if (err) {
-                if (err.name == 'TokenExpiredError') {
-                    res.status(401).json({ message: 'Token expired' })
+function authorize (req, res, needsUser) {
+    return new Promise((resolve, reject) => {
+        let token = req.get('X-Auth-Token')
+        if (token) {
+            jwt.verify(token, config.tokenSecret, function(err, decoded) {
+                if (err) {
+                    if (err.name == 'TokenExpiredError') {
+                        res.status(401).json({ message: 'Token expired' })
+                    } else {
+                        res.status(400).json({ message: 'Invalid token ' + err})
+                    }
                 } else {
-                    res.status(400).json({ message: 'Invalid token ' + err})
+                    req.user = db.users[decoded.user]
+                    if (!req.user) {
+                        res.status(401).json({ message: 'Token for non-existent user' })
+                    }
                 }
-            } else {
-                req.user = db.users[decoded.user]
-                if (req.user) {
-                    callback()
-                } else {
-                    res.status(401).json({ message: 'Token for non-existent user' })
-                }
-            }
-        })
-    } else if (needsUser) {
-        res.status(401).json({ message: 'No token provided' })
-    } else {
-        callback()
-    }
+                resolve()
+            })
+        } else if (needsUser) {
+            res.status(401).json({ message: 'No token provided' })
+        }
+        resolve()
+    })
 }
 
-router.ensureSignedIn = (req, res, next) => authorize(req, res, true, next)
+router.ensureSignedIn = async (req, res) => await authorize(req, res, true)
 
-router.trySignIn = (req, res, next) => authorize(req, res, false, next)
+router.trySignIn = async (req, res) => await authorize(req, res, false)
 
 router.ensureAdmin = (req, res, next) => {
     let checkAdmin = () => req.user.admin ? next() : res.status(403).send()
@@ -56,53 +56,51 @@ router.put('/:id', async (req, res) => {
         res.status(404).send()
     }
     let user = req.body
-    authorize(req, res, false, () => {
-        let dbuser = await User.findById(id)
-        if (dbuser && (!req.user || (req.user && req.user.id !== id && !req.user.admin))) {
-            res.status(403).send()
-        } else {
-            let dbuser = dbuser || User.build({ id: id })
-            function setUser(hash) {
-                if (Object.keys(db.users).length === 0) {
+    await router.trySignIn(req, res)
+    let dbuser = await User.findById(id)
+    if (dbuser && (!req.user || (req.user && req.user.id !== id && !req.user.admin))) {
+        res.status(403).send()
+    } else {
+        let dbuser = dbuser || User.build({ id: id })
+        let setUser = async (hash) => {
+            if (Object.keys(db.users).length === 0) {
+                dbuser.admin = true
+            } else if (req.user && req.user.admin) {
+                if (user.admin == 'yes') {
                     dbuser.admin = true
-                } else if (req.user && req.user.admin) {
-                    if (user.admin == 'yes') {
-                        dbuser.admin = true
-                    } else if (user.admin == 'no') {
-                        dbuser.admin = false
-                    }
-                } else if (user.admin == 'yes') {
-                    res.status(403).send()
-                    return
+                } else if (user.admin == 'no') {
+                    dbuser.admin = false
                 }
-                if (user.fullname) {
-                    dbuser.fullname = user.fullname
-                }
-                if (user.email) {
-                    dbuser.email = user.email
-                }
-                if (user.autoshare) {
-                    dbuser.autoshare = user.autoshare
-                }
-                dbuser.password = hash
-                await dbuser.save()
-                res.status(200).send()
+            } else if (user.admin == 'yes') {
+                res.status(403).send()
+                return
             }
-            if (user.password) {
-                bcrypt.hash(user.password, config.hashRounds, (err, hash) => {
-                    if(err) {
-                        res.status(500).send()
-                    } else {
-                        setUser(hash)
-                    }
-                })
-            } else if (dbuser.password) {
-                setUser(dbuser.password)
-            } else {
-                res.status(400).send()
+            if (user.fullname) {
+                dbuser.fullname = user.fullname
             }
+            if (user.email) {
+                dbuser.email = user.email
+            }
+            if (user.autoshare) {
+                dbuser.autoshare = user.autoshare
+            }
+            dbuser.password = hash
+            await dbuser.save()
+            res.send()
         }
-    })
+        if (user.password) {
+            try {
+                let hash = await bcrypt.hash(user.password, config.hashRounds)
+                await setUser(hash)
+            } catch (ex) {
+                res.status(500).send()
+            }
+        } else if (dbuser.password) {
+            await setUser(dbuser.password)
+        } else {
+            res.status(400).send()
+        }
+    }
 })
 
 function targetUser (req, res, next) {
