@@ -1,3 +1,4 @@
+const clusterEvents = require('../utils/clusterEvents.js')
 const { getAlias } = require('../models/Alias-model.js')
 const Group = require('../models/Group-model.js')
 const Resource = require('../models/Resource-model.js')
@@ -78,13 +79,13 @@ function targetGroup (req, res, next) {
 router.put('/:id/groups/:group', targetGroup, async (req, res) => {
     await req.targetNode.addGroup(req.targetGroup)
     res.send()
-    clusterEvents.emit('changedNodeRights', req.targetNode.id)
+    clusterEvents.emit('restricted')
 })
 
 router.delete('/:id/groups/:group', targetGroup, async (req, res) => {
     await req.targetNode.removeGroup(req.targetGroup)
     res.send()
-    clusterEvents.emit('changedNodeRights', req.targetNode.id)
+    clusterEvents.emit('restricted')
 })
 
 function targetResource (req, res, next) {
@@ -95,11 +96,11 @@ function targetResource (req, res, next) {
 router.put('/:id/resources/:resource/groups/:group', targetResource, targetGroup, async (req, res) => {
     await req.targetResource.addGroup(req.targetGroup)
     res.send()
-    clusterEvents.emit('changedNodeRights', req.targetNode.id)
+    clusterEvents.emit('restricted')
 })
 
 router.delete('/:id/resources/:resource/groups/:group', targetResource, targetGroup, async (req, res) => {
     await req.targetResource.removeGroup(req.targetGroup)
     res.send()
-    clusterEvents.emit('changedNodeRights', req.targetNode.id)
+    clusterEvents.emit('restricted')
 })

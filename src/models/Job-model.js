@@ -10,8 +10,21 @@ var Job = sequelize.define('job', {
     id:         { type: Sequelize.INTEGER, primaryKey: true },
     title:      { type: Sequelize.STRING,  allowNull: false },
     request:    { type: Sequelize.STRING,  allowNull: false },
+    state:      { type: Sequelize.INTEGER, allowNull: false },
     continues:  { type: Sequelize.INTEGER, allowNull: true }
 })
+
+Job.jobStates = {
+    NEW: 0,
+    PREPARING: 1,
+    WAITING: 2,
+    STARTING: 3,
+    RUNNING: 4,
+    STOPPING: 5,
+    CLEANING: 6,
+    DONE: 7,
+    ARCHIVED: 8
+}
 
 Job.belongsTo(Pit, { foreignKey: 'id' })
 
@@ -38,5 +51,19 @@ User.prototype.canAccessJob = async (job) => {
 }
 
 Job.prototype.getJobDir = () => Pit.getPitDir(this.id)
+
+Job.prototype.setState = async (state, reason) => {
+    let transaction
+    try {
+        transaction = await sequelize.transaction()
+        this.state = state
+        await this.save()
+        await this.addState({ state: state, since: Date.now(), reason: reason })
+        await transaction.commit()
+    } catch (err) {
+        await transaction.rollback()
+        throw err
+    }
+}
 
 module.exports = Job

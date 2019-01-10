@@ -176,13 +176,12 @@ function targetGroup (req, res, next) {
 router.put('/:id/groups/:group', router.ensureAdmin, targetGroup, async (req, res) => {
     await req.targetUser.addGroup(req.targetGroup)
     res.send()
-    clusterEvents.emit('moreUserRights', req.targetUser.id)
 })
 
 router.delete('/:id/groups/:group', router.ensureAdmin, targetGroup, async (req, res) => {
     await req.targetUser.removeGroup(req.targetGroup)
     res.send()
-    clusterEvents.emit('lessUserRights', req.targetUser.id)
+    clusterEvents.emit('restricted')
 })
 
 router.post('/:id/fs', async (req, res) => {

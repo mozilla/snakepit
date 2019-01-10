@@ -1,5 +1,6 @@
 const Router = require('express-promise-router')
 
+const clusterEvents = require('../utils/clusterEvents.js')
 const config = require('../config.js')
 const fslib = require('../utils/httpfs.js')
 const { ensureSignedIn, ensureAdmin } = require('./users.js')
@@ -36,6 +37,7 @@ router.use(targetGroup)
 router.delete('/:id', async (req, res) => {
     await req.targetGroup.destroy()
     res.send()
+    clusterEvents.emit('restricted')
 })
 
 router.post('/:id/fs', async (req, res) => {

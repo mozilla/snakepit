@@ -5,7 +5,7 @@ const Group = require('./Group-model.js')
 const fs = require('fs-extra')
 
 var User = sequelize.define('user', {
-    id:         { type: Sequelize.STRING,  primaryKey: true },
+    id:         { type: Sequelize.STRING,  allowNull: false, primaryKey: true },
     password:   { type: Sequelize.STRING,  allowNull: false },
     admin:      { type: Sequelize.BOOLEAN, allowNull: false },
     fullname:   { type: Sequelize.STRING,  allowNull: true },

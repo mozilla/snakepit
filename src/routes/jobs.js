@@ -2,7 +2,8 @@ const zlib = require('zlib')
 const tar = require('tar-fs')
 const ndir = require('node-dir')
 const async = require('async')
-const fslib = require('./utils/httpfs.js')
+const fslib = require('../utils/httpfs.js')
+const clusterEvents = require('../utils/clusterEvents.js')
 
 function createJobDescription(dbjob) {
     let stateChange = new Date(dbjob.stateChanges[dbjob.state])
@@ -210,13 +211,12 @@ function targetGroup (req, res, next) {
 router.put('/:id/groups/:group', targetGroup, async (req, res) => {
     await req.targetJob.addGroup(req.targetGroup)
     res.send()
-    clusterEvents.emit('moreJobRights', req.targetUser.id)
 })
 
 router.delete('/:id/groups/:group', targetGroup, async (req, res) => {
     await req.targetJob.removeGroup(req.targetGroup)
     res.send()
-    clusterEvents.emit('lessJobRights', req.targetUser.id)
+    clusterEvents.emit('restricted')
 })
 
 router.get('/', async (req, res) => {

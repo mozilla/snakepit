@@ -1,6 +1,6 @@
 const util = require('util')
 const cluster = require('cluster')
-const config = require('./config.js')
+const config = require('../config.js')
 
 exports.debug = function (...args) {
     log(0, ...args)

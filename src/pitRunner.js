@@ -34,7 +34,7 @@ const containerNameParser = /sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/
 const resourceParser = /resource:([^,]*),([^,]*),([^,]*)/
 
 var headInfo
-var db = store.root
+
 var agent = new https.Agent({ 
     key: config.clientKey, 
     cert: config.clientCert,

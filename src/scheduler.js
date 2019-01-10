@@ -3,64 +3,17 @@ const path = require('path')
 
 const log = require('./utils/logger.js')
 const utils = require('./utils/utils.js')
+const clusterEvents = require('./utils/clusterEvents.js')
 const config = require('./config.js')
 const reservations = require('./reservations.js')
 const parseClusterRequest = require('./clusterParser.js').parse
+const Job = require('./models/Job-model.js')
+
+const jobStates = Job.jobStates
 
 var exports = module.exports = {}
 
-const jobStates = {
-    NEW: 0,
-    PREPARING: 1,
-    WAITING: 2,
-    STARTING: 3,
-    RUNNING: 4,
-    STOPPING: 5,
-    CLEANING: 6,
-    DONE: 7,
-    ARCHIVED: 8
-}
-
-var jobStateNames = {}
-for(let name of Object.keys(jobStates)) {
-    jobStateNames[jobStates[name]] = name
-}
-
-exports.jobStates = jobStates
-
-var db = store.root
-var utilization = {}
 var preparations = {}
-
-exports.initDb = function() {
-    if (!db.jobIdCounter) {
-        db.jobIdCounter = 1
-    }
-    if (!db.jobs) {
-        db.jobs = {}
-    }
-    for (let jobId of Object.keys(db.jobs)) {
-        let job = db.jobs[jobId]
-        if (job.state == jobStates.PREPARING) {
-            appendError(job, 'Job was interrupted during preparation')
-            cleanJob(job)
-        } else if (job.state == jobStates.CLEANING) {
-            cleanJob(job)
-        }
-    }
-    if (!db.schedule) {
-        db.schedule = []
-    }
-}
-
-function appendError(job, error) {
-    if (job.error) {
-        job.error += '\n===========================\n' + error
-    } else {
-        job.error = error
-    }
-    job.errorState = job.state
-}
 
 function getBasicEnv(job) {
     return {
@@ -78,13 +31,6 @@ function getPreparationEnv(job) {
     return env
 }
 
-function setJobState(job, state) {
-    job.state = state
-    job.stateChanges = job.stateChanges || {}
-    job.stateChanges[state] = new Date().toISOString()
-    saveJob(job)
-}
-
 function prepareJob(job) {
     let env = getPreparationEnv(job)
     if (job.origin) {
@@ -95,24 +41,24 @@ function prepareJob(job) {
     } else {
         env.ARCHIVE = job.archive
     }
-    setJobState(job, jobStates.PREPARING)
+    job.setState(jobStates.PREPARING)
     return utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
             if (code == 0 && fs.existsSync(nodesModule.getPitDir(job.id)) && job.state == jobStates.PREPARING) {
                 db.schedule.push(job.id)
-                setJobState(job, jobStates.WAITING)
+                job.setState(jobStates.WAITING)
             } else {
                 if (job.state != jobStates.STOPPING) {
                     appendError(job, 'Problem during preparation step - exit code: ' + code + '\n' + stdout + '\n' + stderr)  
                 }
-                setJobState(job, jobStates.DONE)
+                job.setState(jobStates.DONE)
             }
         })
     })
 }
 
 function startJob (job, clusterReservation, callback) {
-    setJobState(job, jobStates.STARTING)
+    job.setState(jobStates.STARTING)
     job.clusterReservation = clusterReservation
     let jobEnv = getBasicEnv(job)
     
@@ -166,7 +112,7 @@ function startJob (job, clusterReservation, callback) {
     }
     nodesModule.startPit(job.id, shares, workers).then(() => {
         reservations.fulfillReservation(clusterReservation, job.id)
-        setJobState(job, jobStates.RUNNING)
+        job.setState(jobStates.RUNNING)
         callback()
     }).catch(err => {
         log.debug('START PROBLEM', err)
@@ -188,24 +134,24 @@ function stopJob (job) {
         cleanJob(job)
     }
     if (job.state == jobStates.PREPARING && preparations[job.id]) {
-        setJobState(job, jobStates.STOPPING)
+        job.setState(jobStates.STOPPING)
         preparations[job.id].kill()
         delete preparations[job.id]
         finalizeJob()
     } else if (job.state == jobStates.RUNNING) {
-        setJobState(job, jobStates.STOPPING)
+        job.setState(jobStates.STOPPING)
         nodesModule.stopPit(job.id).then(finalizeJob).catch(finalizeJob)
     }
 }
 
 function cleanJob(job) {
-    setJobState(job, jobStates.CLEANING)
+    job.setState(jobStates.CLEANING)
     utils.runScript('clean.sh', getPreparationEnv(job), (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
             if (code > 0) {
                 appendError(job, 'Problem during cleaning step - exit code: ' + code + '\n' + stderr)
             }
-            setJobState(job, jobStates.DONE)
+            job.setState(jobStates.DONE)
         })
     })
 }
@@ -225,7 +171,7 @@ function resimulateReservations() {
         store.lockAutoRelease('jobs', function() {
             for (let job of jobs) {
                 appendError(job, 'Cluster cannot fulfill resource request anymore')
-                setJobState(job, jobStates.DONE)
+                job.setState(jobStates.DONE)
                 let index = db.schedule.indexOf(job.id)
                 if (index >= 0) {
                     db.schedule.splice(index, 1)
@@ -234,38 +180,33 @@ function resimulateReservations() {
         })
     }
 }
-groupsModule.on('restricted', resimulateReservations)
 
-groupsModule.on('changed', (type, entity) => {
-    if (type == 'job' && entity) {
-        saveJob(entity)
-    }
-})
+clusterEvents.on('restricted', resimulateReservations)
 
 /*
-nodesModule.on('pitStarting', pitId => {
+clusterEvents.on('pitStarting', pitId => {
     let job = db.jobs[pitId]
     if (job) {
-        setJobState(job, jobStates.STARTING)
+        job.setState(jobStates.STARTING)
     }
 })
 */
 
-nodesModule.on('pitStopping', pitId => {
+clusterEvents.on('pitStopping', pitId => {
     let job = db.jobs[pitId]
     if (job) {
-        setJobState(job, jobStates.STOPPING)
+        job.setState(jobStates.STOPPING)
     }
 })
 
-nodesModule.on('pitStopped', pitId => {
+clusterEvents.on('pitStopped', pitId => {
     let job = db.jobs[pitId]
     if (job) {
         cleanJob(job)
     }
 })
 
-nodesModule.on('pitReport', pits => {
+clusterEvents.on('pitReport', pits => {
     pits = pits.reduce((hashMap, obj) => {
         hashMap[obj] = true
         return hashMap
@@ -278,7 +219,20 @@ nodesModule.on('pitReport', pits => {
     }
 })
 
+exports.startup = function () {
+    for (let jobId of Object.keys(db.jobs)) {
+        let job = db.jobs[jobId]
+        if (job.state == jobStates.PREPARING) {
+            appendError(job, 'Job was interrupted during preparation')
+            cleanJob(job)
+        } else if (job.state == jobStates.CLEANING) {
+            cleanJob(job)
+        }
+    }
+}
+
 exports.tick = function() {
+    /*
     store.lockAsyncRelease('jobs', release => {
         let goon = () => {
             release()
@@ -296,7 +250,7 @@ exports.tick = function() {
                 job.state == jobStates.DONE && 
                 stateTime + config.keepDoneDuration < Date.now()
             ) {
-                setJobState(job, jobStates.ARCHIVED)
+                job.setState(jobStates.ARCHIVED)
                 delete db.jobs[job.id]
             } else if (job.state >= jobStates.STARTING && job.state <= jobStates.STOPPING) {
                 running[job.id] = job
@@ -343,4 +297,5 @@ exports.tick = function() {
             goon()
         }
     })
+    */
 }
