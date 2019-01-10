@@ -5,11 +5,11 @@ const axios = require('axios')
 const assign = require('assign-deep')
 const Parallel = require('async-parallel')
 
-const log = require('./logger.js')
-const store = require('./store.js')
-const config = require('./config.js')
+const log = require('./utils/logger.js')
 const clusterEvents = require('./utils/clusterEvents.js')
 const { to, getScript, envToScript } = require('./utils/utils.js')
+
+const config = require('./config.js')
 
 const lxdStatus = {
     created:    100,

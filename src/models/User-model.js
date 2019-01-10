@@ -12,8 +12,9 @@ var User = sequelize.define('user', {
     email:      { type: Sequelize.STRING,  allowNull: true }
 })
 
-User.belongsToMany(Group, { through: 'UserGroup' })
-Group.belongsToMany(User, { through: 'UserGroup' })
+var UserGroup = User.UserGroup = sequelize.define('usergroup')
+User.belongsToMany(Group, { through: UserGroup })
+Group.belongsToMany(User, { through: UserGroup })
 
 const userPrefix = '/data/home/'
 

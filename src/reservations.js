@@ -1,12 +1,6 @@
 const { MultiRange } = require('multi-integer-range')
 
-const store = require('./store.js')
-const groupsModule = require('./groups.js')
-const nodesModule = require('./nodes.js')
-
 var exports = module.exports = {}
-
-var db = store.root
 
 function _isReserved(clusterReservation, nodeId, resourceId) {
     return [].concat.apply([], clusterReservation).reduce(

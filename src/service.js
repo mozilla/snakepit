@@ -1,13 +1,16 @@
 const cluster = require('cluster')
 const cpus = require('os').cpus().length
-const log = require('./logger.js')
+const log = require('./utils/logger.js')
 const config = require('./config.js')
-const modules = 'users groups nodes jobs aliases'
-    .split(' ').map(name => require('./' + name + '.js'))
+const models = require('./models')
+const scheduler = require('./scheduler.js')
+const pitRunner = require('./pitRunner.js')
 
 if (cluster.isMaster) {
-    modules.forEach(module => (module.initDb || Function)())
-    modules.forEach(module => (module.tick || Function)())
+    models.sequelize.sync()
+    models.all.forEach(model => (model.startup || Function)())
+    pitRunner.tick()
+    scheduler.tick()
     for (let i = 0; i < cpus; i++) {
         cluster.fork()
     }
@@ -32,7 +35,7 @@ if (cluster.isMaster) {
             skip: (req, res) => res.statusCode < 400 && !config.debugHttp
         }))
         
-        modules.forEach(module => (module.initApp || Function)(app))
+        app.use(require('./routes'))
 
         app.use(function (err, req, res, next) {
             console.error(err.stack)

@@ -4,6 +4,7 @@ const Router = require('express-promise-router')
 
 const config = require('../config.js')
 const fslib = require('../utils/httpfs.js')
+const clusterEvents = require('../utils/clusterEvents.js')
 
 const User = require('../models/User-model.js')
 const Group = require('../models/Group-model.js')
@@ -172,15 +173,16 @@ function targetGroup (req, res, next) {
     req.targetGroup ? next() : res.status(404).send()
 }
 
-router.put('/:id/groups/:group', targetGroup, async (req, res) => {
+router.put('/:id/groups/:group', router.ensureAdmin, targetGroup, async (req, res) => {
     await req.targetUser.addGroup(req.targetGroup)
     res.send()
+    clusterEvents.emit('moreUserRights', req.targetUser.id)
 })
 
-router.delete('/:id/groups/:group', targetGroup, async (req, res) => {
+router.delete('/:id/groups/:group', router.ensureAdmin, targetGroup, async (req, res) => {
     await req.targetUser.removeGroup(req.targetGroup)
-    clusterEvents.emit('userGotRestricted', req.targetUser.id)
     res.send()
+    clusterEvents.emit('lessUserRights', req.targetUser.id)
 })
 
 router.post('/:id/fs', async (req, res) => {

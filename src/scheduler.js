@@ -1,15 +1,11 @@
 const fs = require('fs-extra')
 const path = require('path')
 
-const log = require('../logger.js')
-const store = require('./store.js')
+const log = require('./utils/logger.js')
 const utils = require('./utils/utils.js')
-
 const config = require('./config.js')
-const nodesModule = require('../nodes.js')
-const groupsModule = require('./routes/groups.js')
-const parseClusterRequest = require('./clusterParser.js').parse
 const reservations = require('./reservations.js')
+const parseClusterRequest = require('./clusterParser.js').parse
 
 var exports = module.exports = {}
 

@@ -8,33 +8,46 @@ const router = module.exports = new Router()
 
 router.use(ensureSignedIn)
 
-exports.initApp = function(app) {
-    app.get('/groups', function(req, res) {
-        if (req.user.admin) {
-            let groups = {}
-            for (let node of Object.keys(db.nodes).map(k => db.nodes[k])) {
-                _getGroups(groups, node.resources || {})
-            }
-            _getGroups(groups, db.users)
-            _getGroups(groups, db.jobs)
-            res.status(200).json(Object.keys(groups))
-        } else {
-            res.status(403).send()
-        }
-    })
+router.get('/', async (req, res) => {
+    res.send((await Group.findAll()).map(group => group.id))
+})
 
-    app.post('/groups/:group/fs', function(req, res) {
-        let group = req.params.group
-        if (req.user.groups.includes(group)) {
-            let chunks = []
-            req.on('data', chunk => chunks.push(chunk));
-            req.on('end', () => fslib.serve(
-                fslib.real(exports.getGroupDir(group)), 
-                Buffer.concat(chunks), 
-                result => res.send(result), config.debugJobFS)
-            )
-        } else {
-            res.status(403).send()
-        }
-    })
+router.use(ensureAdmin)
+
+router.put('/:id', async (req, res) => {
+    if (req.body && req.body.title) {
+        await Group.create({
+            id:   req.params.id,
+            title: req.body.title
+        })
+        res.send()
+    } else {
+        res.status(400).send()
+    }
+})
+
+function targetGroup (req, res, next) {
+    req.targetGroup = Group.findById(req.params.id)
+    req.targetGroup ? next() : res.status(404).send()
 }
+
+router.use(targetGroup)
+
+router.delete('/:id', async (req, res) => {
+    await req.targetGroup.destroy()
+    res.send()
+})
+
+router.post('/:id/fs', async (req, res) => {
+    if (await req.user.hasGroup(req.targetGroup)) {
+        let chunks = []
+        req.on('data', chunk => chunks.push(chunk));
+        req.on('end', () => fslib.serve(
+            fslib.real(req.targetGroup.getGroupDir()), 
+            Buffer.concat(chunks), 
+            result => res.send(result), config.debugJobFS)
+        )
+    } else {
+        res.status(403).send()
+    }
+})

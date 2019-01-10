@@ -202,17 +202,21 @@ router.post('/', async (req, res) => {
     }
 })
 
-router.put('/:id/groups/:group', async (req, res) => {
-    _addGroup(db.jobs[req.params.job], req, res, entity => {
-        _emitEntityChange('job', entity)
-    })
+function targetGroup (req, res, next) {
+    req.targetGroup = Group.findById(req.params.group)
+    req.targetGroup ? next() : res.status(404).send()
+}
+
+router.put('/:id/groups/:group', targetGroup, async (req, res) => {
+    await req.targetJob.addGroup(req.targetGroup)
+    res.send()
+    clusterEvents.emit('moreJobRights', req.targetUser.id)
 })
 
-router.delete('/:id/groups/:group', async (req, res) => {
-    _removeGroup(db.jobs[req.params.job], req, res, entity => {
-        _emitEntityChange('job', entity)
-        _emitRestricted()
-    })
+router.delete('/:id/groups/:group', targetGroup, async (req, res) => {
+    await req.targetJob.removeGroup(req.targetGroup)
+    res.send()
+    clusterEvents.emit('lessJobRights', req.targetUser.id)
 })
 
 router.get('/', async (req, res) => {

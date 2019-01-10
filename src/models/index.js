@@ -1,8 +1,12 @@
-const glob = require( 'glob' )
-const path = require( 'path' )
+const glob = require('glob')
+const path = require('path')
+
+var exports = module.exports = { all: [] }
 
 glob.sync('./*-model.js').forEach(moduleName => {
     let modelName = moduleName.substr(0, moduleName.indexOf('-'))
-    module[modelName] = require(path.resolve(moduleName))
+    let model = require(path.resolve(moduleName))
+    exports[modelName] = model
+    exports.all.push(model)
 })
-module.sequelize = require('./db.js')
+exports.sequelize = require('./db.js')

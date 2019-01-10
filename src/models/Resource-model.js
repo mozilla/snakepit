@@ -1,6 +1,7 @@
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
 const Group = require('./Group-model.js')
+const User = require('./User-model.js')
 
 var Resource = sequelize.define('resource', {
     id:         { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
@@ -9,24 +10,22 @@ var Resource = sequelize.define('resource', {
     name:       { type: Sequelize.STRING,  allowNull: false }
 })
 
-User.belongsToMany(Group, { through: 'ResourceGroup' })
-Group.belongsToMany(User, { through: 'ResourceGroup' })
+var ResourceGroup = sequelize.define('resourcegroup')
+Resource.belongsToMany(Group, { through: ResourceGroup })
+Group.belongsToMany(Resource, { through: ResourceGroup })
 
 User.prototype.canAccessResource = async (resource) => {
-    // TODO: Implement DB based decision
-    /*
-    if (resource.groups) {
-        if (this.groups) {
-            for (let group of this.groups) {
-                if (resource.groups.includes(group)) {
-                    return true
-                }
-            }
-        }
-        return false
+    if (await resource.countGroups() == 0) {
+        return true
     }
-    */
-    return true
+    return (await Resource.count({ 
+        where: { id: resource.id }, 
+        include: [
+            { model: ResourceGroup },
+            { model: User.UserGroup },
+            { model: User, where: { id: this.id } }
+        ]
+    }) > 0)
 }
 
 module.exports = Resource

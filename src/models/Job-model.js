@@ -1,7 +1,8 @@
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
-const Group = require('./Pit-model.js')
+const Pit = require('./Pit-model.js')
 const Group = require('./Group-model.js')
+const User = require('./User-model.js')
 const State = require('./State-model.js')
 const ProcessGroup = require('./ProcessGroup-model.js')
 
@@ -18,25 +19,22 @@ Job.hasMany(State)
 
 Job.hasMany(ProcessGroup)
 
-Job.belongsToMany(Group, { through: 'JobGroup' })
-Group.belongsToMany(Job, { through: 'JobGroup' })
+var JobGroup = sequelize.define('jobgroup')
+Job.belongsToMany(Group, { through: JobGroup })
+Group.belongsToMany(Job, { through: JobGroup })
 
-User.prototype.canAccessJob = async (resource) => {
-    // TODO: Implement DB based decision
-    /*
-    if (this.admin || this.id == job.user) {
+User.prototype.canAccessJob = async (job) => {
+    if (this.admin || await job.hasUser(this)) {
         return true
     }
-    if (job.groups && this.groups) {
-        for (let group of this.groups) {
-            if (job.groups.includes(group)) {
-                return true
-            }
-        }
-    }
-    return false
-    */
-    return true
+    return (await Job.count({ 
+        where: { id: job.id }, 
+        include: [
+            { model: JobGroup },
+            { model: User.UserGroup },
+            { model: User, where: { id: this.id } }
+        ]
+    }) > 0)
 }
 
 Job.prototype.getJobDir = () => Pit.getPitDir(this.id)
