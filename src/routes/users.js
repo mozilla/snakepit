@@ -9,45 +9,54 @@ const clusterEvents = require('../utils/clusterEvents.js')
 const User = require('../models/User-model.js')
 const Group = require('../models/Group-model.js')
 
+const log = require('../utils/logger.js')
+
 var router = module.exports = new Router()
 
 router.get('/:id/exists', async (req, res) => {
-    res.status(db.users[req.params.id] ? 200 : 404).send()
+    res.status((await User.findByPk(req.params.id)) ? 200 : 404).send()
 })
 
 function authorize (req, res, needsUser) {
     return new Promise((resolve, reject) => {
         let token = req.get('X-Auth-Token')
         if (token) {
-            jwt.verify(token, config.tokenSecret, function(err, decoded) {
+            jwt.verify(token, config.tokenSecret, (err, decoded) => {
                 if (err) {
                     if (err.name == 'TokenExpiredError') {
                         res.status(401).json({ message: 'Token expired' })
                     } else {
                         res.status(400).json({ message: 'Invalid token ' + err})
                     }
+                    resolve()
                 } else {
-                    req.user = db.users[decoded.user]
-                    if (!req.user) {
-                        res.status(401).json({ message: 'Token for non-existent user' })
-                    }
+                    User.findByPk(decoded.user).then(user => {
+                        if (user) {
+                            req.user = user
+                            resolve('next')
+                        } else {
+                            res.status(401).json({ message: 'Token for non-existent user' })
+                            resolve()
+                        }
+                    })
                 }
-                resolve()
             })
         } else if (needsUser) {
             res.status(401).json({ message: 'No token provided' })
+            resolve()
+        } else {
+            resolve()
         }
-        resolve()
     })
 }
 
-router.ensureSignedIn = async (req, res) => await authorize(req, res, true)
+router.ensureSignedIn = (req, res) => authorize(req, res, true)
 
-router.trySignIn = async (req, res) => await authorize(req, res, false)
+router.trySignIn = (req, res) => authorize(req, res, false)
 
 router.ensureAdmin = (req, res, next) => {
     let checkAdmin = () => req.user.admin ? next() : res.status(403).send()
-    req.user ? checkAdmin() : authorize(req, res, true, checkAdmin)
+    req.user ? checkAdmin() : authorize(req, res, true).then(checkAdmin)
 }
 
 router.put('/:id', async (req, res) => {
@@ -57,13 +66,14 @@ router.put('/:id', async (req, res) => {
     }
     let user = req.body
     await router.trySignIn(req, res)
-    let dbuser = await User.findById(id)
+    log.error('signed in - next...')
+    let dbuser = await User.findByPk(id)
     if (dbuser && (!req.user || (req.user && req.user.id !== id && !req.user.admin))) {
         res.status(403).send()
     } else {
-        let dbuser = dbuser || User.build({ id: id })
+        dbuser = dbuser || User.build({ id: id })
         let setUser = async (hash) => {
-            if (Object.keys(db.users).length === 0) {
+            if ((await User.count()) === 0) {
                 dbuser.admin = true
             } else if (req.user && req.user.admin) {
                 if (user.admin == 'yes') {
@@ -93,6 +103,7 @@ router.put('/:id', async (req, res) => {
                 let hash = await bcrypt.hash(user.password, config.hashRounds)
                 await setUser(hash)
             } catch (ex) {
+                log.error(ex, ex.stack)
                 res.status(500).send()
             }
         } else if (dbuser.password) {
@@ -108,15 +119,25 @@ function targetUser (req, res, next) {
     if (req.user && id == '~') {
         id = req.user.id
     }
-    req.targetUser = id && User.findById(id)
-    req.targetUser ? next() : res.status(404).send()
+    if (id) {
+        User.findByPk(id).then(user => {
+            if (user) {
+                req.targetUser = user
+                next()
+            } else {
+                res.status(404).send()
+            }
+        })
+    } else {
+        res.status(400).send()
+    }
 }
 
 router.post('/:id/authenticate', targetUser, async (req, res) => {
     bcrypt.compare(req.body.password, req.targetUser.password, (err, result) => {
         if(result) {
             jwt.sign(
-                { user: id },
+                { user: req.targetUser.id },
                 config.tokenSecret,
                 { expiresIn: config.tokenTTL },
                 (err, token) => {
@@ -134,59 +155,66 @@ router.post('/:id/authenticate', targetUser, async (req, res) => {
 })
 
 router.get('/', router.ensureAdmin, async (req, res) => {
-    res.json(User.findAll().map(user => user.id))
+    res.json((await User.findAll()).map(user => user.id))
 })
 
 router.use(router.ensureSignedIn)
 
-router.use(targetUser)
-
-router.use((req, res, next) => {
+let ownerOrAdmin = (req, res, next) => {
     if (req.user.id == req.targetUser.id || req.user.admin) {
         next()
     } else {
         res.status(403).send()
     }
-})
+}
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', targetUser, ownerOrAdmin, async (req, res) => {
     let dbuser = req.targetUser
+    let groups = (await dbuser.getGroups()).map(group => group.id)
     res.json({
         id:        dbuser.id,
         fullname:  dbuser.fullname,
         email:     dbuser.email,
-        groups:    dbuser.groups,
+        groups:    groups.length > 0 ? groups : undefined,
         autoshare: dbuser.autoshare,
         admin:     dbuser.admin ? 'yes' : 'no'
     })
 })
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', targetUser, ownerOrAdmin, async (req, res) => {
     await req.targetUser.destroy()
     res.send()
 })
 
 function targetGroup (req, res, next) {
-    req.targetGroup = Group.findById(req.params.group)
-    req.targetGroup ? next() : res.status(404).send()
+    Group.findByPk(req.params.group).then(group => {
+        if (group) {
+            req.targetGroup = group
+            next()
+        } else {
+            res.status(404).send({ message: 'No group ' + req.params.group })
+        }
+    })
 }
 
-router.put('/:id/groups/:group', router.ensureAdmin, targetGroup, async (req, res) => {
+router.put('/:id/groups/:group', router.ensureAdmin, targetUser, targetGroup, async (req, res) => {
     await req.targetUser.addGroup(req.targetGroup)
     res.send()
 })
 
-router.delete('/:id/groups/:group', router.ensureAdmin, targetGroup, async (req, res) => {
+router.delete('/:id/groups/:group', router.ensureAdmin, targetUser, targetGroup, async (req, res) => {
     await req.targetUser.removeGroup(req.targetGroup)
     res.send()
     clusterEvents.emit('restricted')
 })
 
-router.post('/:id/fs', async (req, res) => {
+router.post('/:id/fs', targetUser, ownerOrAdmin, async (req, res) => {
     let chunks = []
+    let userDir = req.targetUser.getUserDir()
+    log.debug('User dir:', userDir)
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => fslib.serve(
-        fslib.real(req.targetUser.getHomeDir()), 
+        fslib.real(userDir), 
         Buffer.concat(chunks), 
         result => res.send(result), config.debugJobFS)
     )

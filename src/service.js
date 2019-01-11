@@ -32,14 +32,14 @@ if (cluster.isMaster) {
         let app = express()
         app.use(bodyParser.json({ limit: '50mb' }))
         app.use(morgan('combined', {
-            skip: (req, res) => res.statusCode < 400 && !config.debugHttp
+            skip: (req, res) => false //res.statusCode < 400 && !config.debugHttp
         }))
         
         app.use(require('./routes'))
 
-        app.use(function (err, req, res, next) {
-            console.error(err.stack)
-            res.status(500).send('Something broke')
+        app.use((err, req, res, next) => {
+            log.error(err, err.stack)
+            res.status(500).send()
         })
 
         http.createServer(app).listen(config.port, config.interface)

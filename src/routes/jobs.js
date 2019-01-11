@@ -208,7 +208,7 @@ router.post('/', async (req, res) => {
 })
 
 function targetGroup (req, res, next) {
-    req.targetGroup = Group.findById(req.params.group)
+    req.targetGroup = Group.findByPk(req.params.group)
     req.targetGroup ? next() : res.status(404).send()
 }
 

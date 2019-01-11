@@ -64,19 +64,21 @@ router.put('/:id', async (req, res) => {
     }
 })
 
+function targetNode (req, res, next) {
+    req.targetNode = Node.findByPk(req.params.id)
+    req.targetNode ? next() : res.status(404).send()
+} 
+
+router.use(targetNode)
+
 router.delete('/:id', async (req, res) => {
-    let node = db.nodes[req.params.id]
-    if (node) {
-        removeNode(node)
-            .then(() => res.status(404).send())
-            .catch(err => res.status(500).send({ message: 'Problem removing node:\n' + err }))
-    } else {
-        res.status(404).send()
-    }
+    removeNode(node)
+        .then(() => res.status(404).send())
+        .catch(err => res.status(500).send({ message: 'Problem removing node:\n' + err }))
 })
 
 function targetGroup (req, res, next) {
-    req.targetGroup = Group.findById(req.params.group)
+    req.targetGroup = Group.findByPk(req.params.group)
     req.targetGroup ? next() : res.status(404).send()
 }
 

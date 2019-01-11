@@ -7,7 +7,7 @@ const fs = require('fs-extra')
 var User = sequelize.define('user', {
     id:         { type: Sequelize.STRING,  allowNull: false, primaryKey: true },
     password:   { type: Sequelize.STRING,  allowNull: false },
-    admin:      { type: Sequelize.BOOLEAN, allowNull: false },
+    admin:      { type: Sequelize.BOOLEAN, allowNull: false, defaultValue: false },
     fullname:   { type: Sequelize.STRING,  allowNull: true },
     email:      { type: Sequelize.STRING,  allowNull: true }
 })
@@ -19,7 +19,7 @@ Group.belongsToMany(User, { through: UserGroup })
 const userPrefix = '/data/home/'
 
 User.prototype.isMemberOf = async group => {
-    group = Group.findById(group)
+    group = Group.findByPk(group)
     return group && this.hasGroup(group)
 }
 
@@ -38,6 +38,8 @@ User.afterDestroy(async user => {
 })
 
 User.getUserDir = (userId) => userPrefix + userId
-User.prototype.getUserDir = () => User.getUserDir(this.id)
+User.prototype.getUserDir = function () {
+    return User.getUserDir(this.id)
+} 
 
 module.exports = User

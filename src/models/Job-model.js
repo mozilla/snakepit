@@ -50,7 +50,9 @@ User.prototype.canAccessJob = async (job) => {
     }) > 0)
 }
 
-Job.prototype.getJobDir = () => Pit.getPitDir(this.id)
+Job.prototype.getJobDir = function () {
+    return Pit.getPitDir(this.id)
+} 
 
 Job.prototype.setState = async (state, reason) => {
     let transaction

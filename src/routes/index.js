@@ -23,5 +23,3 @@ router.use('/groups',  require('./groups'))
 router.use('/jobs',    require('./jobs'))
 router.use('/nodes',   require('./nodes'))
 router.use('/aliases', require('./aliases'))
-
-module.exports = router

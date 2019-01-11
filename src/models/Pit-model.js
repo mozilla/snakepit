@@ -24,6 +24,8 @@ Pit.afterDestroy(async pit => {
 })
 
 Pit.getPitDir = (pitId) => pitPrefix + pitId
-Pit.prototype.getPitDir = () => Pit.getPitDir(this.id)
+Pit.prototype.getPitDir = function () {
+    return Pit.getPitDir(this.id)
+}
 
 module.exports = Pit
