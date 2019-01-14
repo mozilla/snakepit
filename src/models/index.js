@@ -3,8 +3,9 @@ const path = require('path')
 
 var exports = module.exports = { all: [] }
 
-glob.sync('./*-model.js').forEach(moduleName => {
-    let modelName = moduleName.substr(0, moduleName.indexOf('-'))
+glob.sync(__dirname + '/*-model.js').forEach(moduleName => {
+    let modelName = path.basename(moduleName)
+    modelName = modelName.substr(0, modelName.lastIndexOf('-'))
     let model = require(path.resolve(moduleName))
     exports[modelName] = model
     exports.all.push(model)

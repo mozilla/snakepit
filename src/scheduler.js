@@ -2,7 +2,6 @@ const fs = require('fs-extra')
 const path = require('path')
 
 const log = require('./utils/logger.js')
-const utils = require('./utils/utils.js')
 const clusterEvents = require('./utils/clusterEvents.js')
 const config = require('./config.js')
 const reservations = require('./reservations.js')

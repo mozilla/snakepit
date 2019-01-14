@@ -12,7 +12,7 @@ var Node = sequelize.define('node', {
 Node.hasMany(Resource)
 
 Node.startup = () => {
-    Node.update({ online: false, since: Date.now() })
+    //Node.update({ online: false, since: Date.now() })
 }
 
 module.exports = Node

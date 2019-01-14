@@ -14,8 +14,22 @@ router.get('/', async (req, res) => {
     res.send((await Group.findAll()).map(group => group.id))
 })
 
-router.get('/:id', async (req, res) => {
-    // TODO
+function targetGroup (req, res, next) {
+    Group.findByPk(req.params.id).then(group => {
+        if (group) {
+            req.targetGroup = group
+            next()
+        } else {
+            res.status(404).send()
+        }
+    })
+}
+
+router.get('/:id', targetGroup, async (req, res) => {
+    res.send({
+        id:     req.targetGroup.id,
+        title:  req.targetGroup.title
+    })
 })
 
 router.post('/:id/fs', targetGroup, async (req, res) => {
@@ -51,17 +65,6 @@ router.put('/:id', async (req, res) => {
         res.status(400).send()
     }
 })
-
-function targetGroup (req, res, next) {
-    Group.findByPk(req.params.id).then(group => {
-        if (group) {
-            req.targetGroup = group
-            next()
-        } else {
-            res.status(404).send()
-        }
-    })
-}
 
 router.delete('/:id', targetGroup, async (req, res) => {
     await req.targetGroup.destroy()

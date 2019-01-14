@@ -1,108 +1,22 @@
 const fs = require('fs-extra')
 const path = require('path')
-const https = require('https')
-const axios = require('axios')
 const assign = require('assign-deep')
 const Parallel = require('async-parallel')
 
+const lxd = require('./utils/lxd.js')
 const log = require('./utils/logger.js')
+const { to } = require('./utils/async.js')
 const clusterEvents = require('./utils/clusterEvents.js')
-const { to, getScript, envToScript } = require('./utils/utils.js')
+const { getScript, envToScript } = require('./utils/scripts.js')
 
 const config = require('./config.js')
-
-const lxdStatus = {
-    created:    100,
-    started:    101,
-    stopped:    102,
-    running:    103,
-    canceling:  104,
-    pending:    105,
-    starting:   106,
-    stopping:   107,
-    aborting:   108,
-    freezing:   109,
-    frozen:     110,
-    thawed:     111,
-    success:    200,
-    failure:    400,
-    cancelled:  401
-}
 
 const snakepitPrefix = 'sp'
 const containerNameParser = /sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/
 const resourceParser = /resource:([^,]*),([^,]*),([^,]*)/
 
-var headInfo
-
-var agent = new https.Agent({ 
-    key: config.clientKey, 
-    cert: config.clientCert,
-    rejectUnauthorized: false
-})
-
-const nodeStates = {
-    OFFLINE: 0,
-    ONLINE:  1
-}
-exports.nodeStates = nodeStates
-
 const headNode = { id: 'head', endpoint: config.endpoint }
 exports.headNode = headNode
-
-async function wrapLxdResponse (node, promise) {
-    let response = await promise
-    let data = response.data
-    if (typeof data === 'string' || data instanceof String) {
-        return data
-    } else {
-        switch(data.type) {
-            case 'sync':
-                if (data.metadata) {
-                    if (data.metadata.err) {
-                        throw data.metadata.err
-                    }
-                    return data.metadata
-                } else {
-                    return data
-                }
-            case 'async':
-                log.debug('Forwarding:', data.operation + '/wait')
-                return await wrapLxdResponse(node, axios.get(node.endpoint + data.operation + '/wait', { httpsAgent: agent }))
-            case 'error':
-                log.debug('LXD error', data.error)
-                throw data.error
-        }
-    }
-}
-
-function callLxd(method, node, resource, data, options) {
-    let axiosConfig = assign({
-        method: method,
-        url: getUrl(node, resource),
-        httpsAgent: agent,
-        data: data,
-        timeout: 2000
-    }, options || {})
-    log.debug(method, axiosConfig.url, data || '')
-    return wrapLxdResponse(node, axios(axiosConfig))
-}
-
-function lxdGet (node, resource, options) {
-    return callLxd('get', node, resource, undefined, options)
-}
-
-function lxdDelete (node, resource, options) {
-    return callLxd('delete', node, resource, undefined, options)
-}
-
-function lxdPut (node, resource, data, options) {
-    return callLxd('put', node, resource, data, options)
-}
-
-function lxdPost (node, resource, data, options) {
-    return callLxd('post', node, resource, data, options)
-}
 
 function getContainerName (nodeId, pitId, instance) {
     return snakepitPrefix + '-' + nodeId + '-' + pitId + '-' + instance
@@ -124,9 +38,10 @@ function getNodeFromName (containerName) {
 }
 
 function getNodeInfo (node) {
-    return lxdGet(node, '')
+    return lxd.get(node.endpoint, '')
 }
 
+var headInfo
 async function getHeadInfo () {
     if (headInfo) {
         return headInfo
@@ -140,12 +55,8 @@ async function getHeadCertificate () {
     return info.environment && info.environment.certificate
 }
 
-function getUrl (node, resource) {
-    return node.endpoint + '/1.0' + (resource ? ('/' + resource) : '')
-}
-
 async function getContainersOnNode (node) {
-    let results = await lxdGet(node, 'containers')
+    let results = await lxd.get(node.endpoint, 'containers')
     var containers = []
     for (let result of results) {
         let split = result.split('/')
@@ -162,7 +73,7 @@ async function getContainersOnNode (node) {
 
 function setContainerState (containerName, state, force, stateful) {
     let node = getNodeFromName(containerName)
-    return lxdPut(node, 'containers/' + containerName + '/state', {
+    return lxd.put(node.endpoint, 'containers/' + containerName + '/state', {
         action:   state,
         timeout:  config.lxdTimeout,
         force:    !!force,
@@ -243,15 +154,15 @@ async function addContainer (containerName, imageHash, options) {
             fingerprint: imageHash
         },
     }, options || {})
-    await lxdPost(node, 'containers', containerConfig)
+    await lxd.post(node.endpoint, 'containers', containerConfig)
 }
 
 async function startPit (pitId, drives, workers) {
     try {
         clusterEvents.emit('pitStarting', pitId)
         let pitDir = getPitDir(pitId)
-        let daemonHash = (await lxdGet(headNode, 'images/aliases/snakepit-daemon')).target
-        let workerHash = (await lxdGet(headNode, 'images/aliases/snakepit-worker')).target
+        let daemonHash = (await lxd.get(headNode.endpoint, 'images/aliases/snakepit-daemon')).target
+        let workerHash = (await lxd.get(headNode.endpoint, 'images/aliases/snakepit-worker')).target
         let physicalNodes = { [headNode.endpoint]: headNode }
         for (let worker of workers) {
             // we just need one virtual node representant of/on each physical node
@@ -270,7 +181,7 @@ async function startPit (pitId, drives, workers) {
                 }
             }
             try {
-                await lxdPost(physicalNodes[localEndpoint], 'networks', {
+                await lxd.post(localEndpoint, 'networks', {
                     name: network,
                     config: tunnelConfig
                 })
@@ -399,13 +310,13 @@ async function stopPit (pitId) {
                 let containerInfo = parseContainerName(containerName)
                 if (containerInfo && containerInfo[1] == pitId) {
                     let [errStop] = await to(setContainerState(containerName, 'stop', true))
-                    let [errDelete] = await to(lxdDelete(node, 'containers/' + containerName))
+                    let [errDelete] = await to(lxd.delete(node.endpoint, 'containers/' + containerName))
                 }
             }
         }
     }
     await to(Parallel.each(nodes, async node => {
-        await to(lxdDelete(node, 'networks/' + snakepitPrefix + pitId))
+        await to(lxd.delete(node.endpoint, 'networks/' + snakepitPrefix + pitId))
     }))
     clusterEvents.emit('pitStopped', pitId, results)
 }
@@ -442,23 +353,23 @@ async function authenticateNode(node, password) {
     if (node.endpoint == headNode.endpoint) {
         return
     }
-    await lxdPost(node, 'certificates', { type: 'client', password: password })
+    await lxd.post(node.endpoint, 'certificates', { type: 'client', password: password })
 }
 
 async function unauthenticateNode(node) {
     if (node.endpoint == headNode.endpoint) {
         return
     }
-    let certificates = await lxdGet(node, 'certificates')
+    let certificates = await lxd.get(node.endpoint, 'certificates')
     certificates = certificates.map(c => {
         c = c.split('/')
         return c[c.length - 1]
     })
     await Parallel.each(certificates, async c => {
         let cpath = 'certificates/' + c
-        let cinfo = await lxdGet(node, cpath)
+        let cinfo = await lxd.get(node.endpoint, cpath)
         if (cinfo.certificate == config.lxdCert) {
-            await lxdDelete(node, cpath)
+            await lxd.delete(node.endpoint, cpath)
         }
     })
 }
