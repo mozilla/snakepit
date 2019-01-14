@@ -210,11 +210,9 @@ router.delete('/:id/groups/:group', router.ensureAdmin, targetUser, targetGroup,
 
 router.post('/:id/fs', targetUser, ownerOrAdmin, async (req, res) => {
     let chunks = []
-    let userDir = req.targetUser.getUserDir()
-    log.debug('User dir:', userDir)
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => fslib.serve(
-        fslib.real(userDir), 
+        fslib.real(req.targetUser.getDir()), 
         Buffer.concat(chunks), 
         result => res.send(result), config.debugJobFS)
     )

@@ -43,7 +43,7 @@ function prepareJob(job) {
     job.setState(jobStates.PREPARING)
     return utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
         store.lockAutoRelease('jobs', () => {
-            if (code == 0 && fs.existsSync(nodesModule.getPitDir(job.id)) && job.state == jobStates.PREPARING) {
+            if (code == 0 && fs.existsSync(Pit.getDir(job.id)) && job.state == jobStates.PREPARING) {
                 db.schedule.push(job.id)
                 job.setState(jobStates.WAITING)
             } else {

@@ -1,10 +1,38 @@
 const Router = require('express-promise-router')
 
 const clusterEvents = require('../utils/clusterEvents.js')
-const { getAlias } = require('../models/Alias-model.js')
+const pitRunner = require('../pitRunner.js')
+const Pit = require('../models/Pit-model.js')
+const Node = require('../models/Node-model.js')
 const Group = require('../models/Group-model.js')
 const Resource = require('../models/Resource-model.js')
+const { getAlias } = require('../models/Alias-model.js')
+const { getScript } = require('./utils/scripts.js')
 const { ensureSignedIn, ensureAdmin } = require('./users.js')
+
+const resourceParser = /resource:([^,]*),([^,]*),([^,]*)/
+
+function getResourcesFromResult (result) {
+    let workers = result.workers
+    let resources = []
+    if (workers.length > 0) {
+        for (let line of workers[0].result.split('\n')) {
+            let match = resourceParser.exec(line)
+            if (match) {
+                let resource = Resource.build({ 
+                    type:  match[1],  
+                    name:  match[3],
+                    index: Number(match[2])
+                })
+                resources.push(resource)
+                log.debug('FOUND RESOURCE', id, resource)
+            }
+        }
+        return resources
+    } else {
+        return
+    }
+}
 
 var router = module.exports = new Router()
 
@@ -49,16 +77,47 @@ router.use(ensureAdmin)
 router.put('/:id', async (req, res) => {
     let id = req.params.id
     let node = req.body
-    let dbnode = db.nodes[id]
+    let dbnode = Node.findByPk(id)
     if (dbnode) {
         res.status(400).send({ message: 'Node with same id already registered' })
     } else if (node.endpoint && node.password) {
-        addNode(id, node.endpoint, node.password).then(newNode => {
-            setNodeState(newNode, nodeStates.ONLINE)
-            res.status(200).send()
-        }).catch(err => {
-            res.status(400).send({ message: 'Problem adding node:\n' + err })
-        })
+        let pit
+        try {
+            dbnode = await Node.create({ 
+                id: id, 
+                endpoint: node.endpoint,
+                password: node.password,
+                online: true,
+                available: false
+            })
+            pit = await Pit.create()
+            let result = await pitRunner.runPit(pit.id, {}, [{ 
+                node:    dbnode,
+                devices: { 'gpu': { type: 'gpu' } },
+                script:  getScript('scan.sh')
+            }])
+            log.debug('ADDING NODE', id, workers)
+            let resources = getResourcesFromResult(result)
+            if (resources) {
+                resources.forEach(async resource => await resource.save())
+                node.online = true
+                node.available = true
+                await node.save()
+                res.send()
+            } else {
+                throw new Error('Node scanning failed')
+            }
+        } catch (ex) {
+            log.debug('ADDING NODE FAILED', ex)
+            if (dbnode) {
+                await dbnode.destroy()
+            }
+            res.status(400).send({ message: 'Problem adding node:\n' + ex })
+        } finally {
+            if (pit) {
+                await pit.destroy()
+            }
+        }
     } else {
         res.status(400).send()
     }

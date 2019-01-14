@@ -51,7 +51,7 @@ User.prototype.canAccessJob = async (job) => {
 }
 
 Job.prototype.getJobDir = function () {
-    return Pit.getPitDir(this.id)
+    return Pit.getDir(this.id)
 } 
 
 Job.prototype.setState = async (state, reason) => {

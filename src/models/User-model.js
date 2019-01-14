@@ -37,9 +37,9 @@ User.afterDestroy(async user => {
     }
 })
 
-User.getUserDir = (userId) => userPrefix + userId
-User.prototype.getUserDir = function () {
-    return User.getUserDir(this.id)
+User.getDir = (userId) => userPrefix + userId
+User.prototype.getDir = function () {
+    return User.getDir(this.id)
 } 
 
 module.exports = User

@@ -25,9 +25,9 @@ Group.afterDestroy(async group => {
     }
 })
 
-Group.getGroupDir = (groupId) => groupPrefix + groupId
-Group.prototype.getGroupDir = function () {
-    return Group.getGroupDir(this.id)
+Group.getDir = (groupId) => groupPrefix + groupId
+Group.prototype.getDir = function () {
+    return Group.getDir(this.id)
 }
 
 module.exports = Group

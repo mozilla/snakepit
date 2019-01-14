@@ -6,17 +6,32 @@ const Parallel = require('async-parallel')
 const lxd = require('./utils/lxd.js')
 const log = require('./utils/logger.js')
 const { to } = require('./utils/async.js')
+const { envToScript } = require('./utils/scripts.js')
 const clusterEvents = require('./utils/clusterEvents.js')
-const { getScript, envToScript } = require('./utils/scripts.js')
+const Pit = require('./models/Pit-model.js')
+const Node = require('./models/Node-model.js')
 
 const config = require('./config.js')
 
 const snakepitPrefix = 'sp'
 const containerNameParser = /sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/
-const resourceParser = /resource:([^,]*),([^,]*),([^,]*)/
 
-const headNode = { id: 'head', endpoint: config.endpoint }
-exports.headNode = headNode
+const headNode = Node.build({
+    id: 'head',
+    endpoint: config.endpoint
+})
+
+function getAllNodes () {
+    let nodes = [headNode]
+    for (let nodeId of Object.keys(db.nodes)) {
+        nodes.push(db.nodes[nodeId])
+    }
+    return nodes
+}
+
+function getNodeById (nodeId) {
+    return nodeId == 'head' ? headNode : db.nodes[nodeId]
+}
 
 function getContainerName (nodeId, pitId, instance) {
     return snakepitPrefix + '-' + nodeId + '-' + pitId + '-' + instance
@@ -48,7 +63,6 @@ async function getHeadInfo () {
     }
     return headInfo = await getNodeInfo(headNode)
 }
-exports.getHeadInfo = getHeadInfo
 
 async function getHeadCertificate () {
     let info = await getHeadInfo()
@@ -82,53 +96,8 @@ function setContainerState (containerName, state, force, stateful) {
 }
 
 function pitRequestedStop (pitId) {
-    return fs.pathExists(path.join(getPitDir(pitId), 'stop'))
+    return fs.pathExists(path.join(Pit.getDir(pitId), 'stop'))
 }
-
-function newPitId () {
-    return new Promise(
-        (resolve, reject) => store.lockAsyncRelease('jobs', function(free) {
-            let newId = db.pitIdCounter++
-            free()
-            resolve(newId)
-        })
-    )
-}
-
-function getDaemonHost (pitId) {
-    return getDaemonName(pitId) + '.lxd'
-}
-exports.getDaemonHost = getDaemonHost
-
-function getWorkerHost (pitId, node, index) {
-    return getContainerName(node.id, pitId, index) + '.lxd'
-}
-exports.getWorkerHost = getWorkerHost
-
-function getPitDir (pitId) {
-    return '/data/pits/' + pitId
-}
-exports.getPitDir = getPitDir
-
-function getPitDirExternal (pitId) {
-    return path.join(config.mountRoot, 'pits', pitId + '')
-}
-exports.getPitDirExternal = getPitDirExternal
-
-async function createPit () {
-    let pitId = await newPitId()
-    let pitDir = getPitDir(pitId)
-    await fs.mkdirp(pitDir)
-    clusterEvents.emit('pitCreated', pitId)
-    return pitId
-}
-exports.createPit = createPit
-
-async function deletePit (pitId) {
-    await fs.remove(getPitDir(pitId))
-    clusterEvents.emit('pitDeleted', pitId)
-}
-exports.deletePit = deletePit
 
 async function addContainer (containerName, imageHash, options) {
     let node = getNodeFromName(containerName)
@@ -160,7 +129,7 @@ async function addContainer (containerName, imageHash, options) {
 async function startPit (pitId, drives, workers) {
     try {
         clusterEvents.emit('pitStarting', pitId)
-        let pitDir = getPitDir(pitId)
+        let pitDir = Pit.getDir(pitId)
         let daemonHash = (await lxd.get(headNode.endpoint, 'images/aliases/snakepit-daemon')).target
         let workerHash = (await lxd.get(headNode.endpoint, 'images/aliases/snakepit-worker')).target
         let physicalNodes = { [headNode.endpoint]: headNode }
@@ -191,7 +160,7 @@ async function startPit (pitId, drives, workers) {
             }
         })
 
-        let daemonDevices = { 'pit': { path: '/data/rw/pit', source: getPitDirExternal(pitId), type: 'disk' } }
+        let daemonDevices = { 'pit': { path: '/data/rw/pit', source: Pit.getDirExternal(pitId), type: 'disk' } }
         if (network) {
             daemonDevices['eth0'] = { nictype: 'bridged', parent: network, type: 'nic' }
         }
@@ -280,7 +249,7 @@ async function runPit (pitId, drives, workers, timeout) {
 exports.runPit = runPit
 
 async function extractResults (pitId) {
-    let pitDir = getPitDir(pitId)
+    let pitDir = Pit.getDir(pitId)
     if (await fs.pathExists(pitDir)) {
         let [errLog, pitLog] = await to(fs.readFile(path.join(pitDir, 'pit.log')))
         let workersDir = path.join(pitDir, 'workers')
@@ -322,7 +291,7 @@ async function stopPit (pitId) {
 }
 exports.stopPit = stopPit
 
-async function getPits () {
+async function getActivePits () {
     let [err, containers] = await to(getContainersOnNode(headNode))
     let pitIds = {}
     for (let containerName of containers) {
@@ -333,108 +302,7 @@ async function getPits () {
     }
     return Object.keys(pitIds)
 }
-exports.getPits = getPits
-
-function getAllNodes () {
-    let nodes = [headNode]
-    for (let nodeId of Object.keys(db.nodes)) {
-        nodes.push(db.nodes[nodeId])
-    }
-    return nodes
-}
-exports.getAllNodes = getAllNodes
-
-function getNodeById (nodeId) {
-    return nodeId == 'head' ? headNode : db.nodes[nodeId]
-}
-exports.getNodeById = getNodeById
-
-async function authenticateNode(node, password) {
-    if (node.endpoint == headNode.endpoint) {
-        return
-    }
-    await lxd.post(node.endpoint, 'certificates', { type: 'client', password: password })
-}
-
-async function unauthenticateNode(node) {
-    if (node.endpoint == headNode.endpoint) {
-        return
-    }
-    let certificates = await lxd.get(node.endpoint, 'certificates')
-    certificates = certificates.map(c => {
-        c = c.split('/')
-        return c[c.length - 1]
-    })
-    await Parallel.each(certificates, async c => {
-        let cpath = 'certificates/' + c
-        let cinfo = await lxd.get(node.endpoint, cpath)
-        if (cinfo.certificate == config.lxdCert) {
-            await lxd.delete(node.endpoint, cpath)
-        }
-    })
-}
-
-async function addNode (id, endpoint, password) {
-    let newNode = { 
-        id: id,
-        endpoint: endpoint,
-        resources: []
-    }
-    db.nodes[id] = newNode
-    let pitId = await createPit()
-    try {
-        await authenticateNode(newNode, password)
-        let result = await runPit(pitId, {}, [{ 
-            node:    newNode,
-            devices: { 'gpu': { type: 'gpu' } },
-            script:  getScript('scan.sh')
-        }])
-        let workers = result.workers
-        if (workers.length > 0) {
-            log.debug('ADDING NODE', id, workers)
-            for (let line of workers[0].result.split('\n')) {
-                let match = resourceParser.exec(line)
-                if (match) {
-                    let resource = { 
-                        type:  match[1],  
-                        name:  match[3],
-                        index: Number(match[2])
-                    }
-                    newNode.resources.push(resource)
-                    log.debug('FOUND RESOURCE', id, resource)
-                }
-            }
-            db.nodes[id] = newNode
-            return db.nodes[id]
-        } else {
-            throw new Error('Node scanning failed')
-        }
-    } catch (ex) {
-        log.debug('ADDING NODE FAILED', ex)
-        if (db.nodes[id]) {
-            removeNode(db.nodes[id])
-        }
-        throw ex
-    } finally {
-        await to(deletePit(pitId))
-    }
-}
-exports.addNode = addNode
-
-async function removeNode (node) {
-    setNodeState(node, nodeStates.OFFLINE)
-    await to(unauthenticateNode(node))
-    delete db.nodes[node.id]
-}
-exports.removeNode = removeNode
-
-function setNodeState(node, nodeState) {
-    if (node.state != nodeState) {
-        node.state = nodeState
-        node.since = new Date().toISOString()
-        clusterEvents.emit('state', node.id, node.state)
-    }
-}
+exports.getActivePits = getActivePits
 
 async function tick () {
     let nodes = getAllNodes()
@@ -449,7 +317,7 @@ async function tick () {
             setNodeState(node, nodeStates.OFFLINE)
         }
     }))
-    let [err, pits] = await to(getPits())
+    let [err, pits] = await to(getActivePits())
     clusterEvents.emit('pitReport', pits)
     await Parallel.each(pits, async pitId => {
         if (await pitRequestedStop(pitId)) {  

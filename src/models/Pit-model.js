@@ -1,5 +1,6 @@
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
+const config = require('../config.js')
 
 const fs = require('fs-extra')
 
@@ -23,9 +24,14 @@ Pit.afterDestroy(async pit => {
     }
 })
 
-Pit.getPitDir = (pitId) => pitPrefix + pitId
-Pit.prototype.getPitDir = function () {
-    return Pit.getPitDir(this.id)
+Pit.getDir = (pitId) => pitPrefix + pitId
+Pit.prototype.getDir = function () {
+    return Pit.getDir(this.id)
+}
+
+Pit.getDirExternal = (pitId) => path.join(config.mountRoot, 'pits', pitId + '')
+Pit.prototype.getDirExternal = function () {
+    return Pit.getDirExternal(this.id)
 }
 
 module.exports = Pit

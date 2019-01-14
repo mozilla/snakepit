@@ -77,7 +77,7 @@ function sendLog(req, res, job) {
     })
     req.connection.setTimeout(60 * 60 * 1000)
     let interval = config.pollInterval / 10
-    let logPath = path.join(nodesModule.getPitDir(job.id), 'pit.log')
+    let logPath = path.join(Pit.getDir(job.id), 'pit.log')
     let written = 0
     let writeStream = cb => {
         let stream = fs.createReadStream(logPath, { start: written })
@@ -113,7 +113,7 @@ function handleJobAndPath(req, res, cb) {
     var dbjob = loadJob(req.params.id)
     if (dbjob) {
         if (groupsModule.canAccessJob(req.user, dbjob)) {
-            let jobDir = nodesModule.getPitDir(dbjob.id)
+            let jobDir = Pit.getDir(dbjob.id)
             let newPath = path.resolve(jobDir, req.params[0] || '')
             if (newPath.startsWith(jobDir)) {
                 cb(dbjob, newPath)
@@ -182,7 +182,7 @@ router.post('/', async (req, res) => {
                 if (job.diff) {
                     files['git.patch'] = job.diff + '\n'
                 }
-                let jobDir = nodesModule.getPitDir(dbjob.id)
+                let jobDir = Pit.getDir(dbjob.id)
                 async.forEachOf(files, (content, file, done) => {
                     let p = path.join(jobDir, file)
                     fs.writeFile(p, content, err => {
@@ -264,7 +264,7 @@ router.get('/:id/targz', async (req, res) => {
     let dbjob = loadJob(req.params.id)
     if (dbjob) {
         if (groupsModule.canAccessJob(req.user, dbjob)) {
-            let jobdir = nodesModule.getPitDir(dbjob.id)
+            let jobdir = Pit.getDir(dbjob.id)
             res.status(200).type('tar.gz')
             tar.pack(jobdir).pipe(zlib.createGzip()).pipe(res)
         } else {
@@ -339,7 +339,7 @@ router.post('/:id/fs', async (req, res) => {
             let chunks = []
             req.on('data', chunk => chunks.push(chunk));
             req.on('end', () => fslib.serve(
-                fslib.readOnly(fslib.real(nodesModule.getPitDir(dbjob.id))), 
+                fslib.readOnly(fslib.real(Pit.getDir(dbjob.id))), 
                 Buffer.concat(chunks), 
                 result => res.send(result), config.debugJobFS)
             )

@@ -37,7 +37,7 @@ router.post('/:id/fs', targetGroup, async (req, res) => {
         let chunks = []
         req.on('data', chunk => chunks.push(chunk));
         req.on('end', () => fslib.serve(
-            fslib.real(req.targetGroup.getGroupDir()), 
+            fslib.real(req.targetGroup.getDir()), 
             Buffer.concat(chunks), 
             result => res.send(result), config.debugJobFS)
         )
