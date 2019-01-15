@@ -26,12 +26,12 @@ if (cluster.isMaster) {
 
 process.on('message', message => {
     if (message.clusterEvent) {
-        originalEmit(message.clusterEvent, ...message.args)
+        originalEmit.apply(emitter, [message.clusterEvent, ...message.args])
     }
 })
 
 emitter.emit = function (clusterEvent, ...args) {
-    originalEmit(clusterEvent, ...args)
+    originalEmit.apply(emitter, [clusterEvent, ...args])
     let message = {
         clusterEvent: clusterEvent,
         args: args

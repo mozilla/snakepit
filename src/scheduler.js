@@ -143,15 +143,10 @@ function stopJob (job) {
     }
 }
 
-function cleanJob(job) {
-    job.setState(jobStates.CLEANING)
-    utils.runScript('clean.sh', getPreparationEnv(job), (code, stdout, stderr) => {
-        store.lockAutoRelease('jobs', () => {
-            if (code > 0) {
-                appendError(job, 'Problem during cleaning step - exit code: ' + code + '\n' + stderr)
-            }
-            job.setState(jobStates.DONE)
-        })
+async function cleanJob(job) {
+    await job.setState(jobStates.CLEANING)
+    utils.runScript('clean.sh', getPreparationEnv(job), async (code, stdout, stderr) => {
+        await job.setState(jobStates.DONE, code > 0 ? ('Problem during cleaning step - exit code: ' + code + '\n' + stderr) : undefined)
     })
 }
 
@@ -191,17 +186,17 @@ clusterEvents.on('pitStarting', pitId => {
 })
 */
 
-clusterEvents.on('pitStopping', pitId => {
-    let job = db.jobs[pitId]
+clusterEvents.on('pitStopping', async pitId => {
+    let job = await Job.findByPk(pitId)
     if (job) {
-        job.setState(jobStates.STOPPING)
+        await job.setState(jobStates.STOPPING)
     }
 })
 
-clusterEvents.on('pitStopped', pitId => {
-    let job = db.jobs[pitId]
+clusterEvents.on('pitStopped', async pitId => {
+    let job = await Job.findByPk(pitId)
     if (job) {
-        cleanJob(job)
+        await cleanJob(job)
     }
 })
 

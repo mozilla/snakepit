@@ -10,7 +10,6 @@ const { envToScript } = require('./utils/scripts.js')
 const clusterEvents = require('./utils/clusterEvents.js')
 const Pit = require('./models/Pit-model.js')
 const Node = require('./models/Node-model.js')
-
 const config = require('./config.js')
 
 const snakepitPrefix = 'sp'
@@ -21,16 +20,13 @@ const headNode = Node.build({
     endpoint: config.endpoint
 })
 
-function getAllNodes () {
-    let nodes = [headNode]
-    for (let nodeId of Object.keys(db.nodes)) {
-        nodes.push(db.nodes[nodeId])
-    }
-    return nodes
+async function getAllNodes () {
+    let nodes = await Node.findAll()
+    return [headNode, ...nodes]
 }
 
-function getNodeById (nodeId) {
-    return nodeId == 'head' ? headNode : db.nodes[nodeId]
+async function getNodeById (nodeId) {
+    return nodeId == 'head' ? headNode : await Node.findByPk(nodeId)
 }
 
 function getContainerName (nodeId, pitId, instance) {
@@ -46,10 +42,9 @@ function parseContainerName (containerName) {
     return match && [match[1], match[2], match[3]]
 }
 
-function getNodeFromName (containerName) {
+async function getNodeFromName (containerName) {
     let parsed = parseContainerName(containerName)
-    let node = getNodeById(parsed[0])
-    return node
+    return await getNodeById(parsed[0])
 }
 
 function getNodeInfo (node) {
@@ -85,9 +80,9 @@ async function getContainersOnNode (node) {
     return containers
 }
 
-function setContainerState (containerName, state, force, stateful) {
-    let node = getNodeFromName(containerName)
-    return lxd.put(node.endpoint, 'containers/' + containerName + '/state', {
+async function setContainerState (containerName, state, force, stateful) {
+    let node = await getNodeFromName(containerName)
+    await lxd.put(node.endpoint, 'containers/' + containerName + '/state', {
         action:   state,
         timeout:  config.lxdTimeout,
         force:    !!force,
@@ -100,7 +95,7 @@ function pitRequestedStop (pitId) {
 }
 
 async function addContainer (containerName, imageHash, options) {
-    let node = getNodeFromName(containerName)
+    let node = await getNodeFromName(containerName)
     let cert = await getHeadCertificate()
     let containerConfig = assign({
         name: containerName,
@@ -234,7 +229,7 @@ function waitForPit (pitId, timeout) {
             exports.removeListener('pitStopped', stopListener)
             reject('timeout')
         }
-        exports.on('pitStopped', stopListener)
+        clusterEvents.on('pitStopped', stopListener)
         if (timeout) {
             timer = setTimeout(timeoutListener, 1000 * timeout)
         }
@@ -271,7 +266,7 @@ async function extractResults (pitId) {
 async function stopPit (pitId) {
     clusterEvents.emit('pitStopping', pitId)
     let results = await extractResults(pitId) 
-    let nodes = getAllNodes()
+    let nodes = await getAllNodes()
     for (let node of nodes) {
         let [err, containers] = await to(getContainersOnNode(node))
         if (containers) {
@@ -305,16 +300,15 @@ async function getActivePits () {
 exports.getActivePits = getActivePits
 
 async function tick () {
-    let nodes = getAllNodes()
+    let nodes = await getAllNodes()
     await to(Parallel.each(nodes, async node => {
         let [infoErr, info] = await to(getNodeInfo(node))
         if (infoErr) {
             log.error('PROBLEM ACCESSING NODE ' + node.id, infoErr.toString())
         }
-        if (info) {
-            setNodeState(node, nodeStates.ONLINE)
-        } else {
-            setNodeState(node, nodeStates.OFFLINE)
+        if (node != headNode) {
+            node.online = !!info
+            await node.save()
         }
     }))
     let [err, pits] = await to(getActivePits())

@@ -1,3 +1,4 @@
+const path = require('path')
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
 const config = require('../config.js')

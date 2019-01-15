@@ -6,8 +6,9 @@ const Pit = require('../models/Pit-model.js')
 const Node = require('../models/Node-model.js')
 const Group = require('../models/Group-model.js')
 const Resource = require('../models/Resource-model.js')
+const log = require('../utils/logger.js')
 const { getAlias } = require('../models/Alias-model.js')
-const { getScript } = require('./utils/scripts.js')
+const { getScript } = require('../utils/scripts.js')
 const { ensureSignedIn, ensureAdmin } = require('./users.js')
 
 const resourceParser = /resource:([^,]*),([^,]*),([^,]*)/
@@ -34,42 +35,33 @@ function getResourcesFromResult (result) {
     }
 }
 
-var router = module.exports = new Router()
+var router = module.exports = new Router() 
 
 router.use(ensureSignedIn)
 
 router.get('/', async (req, res) => {
-    res.status(200).send(Object.keys(db.nodes))
+    res.status(200).send((await Node.findAll()).map(node => node.id))
 })
 
-router.get('/:id', async (req, res) => {
-    var node = db.nodes[req.params.id]
-    if (node) {
-        res.status(200).json({
-            id:          node.id,
-            endpoint:    node.endpoint,
-            online:      node.online,
-            since:       node.since,
-            resources: Object.keys(node.resources).map(resourceId => {
-                let dbResource = node.resources[resourceId]
-                let resource = {
-                    type:  dbResource.type,
-                    name:  dbResource.name,
-                    index: dbResource.index
-                }
-                let alias = getAlias(dbResource.name)
-                if (alias) {
-                    resource.alias = alias
-                }
-                if (dbResource.groups) {
-                    resource.groups = dbResource.groups
-                }
-                return resource
-            })
-        })
-    } else {
-        res.status(404).send()
-    }
+function targetNode (req, res, next) {
+    req.targetNode = Node.findByPk(req.params.id)
+    req.targetNode ? next() : res.status(404).send()
+}
+
+router.get('/:id', targetNode, async (req, res) => {
+    res.status(200).json({
+        id:          req.targetNode.id,
+        endpoint:    req.targetNode.endpoint,
+        online:      req.targetNode.online,
+        since:       req.targetNode.since,
+        resources:   (await req.targetNode.getResources()).map(async dbResource => ({
+            type:    dbResource.type,
+            name:    dbResource.name,
+            index:   dbResource.index,
+            groups:  (await dbResource.getGroups()).map(group => group.id),
+            alias:   await getAlias(dbResource.name)
+        }))
+    })
 })
 
 router.use(ensureAdmin)
@@ -77,7 +69,7 @@ router.use(ensureAdmin)
 router.put('/:id', async (req, res) => {
     let id = req.params.id
     let node = req.body
-    let dbnode = Node.findByPk(id)
+    let dbnode = await Node.findByPk(id)
     if (dbnode) {
         res.status(400).send({ message: 'Node with same id already registered' })
     } else if (node.endpoint && node.password) {
@@ -88,6 +80,7 @@ router.put('/:id', async (req, res) => {
                 endpoint: node.endpoint,
                 password: node.password,
                 online: true,
+                since: Date.now(),
                 available: false
             })
             pit = await Pit.create()
@@ -123,17 +116,9 @@ router.put('/:id', async (req, res) => {
     }
 })
 
-function targetNode (req, res, next) {
-    req.targetNode = Node.findByPk(req.params.id)
-    req.targetNode ? next() : res.status(404).send()
-} 
-
-router.use(targetNode)
-
-router.delete('/:id', async (req, res) => {
-    removeNode(node)
-        .then(() => res.status(404).send())
-        .catch(err => res.status(500).send({ message: 'Problem removing node:\n' + err }))
+router.delete('/:id', targetNode, async (req, res) => {
+    await req.targetNode.destroy()
+    res.send()
 })
 
 function targetGroup (req, res, next) {
@@ -141,13 +126,13 @@ function targetGroup (req, res, next) {
     req.targetGroup ? next() : res.status(404).send()
 }
 
-router.put('/:id/groups/:group', targetGroup, async (req, res) => {
+router.put('/:id/groups/:group', targetNode, targetGroup, async (req, res) => {
     await req.targetNode.addGroup(req.targetGroup)
     res.send()
     clusterEvents.emit('restricted')
 })
 
-router.delete('/:id/groups/:group', targetGroup, async (req, res) => {
+router.delete('/:id/groups/:group', targetNode, targetGroup, async (req, res) => {
     await req.targetNode.removeGroup(req.targetGroup)
     res.send()
     clusterEvents.emit('restricted')
@@ -158,13 +143,13 @@ function targetResource (req, res, next) {
     req.targetResource ? next() : res.status(404).send()
 }
 
-router.put('/:id/resources/:resource/groups/:group', targetResource, targetGroup, async (req, res) => {
+router.put('/:id/resources/:resource/groups/:group', targetNode, targetResource, targetGroup, async (req, res) => {
     await req.targetResource.addGroup(req.targetGroup)
     res.send()
     clusterEvents.emit('restricted')
 })
 
-router.delete('/:id/resources/:resource/groups/:group', targetResource, targetGroup, async (req, res) => {
+router.delete('/:id/resources/:resource/groups/:group', targetNode, targetResource, targetGroup, async (req, res) => {
     await req.targetResource.removeGroup(req.targetGroup)
     res.send()
     clusterEvents.emit('restricted')

@@ -34,7 +34,7 @@ function _getScript (scriptName, alreadyIncluded) {
     if (_loadedScripts.hasOwnProperty(scriptName)) {
         return _loadedScripts[scriptName]
     }
-    let scriptPath = path.join(__dirname, '..', 'scripts', scriptName)
+    let scriptPath = path.join(__dirname, '..', '..', 'scripts', scriptName)
     let script = fs.readFileSync(scriptPath).toString()
     alreadyIncluded[scriptName] = true
     script = script

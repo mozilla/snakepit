@@ -53,7 +53,7 @@ async function wrapLxdResponse (endpoint, promise) {
                 }
             case 'async':
                 log.debug('Forwarding:', data.operation + '/wait')
-                return await wrapLxdResponse(axios.get(endpoint + data.operation + '/wait', { httpsAgent: agent }))
+                return await wrapLxdResponse(endpoint, axios.get(endpoint + data.operation + '/wait', { httpsAgent: agent }))
             case 'error':
                 log.debug('LXD error', data.error)
                 throw data.error
