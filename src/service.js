@@ -39,8 +39,13 @@ if (cluster.isMaster) {
         app.use(require('./routes'))
 
         app.use((err, req, res, next) => {
-            log.error(err, err.stack)
-            res.status(500).send()
+            let message = err.message || 'Internal error'
+            let code = err.code || 500
+            log.error('ERROR', code, message)
+            if (err.stack) {
+                log.error(err.stack)
+            }
+            res.status(code).send({ message: message })
         })
 
         http.createServer(app).listen(config.port, config.interface)

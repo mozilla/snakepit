@@ -1,5 +1,5 @@
 const Router = require('express-promise-router')
-
+const Parallel = require('async-parallel')
 const clusterEvents = require('../utils/clusterEvents.js')
 const pitRunner = require('../pitRunner.js')
 const Pit = require('../models/Pit-model.js')
@@ -26,7 +26,7 @@ function getResourcesFromResult (result) {
                     index: Number(match[2])
                 })
                 resources.push(resource)
-                log.debug('FOUND RESOURCE', id, resource)
+                log.debug('FOUND RESOURCE', resource.type, resource.index, resource.name)
             }
         }
         return resources
@@ -44,23 +44,33 @@ router.get('/', async (req, res) => {
 })
 
 function targetNode (req, res, next) {
-    req.targetNode = Node.findByPk(req.params.id)
-    req.targetNode ? next() : res.status(404).send()
+    Node.findByPk(req.params.id).then(node => {
+        if (node) {
+            req.targetNode = node
+            next()
+        } else {
+            res.status(404).send({ message: 'No node ' + req.params.id })
+        }
+    })
 }
 
 router.get('/:id', targetNode, async (req, res) => {
+    let dbResources = await req.targetNode.getResources()
     res.status(200).json({
         id:          req.targetNode.id,
         endpoint:    req.targetNode.endpoint,
         online:      req.targetNode.online,
         since:       req.targetNode.since,
-        resources:   (await req.targetNode.getResources()).map(async dbResource => ({
-            type:    dbResource.type,
-            name:    dbResource.name,
-            index:   dbResource.index,
-            groups:  (await dbResource.getGroups()).map(group => group.id),
-            alias:   await getAlias(dbResource.name)
-        }))
+        resources:   dbResources.length == 0 ? undefined : await Parallel.map(dbResources, async dbResource => {
+            let dbGroups = await dbResource.getGroups()
+            return {
+                type:    dbResource.type,
+                name:    dbResource.name,
+                index:   dbResource.index,
+                groups:  dbGroups.length == 0 ? undefined : dbGroups.map(group => group.id),
+                alias:   await getAlias(dbResource.name)
+            }
+        })
     })
 })
 
@@ -89,13 +99,16 @@ router.put('/:id', async (req, res) => {
                 devices: { 'gpu': { type: 'gpu' } },
                 script:  getScript('scan.sh')
             }])
-            log.debug('ADDING NODE', id, workers)
             let resources = getResourcesFromResult(result)
             if (resources) {
-                resources.forEach(async resource => await resource.save())
-                node.online = true
-                node.available = true
-                await node.save()
+                log.debug('ADDING NODE', id)
+                resources.forEach(async resource => {
+                    await resource.save()
+                    await dbnode.addResource(resource)
+                })
+                dbnode.online = true
+                dbnode.available = true
+                await dbnode.save()
                 res.send()
             } else {
                 throw new Error('Node scanning failed')
@@ -121,9 +134,9 @@ router.delete('/:id', targetNode, async (req, res) => {
     res.send()
 })
 
-function targetGroup (req, res, next) {
-    req.targetGroup = Group.findByPk(req.params.group)
-    req.targetGroup ? next() : res.status(404).send()
+async function targetGroup (req, res) {
+    req.targetGroup = await Group.findByPk(req.params.group)
+    return req.targetGroup ? Promise.resolve('next') : Promise.reject()
 }
 
 router.put('/:id/groups/:group', targetNode, targetGroup, async (req, res) => {
@@ -138,9 +151,10 @@ router.delete('/:id/groups/:group', targetNode, targetGroup, async (req, res) =>
     clusterEvents.emit('restricted')
 })
 
-function targetResource (req, res, next) {
-    req.targetResource = Resource.findOne({ where: { node: req.targetNode, index: req.params.resource } })
-    req.targetResource ? next() : res.status(404).send()
+async function targetResource (req, res) {
+    let targetResources = await req.targetNode.getResources({ where: { index: req.params.resource } })
+    req.targetResource = targetResources.length == 1 ? targetResources[0] : undefined
+    return req.targetResource ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Resource not found' })
 }
 
 router.put('/:id/resources/:resource/groups/:group', targetNode, targetResource, targetGroup, async (req, res) => {

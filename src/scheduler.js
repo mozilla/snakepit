@@ -151,6 +151,7 @@ async function cleanJob(job) {
 }
 
 function resimulateReservations() {
+    /*
     let jobs = []
     for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
         if (job.state >= jobStates.PREPARING && job.state <= jobStates.WAITING) {
@@ -173,6 +174,7 @@ function resimulateReservations() {
             }
         })
     }
+    */
 }
 
 clusterEvents.on('restricted', resimulateReservations)

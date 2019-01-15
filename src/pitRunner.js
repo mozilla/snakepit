@@ -221,12 +221,12 @@ function waitForPit (pitId, timeout) {
                 if (timer) {
                     clearTimeout(timer)
                 }
-                exports.removeListener('pitStopped', stopListener)
+                clusterEvents.removeListener('pitStopped', stopListener)
                 resolve(results)
             }
         }
         let timeoutListener = () => {
-            exports.removeListener('pitStopped', stopListener)
+            clusterEvents.removeListener('pitStopped', stopListener)
             reject('timeout')
         }
         clusterEvents.on('pitStopped', stopListener)
@@ -264,6 +264,7 @@ async function extractResults (pitId) {
 }
 
 async function stopPit (pitId) {
+    log.debug('STOPPING PIT', pitId)
     clusterEvents.emit('pitStopping', pitId)
     let results = await extractResults(pitId) 
     let nodes = await getAllNodes()
@@ -312,7 +313,7 @@ async function tick () {
         }
     }))
     let [err, pits] = await to(getActivePits())
-    clusterEvents.emit('pitReport', pits)
+    //clusterEvents.emit('pitReport', pits)
     await Parallel.each(pits, async pitId => {
         if (await pitRequestedStop(pitId)) {  
             await stopPit(pitId)
