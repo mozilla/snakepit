@@ -11,15 +11,9 @@ router.get('/', async (req, res) => {
     res.send((await Alias.findAll()).map(alias => alias.id))
 })
 
-function targetAlias (req, res, next) {
-    Alias.findByPk(req.params.id).then(alias => {
-        if (alias) {
-            req.targetAlias = alias
-            next()
-        } else {
-            res.status(404).send()
-        }
-    })
+async function targetAlias (req, res) {
+    req.targetAlias = await Alias.findByPk(req.params.id)
+    return req.targetAlias ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Alias not found' })
 }
 
 router.get('/:id', targetAlias, async (req, res) => {

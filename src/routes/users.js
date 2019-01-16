@@ -1,15 +1,12 @@
 const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const Router = require('express-promise-router')
-
 const config = require('../config.js')
 const fslib = require('../utils/httpfs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
-
+const log = require('../utils/logger.js')
 const User = require('../models/User-model.js')
 const Group = require('../models/Group-model.js')
-
-const log = require('../utils/logger.js')
 
 var router = module.exports = new Router()
 
@@ -114,23 +111,14 @@ router.put('/:id', async (req, res) => {
     }
 })
 
-function targetUser (req, res, next) {
+async function targetUser (req, res) {
     let id = req.params.id
     if (req.user && id == '~') {
-        id = req.user.id
-    }
-    if (id) {
-        User.findByPk(id).then(user => {
-            if (user) {
-                req.targetUser = user
-                next()
-            } else {
-                res.status(404).send()
-            }
-        })
+        req.targetUser = req.user
     } else {
-        res.status(400).send()
+        req.targetUser = await Group.findByPk(id)
     }
+    return req.targetUser ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'User not found' })
 }
 
 router.post('/:id/authenticate', targetUser, async (req, res) => {
@@ -160,12 +148,10 @@ router.get('/', router.ensureAdmin, async (req, res) => {
 
 router.use(router.ensureSignedIn)
 
-let ownerOrAdmin = (req, res, next) => {
-    if (req.user.id == req.targetUser.id || req.user.admin) {
-        next()
-    } else {
-        res.status(403).send()
-    }
+async function ownerOrAdmin (req, res) {
+    return (req.user.id == req.targetUser.id || req.user.admin) ? 
+        Promise.resolve('next') : 
+        Promise.reject({ code: 403, message: 'Only owner or admin' })
 }
 
 router.get('/:id', targetUser, ownerOrAdmin, async (req, res) => {
@@ -186,15 +172,9 @@ router.delete('/:id', targetUser, ownerOrAdmin, async (req, res) => {
     res.send()
 })
 
-function targetGroup (req, res, next) {
-    Group.findByPk(req.params.group).then(group => {
-        if (group) {
-            req.targetGroup = group
-            next()
-        } else {
-            res.status(404).send({ message: 'No group ' + req.params.group })
-        }
-    })
+async function targetGroup (req, res) {
+    req.targetGroup = await Group.findByPk(req.params.group)
+    return req.targetGroup ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Group not found' })
 }
 
 router.put('/:id/groups/:group', router.ensureAdmin, targetUser, targetGroup, async (req, res) => {

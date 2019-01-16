@@ -14,15 +14,9 @@ router.get('/', async (req, res) => {
     res.send((await Group.findAll()).map(group => group.id))
 })
 
-function targetGroup (req, res, next) {
-    Group.findByPk(req.params.id).then(group => {
-        if (group) {
-            req.targetGroup = group
-            next()
-        } else {
-            res.status(404).send()
-        }
-    })
+async function targetGroup (req, res) {
+    req.targetGroup = await Group.findByPk(req.params.id)
+    return req.targetGroup ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Group not found' })
 }
 
 router.get('/:id', targetGroup, async (req, res) => {

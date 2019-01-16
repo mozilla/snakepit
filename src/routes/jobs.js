@@ -207,9 +207,9 @@ router.post('/', async (req, res) => {
     }
 })
 
-function targetGroup (req, res, next) {
-    req.targetGroup = Group.findByPk(req.params.group)
-    req.targetGroup ? next() : res.status(404).send()
+async function targetGroup (req, res) {
+    req.targetGroup = await Group.findByPk(req.params.group)
+    return req.targetGroup ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Group not found' })
 }
 
 router.put('/:id/groups/:group', targetGroup, async (req, res) => {

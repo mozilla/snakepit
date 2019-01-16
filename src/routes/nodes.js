@@ -26,7 +26,6 @@ function getResourcesFromResult (result) {
                     index: Number(match[2])
                 })
                 resources.push(resource)
-                log.debug('FOUND RESOURCE', resource.type, resource.index, resource.name)
             }
         }
         return resources
@@ -43,15 +42,9 @@ router.get('/', async (req, res) => {
     res.status(200).send((await Node.findAll()).map(node => node.id))
 })
 
-function targetNode (req, res, next) {
-    Node.findByPk(req.params.id).then(node => {
-        if (node) {
-            req.targetNode = node
-            next()
-        } else {
-            res.status(404).send({ message: 'No node ' + req.params.id })
-        }
-    })
+async function targetNode (req, res) {
+    req.targetNode = await Node.findByPk(req.params.id)
+    return req.targetNode ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Node not found' })
 }
 
 router.get('/:id', targetNode, async (req, res) => {
@@ -101,7 +94,6 @@ router.put('/:id', async (req, res) => {
             }])
             let resources = getResourcesFromResult(result)
             if (resources) {
-                log.debug('ADDING NODE', id)
                 resources.forEach(async resource => {
                     await resource.save()
                     await dbnode.addResource(resource)
@@ -114,7 +106,6 @@ router.put('/:id', async (req, res) => {
                 throw new Error('Node scanning failed')
             }
         } catch (ex) {
-            log.debug('ADDING NODE FAILED', ex)
             if (dbnode) {
                 await dbnode.destroy()
             }
@@ -136,17 +127,21 @@ router.delete('/:id', targetNode, async (req, res) => {
 
 async function targetGroup (req, res) {
     req.targetGroup = await Group.findByPk(req.params.group)
-    return req.targetGroup ? Promise.resolve('next') : Promise.reject()
+    return req.targetGroup ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Group not found' })
 }
 
 router.put('/:id/groups/:group', targetNode, targetGroup, async (req, res) => {
-    await req.targetNode.addGroup(req.targetGroup)
+    for (let resource of await req.targetNode.getResources()) {
+        await resource.addGroup(req.targetGroup)
+    }
     res.send()
     clusterEvents.emit('restricted')
 })
 
 router.delete('/:id/groups/:group', targetNode, targetGroup, async (req, res) => {
-    await req.targetNode.removeGroup(req.targetGroup)
+    for (let resource of await req.targetNode.getResources()) {
+        await resource.removeGroup(req.targetGroup)
+    }
     res.send()
     clusterEvents.emit('restricted')
 })
