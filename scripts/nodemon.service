@@ -1,0 +1,13 @@
+
+[Unit]
+Description=nodemon - Snakepit node resource monitor
+Documentation=https://github.com/mozilla/snakepit
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash -c "while true; do { echo -e 'HTTP/1.1 200 OK\r\n'; nvidia-smi --query-gpu=pci.bus_id,temperature.gpu,utilization.gpu,utilization.memory --format=csv; } | nc -N -l 8444 2>&1 >/dev/null; done"
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

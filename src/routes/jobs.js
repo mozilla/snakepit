@@ -3,130 +3,21 @@ const tar = require('tar-fs')
 const ndir = require('node-dir')
 const async = require('async')
 const Router = require('express-promise-router')
+const Pit = require('../models/Pit-model.js')
+const Job = require('../models/Job-model.js')
+const Group = require('../models/Group-model.js')
+const scheduler = require('../scheduler.js')
+const reservations = require('../reservations.js')
 
 const fslib = require('../utils/httpfs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
+const { ensureSignedIn } = require('./users.js')
+
+const jobStates = Job.jobStates
 
 var router = module.exports = new Router()
 
-function createJobDescription(dbjob) {
-    let stateChange = new Date(dbjob.stateChanges[dbjob.state])
-    let duration = utils.getDuration(new Date(), stateChange)
-    let utilComp = 0
-    let utilCompCount = 0
-    let utilMem = 0
-    let utilMemCount = 0
-    if (dbjob.clusterReservation) {
-        for(let groupReservation of dbjob.clusterReservation) {
-            for(let processReservation of groupReservation) {
-                let nodeUtilization = utilization[processReservation.node]
-                if (nodeUtilization && processReservation.resources) {
-                    for (let resourceId of Object.keys(processReservation.resources)) {
-                        let resourceUtilization = nodeUtilization[resourceId]
-                        if (resourceUtilization) {
-                            if (resourceUtilization.hasOwnProperty('comp')) {
-                                utilComp += resourceUtilization.comp
-                                utilCompCount++
-                            }
-                            if (resourceUtilization.hasOwnProperty('mem')) {
-                                utilMem += resourceUtilization.mem
-                                utilMemCount++
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return {
-        id:               dbjob.id,
-        description:      dbjob.description,
-        user:             dbjob.user,
-        groups:           dbjob.groups,
-        resources:        dbjob.state >= jobStates.STARTING ? 
-                              reservations.summarizeClusterReservation(dbjob.clusterReservation, true) : 
-                              dbjob.clusterRequest,
-        state:            dbjob.state,
-        since:            duration,
-        schedulePosition: db.schedule.indexOf(dbjob.id),
-        utilComp:         utilComp / utilCompCount,
-        utilMem:          utilMem / utilMemCount
-    }
-}
-
-function getJobDescription(jobId, user, extended) {
-    let dbjob = loadJob(jobId)
-    let job = dbjob ? createJobDescription(dbjob) : null
-    if (job && extended) {
-        job.stateChanges = dbjob.stateChanges
-        if (dbjob.error) {
-            job.error = dbjob.error.trim()
-        }
-        if(groupsModule.canAccessJob(user, dbjob)) {
-            job.provisioning = dbjob.provisioning
-        }
-    }
-    return job
-}
-
-function sendLog(req, res, job) {
-    res.writeHead(200, {
-        'Connection': 'keep-alive',
-        'Content-Type': 'text/plain',
-        'Cache-Control': 'no-cache'
-    })
-    req.connection.setTimeout(60 * 60 * 1000)
-    let interval = config.pollInterval / 10
-    let logPath = path.join(Pit.getDir(job.id), 'pit.log')
-    let written = 0
-    let writeStream = cb => {
-        let stream = fs.createReadStream(logPath, { start: written })
-        stream.on('data', chunk => {
-            res.write(chunk)
-            written += chunk.length
-        })
-        stream.on('end', cb)
-    }
-    let poll = () => {
-        if (job.state <= jobStates.STOPPING) {
-            if (fs.existsSync(logPath)) {
-                fs.stat(logPath, (err, stats) => {
-                    if (!err && stats.size > written) {
-                        writeStream(() => setTimeout(poll, interval))
-                    } else  {
-                        setTimeout(poll, interval)
-                    }
-                })
-            } else {
-                setTimeout(poll, interval)
-            }
-        } else if (fs.existsSync(logPath)) {
-            writeStream(res.end.bind(res))
-        } else {
-            res.status(404).send()
-        }
-    }
-    poll()
-}
-
-function handleJobAndPath(req, res, cb) {
-    var dbjob = loadJob(req.params.id)
-    if (dbjob) {
-        if (groupsModule.canAccessJob(req.user, dbjob)) {
-            let jobDir = Pit.getDir(dbjob.id)
-            let newPath = path.resolve(jobDir, req.params[0] || '')
-            if (newPath.startsWith(jobDir)) {
-                cb(dbjob, newPath)
-            } else {
-                res.status(404).send()
-            }
-        } else {
-            res.status(403).send()
-        }
-    } else {
-        res.status(404).send()
-    }
-}
+router.use(ensureSignedIn)
 
 router.post('/', async (req, res) => {
     let job = req.body
@@ -207,31 +98,41 @@ router.post('/', async (req, res) => {
     }
 })
 
-async function targetGroup (req, res) {
-    req.targetGroup = await Group.findByPk(req.params.group)
-    return req.targetGroup ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Group not found' })
+router.get('/', async (req, res) => {
+    res.send((await Job.findAll()).map(job => job.id))
+})
+
+function createJobDescription(dbjob) {
+    return {
+        id:               dbjob.id,
+        description:      dbjob.description,
+        user:             dbjob.user,
+        groups:           dbjob.groups,
+        resources:        dbjob.state >= jobStates.STARTING ? 
+                              reservations.summarizeClusterReservation(dbjob.clusterReservation, true) : 
+                              dbjob.clusterRequest,
+        state:            dbjob.state,
+        since:            utils.getDuration(new Date(), new Date(dbjob.stateChanges[dbjob.state])),
+        schedulePosition: db.schedule.indexOf(dbjob.id),
+        utilComp:         utilComp / utilCompCount,
+        utilMem:          utilMem / utilMemCount
+    }
 }
 
-router.put('/:id/groups/:group', targetGroup, async (req, res) => {
-    await req.targetJob.addGroup(req.targetGroup)
-    res.send()
-})
-
-router.delete('/:id/groups/:group', targetGroup, async (req, res) => {
-    await req.targetJob.removeGroup(req.targetGroup)
-    res.send()
-    clusterEvents.emit('restricted')
-})
-
-router.get('/', async (req, res) => {
-    fs.readdir('/data/pits', (err, files) => {
-        if (err || !files) {
-            res.status(500).send()
-        } else {
-            res.status(200).send(files.filter(v => !isNaN(parseInt(v, 10))))
+function getJobDescription(jobId, user, extended) {
+    let dbjob = loadJob(jobId)
+    let job = dbjob ? createJobDescription(dbjob) : null
+    if (job && extended) {
+        job.stateChanges = dbjob.stateChanges
+        if (dbjob.error) {
+            job.error = dbjob.error.trim()
         }
-    })
-})
+        if(groupsModule.canAccessJob(user, dbjob)) {
+            job.provisioning = dbjob.provisioning
+        }
+    }
+    return job
+}
 
 router.get('/status', async (req, res) => {
     let jobs = Object.keys(db.jobs).map(k => db.jobs[k])
@@ -251,7 +152,12 @@ router.get('/status', async (req, res) => {
     })
 })
 
-router.get('/:id', async (req, res) => {
+async function targetJob (req, res) {
+    req.targetJob = await Job.findByPk(req.params.id)
+    return req.targetJob ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Job not found' })
+}
+
+router.get('/:id', targetJob, async (req, res) => {
     let job = getJobDescription(req.params.id, req.user, true)
     if (job) {
         res.status(200).send(job)
@@ -260,138 +166,146 @@ router.get('/:id', async (req, res) => {
     }
 })
 
-router.get('/:id/targz', async (req, res) => {
-    let dbjob = loadJob(req.params.id)
-    if (dbjob) {
-        if (groupsModule.canAccessJob(req.user, dbjob)) {
-            let jobdir = Pit.getDir(dbjob.id)
-            res.status(200).type('tar.gz')
-            tar.pack(jobdir).pipe(zlib.createGzip()).pipe(res)
-        } else {
-            res.status(403).send()
-        }
+async function canAccess (req, res) {
+    return req.user.canAccessJob(req.targetJob) ? Promise.resolve('next') : Promise.reject({ code: 403, message: 'Not allowed' })
+}
+
+async function targetGroup (req, res) {
+    req.targetGroup = await Group.findByPk(req.params.group)
+    return req.targetGroup ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Group not found' })
+}
+
+router.put('/:id/groups/:group', targetJob, canAccess, targetGroup, async (req, res) => {
+    await req.targetJob.addGroup(req.targetGroup)
+    res.send()
+})
+
+router.delete('/:id/groups/:group', targetJob, canAccess, targetGroup, async (req, res) => {
+    await req.targetJob.removeGroup(req.targetGroup)
+    res.send()
+    clusterEvents.emit('restricted')
+})
+
+router.get('/:id/targz', targetJob, canAccess, async (req, res) => {
+    let jobDir = Pit.getDir(req.targetJob.id)
+    res.status(200).type('tar.gz')
+    tar.pack(jobDir).pipe(zlib.createGzip()).pipe(res)
+})
+
+async function targetPath (req, res) {
+    let jobDir = Pit.getDir(req.targetJob.id)
+    let newPath = path.resolve(jobDir, req.params[0] || '')
+    if (newPath.startsWith(jobDir)) {
+        req.targetPath = newPath
+        return Promise.resolve('next')
     } else {
-        res.status(404).send()
+        return Promise.reject({ code: 404, message: "Path not found" })
     }
-})
+}
 
-router.get('/:id/stats/(*)?', async (req, res) => {
-    handleJobAndPath(req, res, (dbjob, resource) => {
-        fs.stat(resource, (err, stats) => {
-            if (err || !(stats.isDirectory() || stats.isFile())) {
-                res.status(404).send()
-            } else {
-                res.send({
-                    isFile: stats.isFile(),
-                    size:   stats.size,
-                    mtime:  stats.mtime,
-                    atime:  stats.atime,
-                    ctime:  stats.ctime
-                })
-            }
-        })
-    })
-})
-
-router.get('/:id/content/(*)?', async (req, res) => {
-    handleJobAndPath(req, res, (dbjob, resource) => {
-        fs.stat(resource, (err, stats) => {
-            if (err || !(stats.isDirectory() || stats.isFile())) {
-                res.status(404).send()
-            } else {
-                if (stats.isDirectory()) {
-                    ndir.files(resource, 'all', (err, paths) => {
-                        if (err) {
-                            res.status(500).send()
-                        } else {
-                            res.send({ dirs: paths.dirs, files: paths.files })
-                        }
-                    }, { shortName: true, recursive: false })
-                } else {
-                    res.writeHead(200, {
-                        'Content-Type': 'application/octet-stream',
-                        'Content-Length': stats.size
-                    })
-                    fs.createReadStream(resource).pipe(res)
-                }
-            }
-        })
-    })
-})
-
-router.get('/:id/log', async (req, res) => {
-    let dbjob = loadJob(req.params.id)
-    if (dbjob) {
-        if (groupsModule.canAccessJob(req.user, dbjob)) {
-            sendLog(req, res, dbjob)
-        } else {
-            res.status(403).send()
-        }
-    } else {
-        res.status(404).send()
-    }
-})
-
-router.post('/:id/fs', async (req, res) => {
-    var dbjob = loadJob(req.params.id)
-    if (dbjob) {
-        if (groupsModule.canAccessJob(req.user, dbjob)) {
-            let chunks = []
-            req.on('data', chunk => chunks.push(chunk));
-            req.on('end', () => fslib.serve(
-                fslib.readOnly(fslib.real(Pit.getDir(dbjob.id))), 
-                Buffer.concat(chunks), 
-                result => res.send(result), config.debugJobFS)
-            )
-        } else {
-            res.status(403).send()
-        }
-    } else {
-        res.status(404).send()
-    }
-})
-
-router.post('/:id/stop', async (req, res) => {
-    store.lockAutoRelease('jobs', function() {
-        let dbjob = loadJob(req.params.id)
-        if (dbjob) {
-            if (groupsModule.canAccessJob(req.user, dbjob)) {
-                if (dbjob.state <= jobStates.RUNNING) {
-                    stopJob(dbjob)
-                    res.status(200).send()
-                } else {
-                    res.status(412).send({ message: 'Only jobs before or in running state can be stopped' })
-                }
-            } else {
-                res.status(403).send()
-            }
-        } else {
+router.get('/:id/stats/(*)?', targetJob, canAccess, targetPath, async (req, res) => {
+    fs.stat(req.targetPath, (err, stats) => {
+        if (err || !(stats.isDirectory() || stats.isFile())) {
             res.status(404).send()
+        } else {
+            res.send({
+                isFile: stats.isFile(),
+                size:   stats.size,
+                mtime:  stats.mtime,
+                atime:  stats.atime,
+                ctime:  stats.ctime
+            })
         }
     })
 })
 
-router.delete('/:id', async (req, res) => {
-    store.lockAutoRelease('jobs', function() {
-        var id = Number(req.params.id)
-        var dbjob = loadJob(id)
-        if (dbjob) {
-            if (groupsModule.canAccessJob(req.user, dbjob)) {
-                if (dbjob.state >= jobStates.DONE) {
-                    if (db.jobs[id]) {
-                        delete db.jobs[id]
+router.get('/:id/content/(*)?', targetJob, canAccess, targetPath, async (req, res) => {
+    fs.stat(req.targetPath, (err, stats) => {
+        if (err || !(stats.isDirectory() || stats.isFile())) {
+            res.status(404).send()
+        } else {
+            if (stats.isDirectory()) {
+                ndir.files(req.targetPath, 'all', (err, paths) => {
+                    if (err) {
+                        res.status(500).send()
+                    } else {
+                        res.send({ dirs: paths.dirs, files: paths.files })
                     }
-                    nodesModule.deletePit(id)
-                        .then(() => res.status(200).send())
-                        .catch(err => res.status(500).send())
-                } else {
-                    res.status(412).send({ message: 'Only done or archived jobs can be deleted' })
-                }
+                }, { shortName: true, recursive: false })
             } else {
-                res.status(403).send()
+                res.writeHead(200, {
+                    'Content-Type': 'application/octet-stream',
+                    'Content-Length': stats.size
+                })
+                fs.createReadStream(req.targetPath).pipe(res)
             }
+        }
+    })
+})
+
+router.get('/:id/log', targetJob, canAccess, async (req, res) => {
+    res.writeHead(200, {
+        'Connection': 'keep-alive',
+        'Content-Type': 'text/plain',
+        'Cache-Control': 'no-cache'
+    })
+    req.connection.setTimeout(60 * 60 * 1000)
+    let interval = config.pollInterval / 10
+    let logPath = path.join(Pit.getDir(req.targetJob.id), 'pit.log')
+    let written = 0
+    let writeStream = cb => {
+        let stream = fs.createReadStream(logPath, { start: written })
+        stream.on('data', chunk => {
+            res.write(chunk)
+            written += chunk.length
+        })
+        stream.on('end', cb)
+    }
+    let poll = () => {
+        if (req.targetJob.state <= jobStates.STOPPING) {
+            if (fs.existsSync(logPath)) {
+                fs.stat(logPath, (err, stats) => {
+                    if (!err && stats.size > written) {
+                        writeStream(() => setTimeout(poll, interval))
+                    } else  {
+                        setTimeout(poll, interval)
+                    }
+                })
+            } else {
+                setTimeout(poll, interval)
+            }
+        } else if (fs.existsSync(logPath)) {
+            writeStream(res.end.bind(res))
         } else {
             res.status(404).send()
         }
-    })
+    }
+    poll()
+})
+
+router.post('/:id/fs', targetJob, canAccess, async (req, res) => {
+    let chunks = []
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => fslib.serve(
+        fslib.readOnly(fslib.real(Pit.getDir(req.targetJob.id))), 
+        Buffer.concat(chunks), 
+        result => res.send(result), config.debugJobFS)
+    )
+})
+
+router.post('/:id/stop', targetJob, canAccess, async (req, res) => {
+    if (req.targetJob.state <= jobStates.RUNNING) {
+        await scheduler.stopJob(req.targetJob)
+        res.send()
+    } else {
+        res.status(412).send({ message: 'Only jobs before or in running state can be stopped' })
+    }
+})
+
+router.delete('/:id', targetJob, canAccess, async (req, res) => {
+    if (req.targetJob.state >= jobStates.DONE) {
+        await req.targetJob.destroy()
+    } else {
+        res.status(412).send({ message: 'Only stopped jobs can be deleted' })
+    }
 })

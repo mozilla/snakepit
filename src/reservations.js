@@ -1,6 +1,99 @@
 const { MultiRange } = require('multi-integer-range')
+const Node = require('./models/Node-model.js')
+const Resource = require('./models/Resource-model.js')
+const Allocation = require('./models/Allocation-model.js')
+const Job = require('./models/Job-model.js')
+const Sequelize = require('sequelize')
 
 var exports = module.exports = {}
+
+async function loadNodes (transaction, user, simulation) {
+    let nodes = {}
+    let nodeWhere = { available: true }
+    
+    if (!simulation) {
+        nodeWhere.online = true
+    }
+
+    let resources = await Resource.findAll({
+        include: [
+            { 
+                model: Node, 
+                transaction: transaction,
+                lock: transaction.LOCK,
+                where: nodeWhere 
+            },
+            { 
+                model: Allocation, 
+                require: false,
+                attributes: [],
+                transaction: transaction,
+                lock: transaction.LOCK,
+                include: [
+                    {
+                        model: Job,
+                        require: false,
+                        attributes: [],
+                        transaction: transaction,
+                        lock: transaction.LOCK,
+                        where: { state: { between: [Job.jobStates.STARTING, Job.jobStates.STOPPING] } }
+                    }
+                ]
+            },
+            {
+                model: Resource.ResourceGroup,
+                require: false,
+                attributes: [],
+                transaction: transaction,
+                lock: transaction.LOCK,
+                include: [
+                    {
+                        model: Group,
+                        require: false,
+                        attributes: [],
+                        transaction: transaction,
+                        lock: transaction.LOCK,
+                        include: [
+                            {
+                                model: User.UserGroup,
+                                require: true,
+                                attributes: [],
+                                transaction: transaction,
+                                lock: transaction.LOCK,
+                                include: [
+                                    {
+                                        model: User,
+                                        require: true,
+                                        attributes: [],
+                                        where: { id: user.id }
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+        attributes: [
+            'id',
+            'node',
+            'type',
+            'index',
+            'name',
+            [sequelize.fn('count', sequelize.col('job.id')), 'usecount'],
+            [sequelize.fn('count', sequelize.col('user.id')), 'accesscount'],
+            [sequelize.fn('count', sequelize.col('group.id')), 'groupcount']
+        ],
+        group: ['resource.id'],
+        where: {
+            'usecount': 0,
+            [Sequelize.Op.or]: [
+                { 'groupcount': 0 }, 
+                { 'accesscount': { [Sequelize.Op.gt]: 0 } }
+            ]
+        }
+    })
+}
 
 function _isReserved(clusterReservation, nodeId, resourceId) {
     return [].concat.apply([], clusterReservation).reduce(
@@ -46,7 +139,7 @@ function _reserveProcess(node, clusterReservation, resourceList, user, simulatio
     return nodeReservation
 }
 
-exports.reserveCluster = function(clusterRequest, user, simulation) {
+exports.reserveCluster = function (clusterRequest, user, simulation) {
     let quotients = {}
     let aq = node => {
         if (quotients.hasOwnProperty(node.id)) {

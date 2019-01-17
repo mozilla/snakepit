@@ -2,10 +2,12 @@ const fs = require('fs-extra')
 const path = require('path')
 
 const log = require('./utils/logger.js')
+const { runScript } = require('./utils/scripts.js')
 const clusterEvents = require('./utils/clusterEvents.js')
 const config = require('./config.js')
 const reservations = require('./reservations.js')
 const parseClusterRequest = require('./clusterParser.js').parse
+const Pit = require('./models/Pit-model.js')
 const Job = require('./models/Job-model.js')
 
 const jobStates = Job.jobStates
@@ -14,7 +16,7 @@ var exports = module.exports = {}
 
 var preparations = {}
 
-function getBasicEnv(job) {
+function getBasicEnv (job) {
     return {
         JOB_NUMBER: job.id,
         DATA_ROOT:  '/data',
@@ -22,7 +24,7 @@ function getBasicEnv(job) {
     }
 }
 
-function getPreparationEnv(job) {
+function getPreparationEnv (job) {
     let env = getBasicEnv(job)
     if (job.continues) {
         env.CONTINUE_JOB_NUMBER = job.continues
@@ -30,7 +32,7 @@ function getPreparationEnv(job) {
     return env
 }
 
-function prepareJob(job) {
+async function prepareJob (job) {
     let env = getPreparationEnv(job)
     if (job.origin) {
         Object.assign(env, {
@@ -40,23 +42,21 @@ function prepareJob(job) {
     } else {
         env.ARCHIVE = job.archive
     }
-    job.setState(jobStates.PREPARING)
-    return utils.runScript('prepare.sh', env, (code, stdout, stderr) => {
-        store.lockAutoRelease('jobs', () => {
-            if (code == 0 && fs.existsSync(Pit.getDir(job.id)) && job.state == jobStates.PREPARING) {
-                db.schedule.push(job.id)
-                job.setState(jobStates.WAITING)
-            } else {
-                if (job.state != jobStates.STOPPING) {
-                    appendError(job, 'Problem during preparation step - exit code: ' + code + '\n' + stdout + '\n' + stderr)  
-                }
-                job.setState(jobStates.DONE)
+    await job.setState(jobStates.PREPARING)
+    return runScript('prepare.sh', env, async (code, stdout, stderr) => {
+        if (code == 0 && fs.existsSync(Pit.getDir(job.id)) && job.state == jobStates.PREPARING) {
+            await job.setState(jobStates.WAITING)
+        } else {
+            if (job.state != jobStates.STOPPING) {
+                appendError(job, 'Problem during preparation step - exit code: ' + code + '\n' + stdout + '\n' + stderr)  
             }
-        })
+            await job.setState(jobStates.DONE)
+        }
     })
 }
+exports.prepareJob = prepareJob
 
-function startJob (job, clusterReservation, callback) {
+async function startJob (job, clusterReservation, callback) {
     job.setState(jobStates.STARTING)
     job.clusterReservation = clusterReservation
     let jobEnv = getBasicEnv(job)
@@ -120,8 +120,9 @@ function startJob (job, clusterReservation, callback) {
         callback()
     })
 }
+exports.startJob = startJob
 
-function stopJob (job) {
+async function stopJob (job) {
     let scheduleIndex = db.schedule.indexOf(job.id)
     if (scheduleIndex >= 0) {
         db.schedule.splice(scheduleIndex, 1)
@@ -142,13 +143,15 @@ function stopJob (job) {
         nodesModule.stopPit(job.id).then(finalizeJob).catch(finalizeJob)
     }
 }
+exports.stopJob = stopJob
 
-async function cleanJob(job) {
+async function cleanJob (job) {
     await job.setState(jobStates.CLEANING)
     utils.runScript('clean.sh', getPreparationEnv(job), async (code, stdout, stderr) => {
         await job.setState(jobStates.DONE, code > 0 ? ('Problem during cleaning step - exit code: ' + code + '\n' + stderr) : undefined)
     })
 }
+exports.cleanJob = cleanJob
 
 function resimulateReservations() {
     /*

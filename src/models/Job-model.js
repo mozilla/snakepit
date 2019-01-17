@@ -11,6 +11,7 @@ var Job = sequelize.define('job', {
     title:      { type: Sequelize.STRING,  allowNull: false },
     request:    { type: Sequelize.STRING,  allowNull: false },
     state:      { type: Sequelize.INTEGER, allowNull: false },
+    rank:       { type: Sequelize.INTEGER, allowNull: false, defaultValue: 0 },
     continues:  { type: Sequelize.INTEGER, allowNull: true }
 })
 
@@ -22,8 +23,7 @@ Job.jobStates = {
     RUNNING: 4,
     STOPPING: 5,
     CLEANING: 6,
-    DONE: 7,
-    ARCHIVED: 8
+    DONE: 7
 }
 
 Job.belongsTo(Pit, { foreignKey: 'id' })
@@ -40,14 +40,33 @@ User.prototype.canAccessJob = async (job) => {
     if (this.admin || await job.hasUser(this)) {
         return true
     }
-    return (await Job.count({ 
-        where: { id: job.id }, 
+    return await job.hasOne({
         include: [
-            { model: JobGroup },
-            { model: User.UserGroup },
-            { model: User, where: { id: this.id } }
+            {
+                model: JobGroup,
+                require: true,
+                include: [
+                    {
+                        model: Group,
+                        require: true,
+                        include: [
+                            {
+                                model: User.UserGroup,
+                                require: true,
+                                include: [
+                                    {
+                                        model: User,
+                                        require: true,
+                                        where: { id: this.id }
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
         ]
-    }) > 0)
+    })
 }
 
 Job.prototype.getJobDir = function () {
@@ -55,15 +74,43 @@ Job.prototype.getJobDir = function () {
 } 
 
 Job.prototype.setState = async (state, reason) => {
-    let transaction
+    if (this.state == state) {
+        return
+    }
+    let t
     try {
-        transaction = await sequelize.transaction()
+        t = await sequelize.transaction({ type: Sequelize.Transaction.TYPES.EXCLUSIVE })
+        let stateData = { state: state, since: Date.now(), reason: reason }
+        let stateEntry = await this.getState({ where: { state: state }, transaction: t, lock: t.LOCK })
+        n = new State
+        if (stateEntry) {
+            stateEntry.since = Date.now()
+            stateEntry.reason = reason
+            stateEntry.update({ transaction: t, lock: t.LOCK })
+        } else {
+            await this.addState(stateData, { transaction: t, lock: t.LOCK })
+        }
+        if (this.state != Job.jobStates.WAITING && state == Job.jobStates.WAITING) {
+            this.rank = ((await Job.max('rank', { where: { state: Job.jobStates.WAITING }, transaction: t, lock: t.LOCK })) || 0) + 1
+        } else if (this.state == Job.jobStates.WAITING && state != Job.jobStates.WAITING) {
+            await Job.update(
+                { rank: Sequelize.literal('rank - 1') }, 
+                { 
+                    where: { 
+                        state: Job.jobStates.WAITING, 
+                        rank: { [gt]: this.rank } 
+                    },
+                    transaction: t, 
+                    lock: t.LOCK
+                }
+            )
+            this.rank = 0
+        }
         this.state = state
-        await this.save()
-        await this.addState({ state: state, since: Date.now(), reason: reason })
-        await transaction.commit()
+        await this.save({ transaction: t, lock: t.LOCK })
+        await t.commit()
     } catch (err) {
-        await transaction.rollback()
+        await t.rollback()
         throw err
     }
 }

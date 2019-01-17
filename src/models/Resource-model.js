@@ -10,7 +10,7 @@ var Resource = sequelize.define('resource', {
     name:       { type: Sequelize.STRING,  allowNull: false }
 })
 
-var ResourceGroup = sequelize.define('resourcegroup')
+var ResourceGroup = Resource.ResourceGroup = sequelize.define('resourcegroup')
 Resource.belongsToMany(Group, { through: ResourceGroup })
 Group.belongsToMany(Resource, { through: ResourceGroup })
 
