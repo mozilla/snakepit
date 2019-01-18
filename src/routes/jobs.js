@@ -46,10 +46,6 @@ router.post('/', async (req, res) => {
         }
     }
     let pit = await Pit.create()
-    if (!pit) {
-        res.status(500).send({ message: 'Unable to create pit' })
-        return
-    }
     let provisioning
     if (job.origin) {
         provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
@@ -60,7 +56,7 @@ router.post('/', async (req, res) => {
     } else if (job.archive) {
         provisioning = 'Archive (' + fs.statSync(job.archive).size + ' bytes)'
     }
-    let dbjob = Job.build({
+    let dbjob = Job.create({
         id:           pit.id,
         description:  ('' + job.description).substring(0,20),
         provisioning: provisioning,
@@ -68,7 +64,9 @@ router.post('/', async (req, res) => {
         continueJob:  job.continueJob
     })
     if (!job.private) {
-        dbjob.groups = req.user.autoshare
+        for(let autoshare of (await req.user.getAutoshares())) {
+            await dbjob.addGroup(autoshare.group)
+        }
     }
     var files = {}
     files['script'] = (job.script || 'if [ -f .compute ]; then bash .compute; fi') + '\n'
@@ -97,12 +95,10 @@ function createJobDescription(dbjob) {
         description:      dbjob.description,
         user:             dbjob.user,
         groups:           dbjob.groups,
-        resources:        dbjob.state >= jobStates.STARTING ? 
-                              reservations.summarizeClusterReservation(dbjob.clusterReservation, true) : 
-                              dbjob.clusterRequest,
+        resources:        dbjob.state >= jobStates.STARTING ? dbjob.allocation : dbjob.clusterRequest,
         state:            dbjob.state,
         since:            utils.getDuration(new Date(), new Date(dbjob.stateChanges[dbjob.state])),
-        schedulePosition: db.schedule.indexOf(dbjob.id),
+        schedulePosition: dbjob.rank,
         utilComp:         utilComp / utilCompCount,
         utilMem:          utilMem / utilMemCount
     }

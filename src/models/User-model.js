@@ -16,6 +16,10 @@ var UserGroup = User.UserGroup = sequelize.define('usergroup')
 User.belongsToMany(Group, { through: UserGroup })
 Group.belongsToMany(User, { through: UserGroup })
 
+var AutoShare = User.AutoShare = sequelize.define('autoshare')
+User.belongsToMany(Group, { as: 'autoshare', through: AutoShare })
+Group.belongsToMany(User, { as: 'autoshare', through: AutoShare })
+
 const userPrefix = '/data/home/'
 
 User.prototype.isMemberOf = async group => {

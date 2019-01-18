@@ -11,7 +11,7 @@ var Job = sequelize.define('job', {
     description:  { type: Sequelize.STRING,  allowNull: false },
     provisioning: { type: Sequelize.STRING,  allowNull: false },
     request:      { type: Sequelize.STRING,  allowNull: false },
-    state:        { type: Sequelize.INTEGER, allowNull: false },
+    state:        { type: Sequelize.INTEGER, allowNull: true },
     rank:         { type: Sequelize.INTEGER, allowNull: false, defaultValue: 0 },
     allocation:   { type: Sequelize.STRING,  allowNull: true },
     continues:    { type: Sequelize.INTEGER, allowNull: true }
