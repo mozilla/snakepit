@@ -1,13 +1,15 @@
 const { MultiRange } = require('multi-integer-range')
 const Node = require('./models/Node-model.js')
 const Resource = require('./models/Resource-model.js')
-const Allocation = require('./models/Allocation-model.js')
 const Job = require('./models/Job-model.js')
+const ProcessGroup = require('./models/ProcessGroup-model.js')
+const Process = require('./models/Process-model.js')
+const Allocation = require('./models/Allocation-model.js')
 const Sequelize = require('sequelize')
 
 var exports = module.exports = {}
 
-async function loadNodes (transaction, user, simulation) {
+async function loadNodes (transaction, userId, simulation) {
     let nodes = {}
     let nodeWhere = { available: true }
     
@@ -65,7 +67,7 @@ async function loadNodes (transaction, user, simulation) {
                                         model: User,
                                         require: true,
                                         attributes: [],
-                                        where: { id: user.id }
+                                        where: { id: userId }
                                     }
                                 ],
                             }
@@ -93,24 +95,21 @@ async function loadNodes (transaction, user, simulation) {
             ]
         }
     })
+    for (let resource of resources) {
+        let nodeResources = nodes[resource.node]
+        if (!nodeResources) {
+            nodeResources = nodes[resource.node] = {}
+        }
+        nodeResources[resource.id] = resources
+    }
+    return nodes
 }
 
-function _isReserved(clusterReservation, nodeId, resourceId) {
-    return [].concat.apply([], clusterReservation).reduce(
-        (result, reservation) =>
-            result || (
-                reservation.node == nodeId &&
-                reservation.resources.hasOwnProperty(resourceId)
-            ),
-        false
-    )
-}
-
-function _reserveProcess(node, clusterReservation, resourceList, user, simulation) {
+function reserveProcess (node, clusterReservation, resourceList) {
     if (!node || !node.resources) {
         return null
     }
-    let nodeReservation = { node: node.id, resources: {} }
+    let processReservation = {}
     for (let resource of resourceList) {
         let resourceCounter = resource.count
         //console.log('Looking for ' + resource.count + ' x ' + resource.name)
@@ -119,15 +118,8 @@ function _reserveProcess(node, clusterReservation, resourceList, user, simulatio
             //console.log('Testing ' + resourceId)
             if (resourceCounter > 0) {
                 let nodeResource = node.resources[resourceId]
-                if (nodeResource.name == name &&
-                    !_isReserved(clusterReservation, node.id, resourceId) &&
-                    (!nodeResource.job || simulation) &&
-                    groupsModule.canAccessResource(user, nodeResource)
-                ) {
-                    nodeReservation.resources[resourceId] = {
-                        type: nodeResource.type,
-                        index: nodeResource.index
-                    }
+                if (nodeResource.name == name && !clusterReservation[resourceId]) {
+                    processReservation[resourceId] = nodeResource
                     resourceCounter--
                 }
             }
@@ -136,86 +128,20 @@ function _reserveProcess(node, clusterReservation, resourceList, user, simulatio
             return null
         }
     }
-    return nodeReservation
+    return processReservation
 }
 
-exports.reserveCluster = function (clusterRequest, user, simulation) {
-    let quotients = {}
-    let aq = node => {
-        if (quotients.hasOwnProperty(node.id)) {
-            return quotients[node.id]
-        }
-        let resources = Object.keys(node.resources).map(k => node.resources[k])
-        let allocated = resources.filter(resource => !!resource.job)
-        return quotients[node.id] = resources.length / (allocated.length + 1)
-    }
-    let nodes = Object.keys(db.nodes)
-        .map(k => db.nodes[k])
-        .filter(node => node.state == nodesModule.nodeStates.ONLINE || simulation)
-        .sort((a, b) => aq(a) - aq(b))
-    let clusterReservation = []
-    for(let groupIndex = 0; groupIndex < clusterRequest.length; groupIndex++) {
-        let groupRequest = clusterRequest[groupIndex]
-        let groupReservation = []
-        clusterReservation.push(groupReservation)
-        for(let processIndex = 0; processIndex < groupRequest.count; processIndex++) {
-            let processReservation
-            for (let node of nodes) {
-                processReservation = _reserveProcess(node, clusterReservation, groupRequest.process, user, simulation)
-                if (processReservation) {
-                    break
-                }
-            }
-            if (processReservation) {
-                processReservation.groupIndex = groupIndex
-                processReservation.processIndex = processIndex
-                groupReservation.push(processReservation)
-            } else {
-                return null
-            }
-        }
-    }
-    return clusterReservation
-}
-
-exports.fulfillReservation = function (clusterReservation, jobId) {
-    for (let groupReservation of clusterReservation) {
-        for (let reservation of groupReservation) {
-            let node = db.nodes[reservation.node]
-            for(let resourceId of Object.keys(reservation.resources)) {
-                let resource = node.resources[resourceId]
-                resource.job = jobId
-            }
-        }
-    }
-}
-
-exports.freeReservation = function (clusterReservation) {
-    for (let groupReservation of clusterReservation) {
-        for (let reservation of groupReservation) {
-            let node = db.nodes[reservation.node]
-            for(let resourceId of Object.keys(reservation.resources)) {
-                let resource = node.resources[resourceId]
-                if (resource) {
-                    delete resource.job
-                }
-            }
-        }
-    }
-}
-
-exports.summarizeClusterReservation = function(clusterReservation, skipNumerical) {
+function reservationSummary (clusterReservation) {
     if (!clusterReservation) {
         return
     }
     let nodes = {}
-    for(let groupReservation of clusterReservation) {
-        for(let processReservation of groupReservation) {
-            nodes[processReservation.node] =
-                Object.assign(
-                    nodes[processReservation.node] || {},
-                    processReservation.resources
-                )
+    for(let resource of Object.keys(clusterReservation).map(k => clusterReservation[k])) {
+        let resources = nodes[resource.node]
+        if (resources) {
+            resources.push(resource)
+        } else {
+            nodes[resource.node] = [resource]
         }
     }
     let summary = ''
@@ -226,17 +152,8 @@ exports.summarizeClusterReservation = function(clusterReservation, skipNumerical
         }
         summary += nodeId + '['
         let first = true
-        for(let type of
-            Object.keys(nodeResources)
-            .map(r => nodeResources[r].type)
-            .filter(v => !v.startsWith('num:') || !skipNumerical)
-            .filter((v, i, a) => a.indexOf(v) === i) // make unique
-        ) {
-            let resourceIndices =
-                Object.keys(nodeResources)
-                .map(r => nodeResources[r])
-                .filter(r => r.type == type)
-                .map(r => r.index)
+        for(let type of nodeResources.map(r => r.type).filter((v, i, a) => a.indexOf(v) === i)) {
+            let resourceIndices = nodeResources.filter(r => r.type == type).map(r => r.index)
             if (resourceIndices.length > 0) {
                 if (!first) {
                     summary += ' + '
@@ -251,3 +168,60 @@ exports.summarizeClusterReservation = function(clusterReservation, skipNumerical
     }
     return summary
 }
+
+async function allocate (clusterRequest, userId, job) {
+    let simulation = !job
+    let t
+    try {
+        t = await sequelize.transaction({ type: Sequelize.Transaction.TYPES.EXCLUSIVE })
+        let nodes = await loadNodes(t, userId, simulation)
+        let clusterReservation = {}
+        for(let groupIndex = 0; groupIndex < clusterRequest.length; groupIndex++) {
+            let groupRequest = clusterRequest[groupIndex]
+            let jobProcessGroup
+            if (!simulation) {
+                jobProcessGroup = await ProcessGroup.create({ index: groupIndex })
+                await job.addProcessGroup(jobProcessGroup)
+            }
+            for(let processIndex = 0; processIndex < groupRequest.count; processIndex++) {
+                let processReservation
+                let jobProcess
+                if (!simulation) {
+                    jobProcess = await Process.create({ index: processIndex })
+                    await jobProcessGroup.addProcess(jobProcess)
+                }
+                for (let node of nodes) {
+                    processReservation = reserveProcess(node, clusterReservation, groupRequest.process)
+                    if (processReservation) {
+                        break
+                    }
+                }
+                if (processReservation) {
+                    clusterReservation = Object.assign(clusterReservation, processReservation)
+                    for(let resource of Object.keys(processReservation).map(k => processReservation[k])) {
+                        let allocation = await Allocation.create()
+                        await jobProcess.addAllocation(allocation)
+                        await allocation.addResource(resource)
+                    }
+                } else if (simulation) {
+                    return false
+                } else {
+                    await t.rollback()
+                    return false
+                }
+            }
+        }
+        if (!simulation) {
+            job.allocation = reservationSummary(clusterReservation)
+            await job.save()
+            await t.commit()
+        }
+        return true
+    } catch (err) {
+        await t.rollback()
+        throw err
+    }
+}
+
+exports.canAllocate = (request, user) => allocate(request, user.id)
+exports.tryAllocate = job => allocate(job.request, job.userId, job)

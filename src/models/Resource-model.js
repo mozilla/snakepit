@@ -4,10 +4,10 @@ const Group = require('./Group-model.js')
 const User = require('./User-model.js')
 
 var Resource = sequelize.define('resource', {
-    id:         { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
-    type:       { type: Sequelize.STRING,  allowNull: false },
-    index:      { type: Sequelize.INTEGER, allowNull: false },
-    name:       { type: Sequelize.STRING,  allowNull: false }
+    id:           { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
+    type:         { type: Sequelize.STRING,  allowNull: false },
+    index:        { type: Sequelize.INTEGER, allowNull: false },
+    name:         { type: Sequelize.STRING,  allowNull: false }
 })
 
 var ResourceGroup = Resource.ResourceGroup = sequelize.define('resourcegroup')

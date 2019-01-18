@@ -1,13 +1,15 @@
+const fs = require('fs-extra')
 const zlib = require('zlib')
 const tar = require('tar-fs')
 const ndir = require('node-dir')
-const async = require('async')
+const Parallel = require('async-parallel')
 const Router = require('express-promise-router')
 const Pit = require('../models/Pit-model.js')
 const Job = require('../models/Job-model.js')
 const Group = require('../models/Group-model.js')
 const scheduler = require('../scheduler.js')
 const reservations = require('../reservations.js')
+const parseClusterRequest = require('./clusterParser.js').parse
 
 const fslib = require('../utils/httpfs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
@@ -28,74 +30,61 @@ router.post('/', async (req, res) => {
         res.status(400).send({ message: 'Problem parsing allocation' })
         return
     }
+    if (!(await reservations.canAllocate(clusterRequest, req.user))) {
+        res.status(406).send({ message: 'Cluster cannot fulfill resource request' })
+        return
+    }
     if (job.continueJob) {
-        let continueJob = loadJob(job.continueJob)
+        let continueJob = await Job.findByPk(job.continueJob)
         if (!continueJob) {
             res.status(404).send({ message: 'The job to continue is not existing' })
             return
         }
-        if (!groupsModule.canAccessJob(req.user, continueJob)) {
+        if (!(await req.user.canAccessJob(continueJob))) {
             res.status(403).send({ message: 'Continuing provided job not allowed for current user' })
             return
         }
     }
-    let simulatedReservation = reservations.reserveCluster(clusterRequest, req.user, true)
-    if (simulatedReservation) {
-        nodesModule.createPit().then(id => {
-            store.lockAutoRelease('jobs', function() {
-                let dbjob = {
-                    id:                 id,
-                    user:               req.user.id,
-                    description:        ('' + job.description).substring(0,20),
-                    clusterRequest:     job.clusterRequest,
-                    clusterReservation: simulatedReservation,
-                    script:             job.script || 'if [ -f .compute ]; then bash .compute; fi',
-                    continueJob:        job.continueJob,
-                    origin:             job.origin,
-                    hash:               job.hash,
-                    archive:            job.archive
-                }
-                if (!job.private) {
-                    dbjob.groups = req.user.autoshare
-                }
-                if (job.origin) {
-                    dbjob.provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
-                    if (job.diff) {
-                        dbjob.provisioning += ' with ' +
-                            (job.diff + '').split('\n').length + ' LoC diff'
-                    }
-                } else if (job.archive) {
-                    dbjob.provisioning = 'Archive (' + fs.statSync(job.archive).size + ' bytes)'
-                }
-                setJobState(dbjob, jobStates.NEW)
-
-                var files = {}
-                if (job.diff) {
-                    files['git.patch'] = job.diff + '\n'
-                }
-                let jobDir = Pit.getDir(dbjob.id)
-                async.forEachOf(files, (content, file, done) => {
-                    let p = path.join(jobDir, file)
-                    fs.writeFile(p, content, err => {
-                        if (err) {
-                            done('Error on persisting ' + file)
-                        } else {
-                            done()
-                        }
-                    })
-                }, err => {
-                    if (err) {
-                        res.status(500).send({ message: err })
-                    } else {
-                        db.jobs[id] = dbjob
-                        res.status(200).send({ id: id })
-                    }
-                })
-            })
-        }).catch(err => res.status(500).send({ message: 'Cannot create pit directory' }))
-    } else {
-        res.status(406).send({ message: 'Cluster cannot fulfill resource request' })
+    let pit = await Pit.create()
+    if (!pit) {
+        res.status(500).send({ message: 'Unable to create pit' })
+        return
     }
+    let provisioning
+    if (job.origin) {
+        provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
+        if (job.diff) {
+            provisioning += ' with ' +
+                (job.diff + '').split('\n').length + ' LoC diff'
+        }
+    } else if (job.archive) {
+        provisioning = 'Archive (' + fs.statSync(job.archive).size + ' bytes)'
+    }
+    let dbjob = Job.build({
+        id:           pit.id,
+        description:  ('' + job.description).substring(0,20),
+        provisioning: provisioning,
+        request:      job.clusterRequest,
+        continueJob:  job.continueJob
+    })
+    if (!job.private) {
+        dbjob.groups = req.user.autoshare
+    }
+    var files = {}
+    files['script'] = (job.script || 'if [ -f .compute ]; then bash .compute; fi') + '\n'
+    if (job.origin) {
+        files['origin'] = job.origin
+    }
+    if (job.hash) {
+        files['hash'] = job.hash
+    }
+    if (job.diff) {
+        files['git.patch'] = job.diff + '\n'
+    }
+    let jobDir = Pit.getDir(pit.id)
+    await Parallel.each(Object.keys(files), filename => fs.writeFile(path.join(jobDir, filename), content))
+    await job.setState(jobStates.NEW)
+    res.status(200).send({ id: id })
 })
 
 router.get('/', async (req, res) => {

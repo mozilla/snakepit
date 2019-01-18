@@ -4,8 +4,8 @@ const sequelize = require('./db.js')
 const log = require('../utils/logger.js')
 
 var Group = sequelize.define('group', {
-    id:         { type: Sequelize.STRING, allowNull: false, primaryKey: true },
-    title:      { type: Sequelize.STRING, allowNull: true }
+    id:           { type: Sequelize.STRING, allowNull: false, primaryKey: true },
+    title:        { type: Sequelize.STRING, allowNull: true }
 })
 
 const groupPrefix = '/data/groups/'

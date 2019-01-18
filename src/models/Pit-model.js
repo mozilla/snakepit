@@ -6,7 +6,7 @@ const config = require('../config.js')
 const fs = require('fs-extra')
 
 var Pit = sequelize.define('pit', {
-    id:         { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true }
+    id:           { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true }
 })
 
 const pitPrefix = '/data/pits/'

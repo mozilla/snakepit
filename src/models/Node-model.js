@@ -6,12 +6,12 @@ const lxd = require('../utils/lxd.js')
 const config = require('../config.js')
 
 var Node = sequelize.define('node', {
-    id:         { type: Sequelize.STRING,  primaryKey: true },
-    endpoint:   { type: Sequelize.STRING,  allowNull: false },
-    password:   { type: Sequelize.STRING,  allowNull: true },
-    online:     { type: Sequelize.BOOLEAN, allowNull: false, defaultValue: false },
-    available:  { type: Sequelize.BOOLEAN, allowNull: false, defaultValue: false },
-    since:      { type: Sequelize.DATE,    allowNull: false }
+    id:           { type: Sequelize.STRING,  primaryKey: true },
+    endpoint:     { type: Sequelize.STRING,  allowNull: false },
+    password:     { type: Sequelize.STRING,  allowNull: true },
+    online:       { type: Sequelize.BOOLEAN, allowNull: false, defaultValue: false },
+    available:    { type: Sequelize.BOOLEAN, allowNull: false, defaultValue: false },
+    since:        { type: Sequelize.DATE,    allowNull: false }
 })
 
 Node.hasMany(Resource)

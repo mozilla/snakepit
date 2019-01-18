@@ -6,7 +6,6 @@ const { runScript } = require('./utils/scripts.js')
 const clusterEvents = require('./utils/clusterEvents.js')
 const config = require('./config.js')
 const reservations = require('./reservations.js')
-const parseClusterRequest = require('./clusterParser.js').parse
 const Pit = require('./models/Pit-model.js')
 const Job = require('./models/Job-model.js')
 
@@ -34,14 +33,6 @@ function getPreparationEnv (job) {
 
 async function prepareJob (job) {
     let env = getPreparationEnv(job)
-    if (job.origin) {
-        Object.assign(env, {
-            ORIGIN: job.origin,
-            HASH:   job.hash
-        })
-    } else {
-        env.ARCHIVE = job.archive
-    }
     await job.setState(jobStates.PREPARING)
     return runScript('prepare.sh', env, async (code, stdout, stderr) => {
         if (code == 0 && fs.existsSync(Pit.getDir(job.id)) && job.state == jobStates.PREPARING) {

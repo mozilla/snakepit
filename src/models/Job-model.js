@@ -7,12 +7,14 @@ const State = require('./State-model.js')
 const ProcessGroup = require('./ProcessGroup-model.js')
 
 var Job = sequelize.define('job', {
-    id:         { type: Sequelize.INTEGER, primaryKey: true },
-    title:      { type: Sequelize.STRING,  allowNull: false },
-    request:    { type: Sequelize.STRING,  allowNull: false },
-    state:      { type: Sequelize.INTEGER, allowNull: false },
-    rank:       { type: Sequelize.INTEGER, allowNull: false, defaultValue: 0 },
-    continues:  { type: Sequelize.INTEGER, allowNull: true }
+    id:           { type: Sequelize.INTEGER, primaryKey: true },
+    description:  { type: Sequelize.STRING,  allowNull: false },
+    provisioning: { type: Sequelize.STRING,  allowNull: false },
+    request:      { type: Sequelize.STRING,  allowNull: false },
+    state:        { type: Sequelize.INTEGER, allowNull: false },
+    rank:         { type: Sequelize.INTEGER, allowNull: false, defaultValue: 0 },
+    allocation:   { type: Sequelize.STRING,  allowNull: true },
+    continues:    { type: Sequelize.INTEGER, allowNull: true }
 })
 
 Job.jobStates = {
@@ -26,13 +28,15 @@ Job.jobStates = {
     DONE: 7
 }
 
-Job.belongsTo(Pit, { foreignKey: 'id' })
-
 Job.hasMany(State)
 
 Job.hasMany(ProcessGroup)
 
-var JobGroup = sequelize.define('jobgroup')
+Job.belongsTo(Pit, { foreignKey: 'id' })
+
+Job.belongsTo(User)
+
+var JobGroup = Job.JobGroup = sequelize.define('jobgroup')
 Job.belongsToMany(Group, { through: JobGroup })
 Group.belongsToMany(Job, { through: JobGroup })
 

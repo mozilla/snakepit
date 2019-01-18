@@ -4,7 +4,7 @@ const Resource = require('./Resource-model.js')
 const Utilization = require('./Utilization-model.js')
 
 var Allocation = sequelize.define('allocation', {
-    id:         { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true }
+    id:           { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true }
 })
 
 Allocation.belongsTo(Resource)
