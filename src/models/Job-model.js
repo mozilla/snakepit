@@ -73,9 +73,15 @@ User.prototype.canAccessJob = async (job) => {
     })
 }
 
-Job.prototype.getJobDir = function () {
+Job.getDir = (jobId) => Pit.getDir(jobId)
+Job.prototype.getDir = function () {
     return Pit.getDir(this.id)
 } 
+
+Job.getDirExternal = (jobId) => Pit.getDirExternal(jobId)
+Job.prototype.getDirExternal = function () {
+    return Pit.getDirExternal(this.id)
+}
 
 Job.prototype.setState = async (state, reason) => {
     if (this.state == state) {

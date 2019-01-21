@@ -30,4 +30,9 @@ Group.prototype.getDir = function () {
     return Group.getDir(this.id)
 }
 
+Group.getDirExternal = (groupId) => path.join(config.mountRoot, 'groups', groupId + '')
+Group.prototype.getDirExternal = function () {
+    return Group.getDirExternal(this.id)
+}
+
 module.exports = Group

@@ -44,6 +44,11 @@ User.afterDestroy(async user => {
 User.getDir = (userId) => userPrefix + userId
 User.prototype.getDir = function () {
     return User.getDir(this.id)
-} 
+}
+
+User.getDirExternal = (userId) => path.join(config.mountRoot, 'home', userId + '')
+User.prototype.getDirExternal = function () {
+    return User.getDirExternal(this.id)
+}
 
 module.exports = User

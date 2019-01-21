@@ -1,6 +1,7 @@
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
 const Allocation = require('./Allocation-model.js')
+const Node = require('./Node-model.js')
 
 var Process = sequelize.define('process', {
     id:           { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
@@ -10,5 +11,7 @@ var Process = sequelize.define('process', {
 })
 
 Process.hasMany(Allocation)
+
+Process.belongsTo(Node)
 
 module.exports = Process

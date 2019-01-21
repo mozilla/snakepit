@@ -5,9 +5,10 @@ const log = require('./utils/logger.js')
 const { runScript } = require('./utils/scripts.js')
 const clusterEvents = require('./utils/clusterEvents.js')
 const config = require('./config.js')
+const pitRunner = require('./pitRunner.js')
 const reservations = require('./reservations.js')
-const Pit = require('./models/Pit-model.js')
 const Job = require('./models/Job-model.js')
+
 
 const jobStates = Job.jobStates
 
@@ -19,7 +20,7 @@ function getBasicEnv (job) {
     return {
         JOB_NUMBER: job.id,
         DATA_ROOT:  '/data',
-        JOB_DIR:    job.getJobDir()
+        JOB_DIR:    job.getDir()
     }
 }
 
@@ -35,7 +36,7 @@ async function prepareJob (job) {
     let env = getPreparationEnv(job)
     await job.setState(jobStates.PREPARING)
     return runScript('prepare.sh', env, async (code, stdout, stderr) => {
-        if (code == 0 && fs.existsSync(Pit.getDir(job.id)) && job.state == jobStates.PREPARING) {
+        if (code == 0 && fs.existsSync(job.getDir()) && job.state == jobStates.PREPARING) {
             await job.setState(jobStates.WAITING)
         } else {
             if (job.state != jobStates.STOPPING) {
@@ -47,41 +48,57 @@ async function prepareJob (job) {
 }
 exports.prepareJob = prepareJob
 
-async function startJob (job, clusterReservation, callback) {
-    job.setState(jobStates.STARTING)
-    job.clusterReservation = clusterReservation
+async function startJob (job) {
+    await job.setState(jobStates.STARTING)
+    let user = await job.getUser()
     let jobEnv = getBasicEnv(job)
     
     jobEnv.JOB_DIR = '/data/rw/pit'
     jobEnv.SRC_DIR = jobEnv.WORK_DIR = '/data/rw/pit/src'
-    fs.mkdirpSync('/data/shared')
-    fs.mkdirpSync('/data/home/' + job.user)
     let shares = {
         '/ro/shared':    path.join(config.mountRoot, 'shared'),
-        '/data/rw/home': path.join(config.mountRoot, 'home', job.user)
+        '/data/rw/home': user.getDirExternal()
     }
     jobEnv.DATA_ROOT = '/data'
     jobEnv.SHARED_DIR = '/data/ro/shared'
     jobEnv.USER_DIR = '/data/rw/home'
-    for (let group of groupsModule.getGroups(db.users[job.user])) {
-        fs.mkdirpSync('/data/groups/' + group)
-        shares['/data/rw/group-' + group] = path.join(config.mountRoot, 'groups', group)
+    for (let group of (await user.getGroups())) {
+        shares['/data/rw/group-' + group] = group.getDirExternal()
         jobEnv[group.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + group
     }
 
+    let processGroups = await job.getProcessGroups({ 
+        include: [
+            {
+                model: Process,
+                require: true,
+                include: 
+                [
+                    {
+                        model: Allocation,
+                        require: false,
+                        include: [
+                            {
+                                model: Resource,
+                                require: true
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    })
+
     let workers = []
-    jobEnv.NUM_GROUPS = clusterReservation.length
-    for(let gIndex = 0; gIndex < clusterReservation.length; gIndex++) {
-        let groupReservation = clusterReservation[gIndex]
-        jobEnv['NUM_PROCESSES_GROUP' + gIndex] = groupReservation.length
-        for(let pIndex = 0; pIndex < groupReservation.length; pIndex++) {
-            let processReservation = groupReservation[pIndex]
-            let node = db.nodes[processReservation.node]
+    jobEnv.NUM_GROUPS = processGroups.length
+    for(let processGroup of processGroups) {
+        jobEnv['NUM_PROCESSES_GROUP' + processGroup.index] = processGroup.Processes.length
+        for(let jobProcess of processGroup.Processes) {
             jobEnv['HOST_GROUP' + gIndex + '_PROCESS' + pIndex] = 
-                nodesModule.getWorkerHost(job.id, node, workers.length)
+                pitRunner.getWorkerHost(job.id, jobProcess.node, workers.length)
             let gpus = {}
-            for(let resourceId of Object.keys(processReservation.resources)) {
-                let resource = processReservation.resources[resourceId]
+            for(let allocation of jobProcess.Allocations) {
+                let resource = allocation.Resource
                 if (resource.type == 'cuda') {
                     gpus['gpu' + resource.index] = {
                         type:  'gpu',
@@ -90,85 +107,62 @@ async function startJob (job, clusterReservation, callback) {
                 }
             }
             workers.push({
-                node: node,
+                node:    node,
                 options: { devices: gpus },
-                env: Object.assign({
-                    GROUP_INDEX:   processReservation.groupIndex,
-                    PROCESS_INDEX: processReservation.processIndex
-                }, jobEnv),
-                script: job.script
+                env:     Object.assign({
+                            GROUP_INDEX:   processReservation.groupIndex,
+                            PROCESS_INDEX: processReservation.processIndex
+                         }, jobEnv),
+                script:  job.script
             })
         }
     }
-    nodesModule.startPit(job.id, shares, workers).then(() => {
-        reservations.fulfillReservation(clusterReservation, job.id)
-        job.setState(jobStates.RUNNING)
-        callback()
-    }).catch(err => {
-        log.debug('START PROBLEM', err)
-        appendError(job, 'Problem while starting: ' + err.toString())
-        cleanJob(job)
-        callback()
-    })
+    try {
+        await pitRunner.startPit(job.id, shares, workers)
+        await job.setState(jobStates.RUNNING)
+    } catch (ex) {
+        log.error('START PROBLEM', ex.toString())
+        await cleanJob(job, 'Problem during startup: ' + ex.toString())
+    }
 }
 exports.startJob = startJob
 
-async function stopJob (job) {
-    let scheduleIndex = db.schedule.indexOf(job.id)
-    if (scheduleIndex >= 0) {
-        db.schedule.splice(scheduleIndex, 1)
-    }
-    let finalizeJob = err => {
-        if (err) {
-            appendError(job, 'Problem while stopping: ' + err.toString())
+async function stopJob (job, reason) {
+    try {
+        if (job.state == jobStates.PREPARING && preparations[job.id]) {
+            await job.setState(jobStates.STOPPING, reason)
+            preparations[job.id].kill()
+            delete preparations[job.id]
+    
+        } else if (job.state == jobStates.RUNNING) {
+            await job.setState(jobStates.STOPPING, reason)
+            await pitRunner.stopPit(job.id)
+        } else {
+            return
         }
-        cleanJob(job)
+    } catch (ex) {
+        await cleanJob(job, 'Problem during stopping')
+        return
     }
-    if (job.state == jobStates.PREPARING && preparations[job.id]) {
-        job.setState(jobStates.STOPPING)
-        preparations[job.id].kill()
-        delete preparations[job.id]
-        finalizeJob()
-    } else if (job.state == jobStates.RUNNING) {
-        job.setState(jobStates.STOPPING)
-        nodesModule.stopPit(job.id).then(finalizeJob).catch(finalizeJob)
-    }
+    await cleanJob()
 }
 exports.stopJob = stopJob
 
-async function cleanJob (job) {
-    await job.setState(jobStates.CLEANING)
+async function cleanJob (job, reason) {
+    await job.setState(jobStates.CLEANING, reason)
     utils.runScript('clean.sh', getPreparationEnv(job), async (code, stdout, stderr) => {
         await job.setState(jobStates.DONE, code > 0 ? ('Problem during cleaning step - exit code: ' + code + '\n' + stderr) : undefined)
     })
 }
 exports.cleanJob = cleanJob
 
-function resimulateReservations() {
-    /*
+async function resimulateReservations() {
     let jobs = []
-    for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
-        if (job.state >= jobStates.PREPARING && job.state <= jobStates.WAITING) {
-            let clusterRequest = parseClusterRequest(job.clusterRequest)
-            let clusterReservation = reservations.reserveCluster(clusterRequest, db.users[job.user], true)
-            if (!clusterReservation) {
-                jobs.push(job)
-            }
+    for(let job of (await Job.findAll({ where: { '$between': [jobStates.PREPARING, jobStates.WAITING] } }))) {
+        if (reservations.canAllocate(job.resourceRequest, job.user)) {
+            await stopJob(job, 'Cluster cannot fulfill resource request anymore')
         }
     }
-    if (jobs.length > 0) {
-        store.lockAutoRelease('jobs', function() {
-            for (let job of jobs) {
-                appendError(job, 'Cluster cannot fulfill resource request anymore')
-                job.setState(jobStates.DONE)
-                let index = db.schedule.indexOf(job.id)
-                if (index >= 0) {
-                    db.schedule.splice(index, 1)
-                }
-            }
-        })
-    }
-    */
 }
 
 clusterEvents.on('restricted', resimulateReservations)
@@ -209,15 +203,12 @@ clusterEvents.on('pitReport', pits => {
     }
 })
 
-exports.startup = function () {
-    for (let jobId of Object.keys(db.jobs)) {
-        let job = db.jobs[jobId]
-        if (job.state == jobStates.PREPARING) {
-            appendError(job, 'Job was interrupted during preparation')
-            cleanJob(job)
-        } else if (job.state == jobStates.CLEANING) {
-            cleanJob(job)
-        }
+exports.startup = async function () {
+    for (let job of (await Job.findAll({ where: { state: jobStates.PREPARING } }))) {
+        await cleanJob(job, 'Job interrupted during preparation')
+    }
+    for (let job of (await Job.findAll({ where: { state: jobStates.CLEANING } }))) {
+        await cleanJob(job)
     }
 }
 

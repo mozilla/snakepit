@@ -3,9 +3,15 @@ const zlib = require('zlib')
 const tar = require('tar-fs')
 const ndir = require('node-dir')
 const Parallel = require('async-parallel')
+const Sequelize = require('sequelize')
 const Router = require('express-promise-router')
 const Pit = require('../models/Pit-model.js')
 const Job = require('../models/Job-model.js')
+const State = require('../models/State-model.js')
+const ProcessGroup = require('../models/ProcessGroup-model.js')
+const Process = require('../models/Process-model.js')
+const Allocation = require('../models/Allocation-model.js')
+const Utilization = require('../models/Utilization-model.js')
 const Group = require('../models/Group-model.js')
 const scheduler = require('../scheduler.js')
 const reservations = require('../reservations.js')
@@ -89,67 +95,138 @@ router.get('/', async (req, res) => {
     res.send((await Job.findAll()).map(job => job.id))
 })
 
-function createJobDescription(dbjob) {
+function getJobDescription(job) {
     return {
-        id:               dbjob.id,
-        description:      dbjob.description,
-        user:             dbjob.user,
-        groups:           dbjob.groups,
-        resources:        dbjob.state >= jobStates.STARTING ? dbjob.allocation : dbjob.clusterRequest,
-        state:            dbjob.state,
-        since:            utils.getDuration(new Date(), new Date(dbjob.stateChanges[dbjob.state])),
-        schedulePosition: dbjob.rank,
-        utilComp:         utilComp / utilCompCount,
-        utilMem:          utilMem / utilMemCount
+        id:               job.id,
+        description:      job.description,
+        user:             job.user,
+        resources:        job.state >= jobStates.STARTING ? job.allocation : job.clusterRequest,
+        state:            job.state,
+        since:            utils.getDuration(new Date(), job.since),
+        schedulePosition: job.rank,
+        utilComp:         job.state == jobStates.RUNNING ? job.currentutilcompute : (job.utilcompute / (job.utilcomputecount || 1)),
+        utilMem:          job.state == jobStates.RUNNING ? job.currentutilmemory  : (job.utilmemory  / (job.utilmemory       || 1))
     }
 }
 
-function getJobDescription(jobId, user, extended) {
-    let dbjob = loadJob(jobId)
-    let job = dbjob ? createJobDescription(dbjob) : null
-    if (job && extended) {
-        job.stateChanges = dbjob.stateChanges
-        if (dbjob.error) {
-            job.error = dbjob.error.trim()
-        }
-        if(groupsModule.canAccessJob(user, dbjob)) {
-            job.provisioning = dbjob.provisioning
-        }
+const jobInclude = [
+    {
+        model: State,
+        require: true,
+        attributes: [],
+        where: { state: Sequelize.col('job.state') }
+    },
+    {
+        model: ProcessGroup,
+        require: false,
+        attributes: [],
+        include: [
+            {
+                model: Process,
+                require: false,
+                attributes: [],
+                include: 
+                [
+                    {
+                        model: Allocation,
+                        require: false,
+                        attributes: [],
+                        include: [
+                            {
+                                model: Utilization,
+                                where: { type: 'compute' },
+                                as: 'compute',
+                                attributes: [],
+                                require: false
+                            },
+                            {
+                                model: Utilization,
+                                where: { type: 'memory' },
+                                as: 'memory',
+                                attributes: [],
+                                require: false
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
     }
-    return job
-}
+]
+
+const jobGrouping = [
+    'job.id'
+],
+
+const jobAttributes = [
+    [sequelize.fn('first', sequelize.col('state.since')), 'since'],
+    [sequelize.fn('sum', sequelize.col('compute.numsamples')), 'utilcomputecount'],
+    [sequelize.fn('sum', sequelize.col('compute.aggregated')), 'utilcompute'],
+    [sequelize.fn('sum', sequelize.col('memory.numsamples')),  'utilmemoryecount'],
+    [sequelize.fn('sum', sequelize.col('memory.aggregated')),  'utilmemory'],
+    [sequelize.fn('avg', sequelize.col('compute.current')),    'currentutilcompute'],
+    [sequelize.fn('avg', sequelize.col('memory.current')),     'currentutilmemory']
+]
 
 router.get('/status', async (req, res) => {
-    let jobs = Object.keys(db.jobs).map(k => db.jobs[k])
+    let jobs = await Job.findAll({
+        attributes: jobAttributes,
+        include: jobInclude,
+        where: { state: { '$between': [jobStates.NEW, jobStates.STOPPING] } },
+        group: jobGrouping
+    })
     let running = jobs
         .filter(j => j.state >= jobStates.STARTING && j.state <= jobStates.STOPPING)
         .sort((a,b) => a.id - b.id)
     let waiting = jobs
         .filter(j => j.state == jobStates.WAITING)
-        .sort((a,b) => db.schedule.indexOf(a.id) - db.schedule.indexOf(b.id))
+        .sort((a,b) => a.rank - b.rank)
     waiting = waiting.concat(jobs.filter(j => j.state == jobStates.PREPARING))
     waiting = waiting.concat(jobs.filter(j => j.state == jobStates.NEW))
-    let done = jobs.filter(j => j.state >= jobStates.CLEANING).sort((a,b) => b.id - a.id).slice(0, 20)
-    res.status(200).send({
-        running: running.map(j => createJobDescription(j)),
-        waiting: waiting.map(j => createJobDescription(j)),
-        done:    done   .map(j => createJobDescription(j))
+    let done = await Job.findAll({
+        attributes: jobAttributes,
+        include: jobInclude,
+        where: { state: { [Sequelize.Op.gt]: jobStates.STOPPING } },
+        group: jobGrouping,
+        order: [['id', 'ASC']], 
+        limit: 20 
     })
+    res.send({
+        running: running.map(job => getJobDescription(job)),
+        waiting: waiting.map(job => getJobDescription(job)),
+        done:    done   .map(job => getJobDescription(job))
+    })
+})
+
+router.get('/:id', async (req, res) => {
+    let job = await Job.findByPk(req.params.id, {
+        attributes: jobAttributes,
+        include: jobInclude,
+        group: jobGrouping
+    })
+    if (!job) {
+        return Promise.reject({ code: 404, message: 'Job not found' })
+    }
+    let description = getJobDescription(job)
+    description.allocation = job.allocation
+    description.clusterRequest = job.clusterRequest
+    description.continueJob = job.continueJob
+    if(await user.canAccessJob(job)) {
+        description.provisioning = job.provisioning
+        description.groups = (await job.getGroups()).map(g => g.id).join(' ')
+        description.states = (await job.getStates()).map(s => ({
+            state:  s.state,
+            since:  s.since,
+            reason: s.reason
+        }))
+    }
+    res.send(description)
 })
 
 async function targetJob (req, res) {
     req.targetJob = await Job.findByPk(req.params.id)
     return req.targetJob ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Job not found' })
 }
-
-router.get('/:id', targetJob, async (req, res) => {
-    let job = getJobDescription(req.params.id, req.user, true)
-    if (job) {
-        res.status(200).send(job)
-    } else {
-        res.status(404).send()
-    }
-})
 
 async function canAccess (req, res) {
     return req.user.canAccessJob(req.targetJob) ? Promise.resolve('next') : Promise.reject({ code: 403, message: 'Not allowed' })

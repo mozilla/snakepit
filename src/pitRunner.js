@@ -47,6 +47,11 @@ async function getNodeFromName (containerName) {
     return await getNodeById(parsed[0])
 }
 
+function getWorkerHost (nodeId, pitId, index) {
+    return getContainerName(nodeId, pitId, index) + '.lxd'
+}
+exports.getWorkerHost = getWorkerHost
+
 function getNodeInfo (node) {
     return lxd.get(node.endpoint, '')
 }

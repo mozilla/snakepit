@@ -193,6 +193,7 @@ async function allocate (clusterRequest, userId, job) {
                 for (let node of nodes) {
                     processReservation = reserveProcess(node, clusterReservation, groupRequest.process)
                     if (processReservation) {
+                        await jobProcess.setNode(node)
                         break
                     }
                 }
