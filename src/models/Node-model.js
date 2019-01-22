@@ -47,8 +47,4 @@ Node.afterDestroy(async node => {
     }
 })
 
-Node.startup = () => {
-    //Node.update({ online: false, since: Date.now() })
-}
-
 module.exports = Node

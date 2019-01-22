@@ -155,49 +155,6 @@ async function cleanJob (job, reason) {
 }
 exports.cleanJob = cleanJob
 
-clusterEvents.on('restricted', async () => {
-    for(let job of (await Job.findAll({ where: { '$between': [jobStates.PREPARING, jobStates.WAITING] } }))) {
-        if (reservations.canAllocate(job.resourceRequest, job.user)) {
-            await stopJob(job, 'Cluster cannot fulfill resource request anymore')
-        }
-    }
-})
-
-/*
-clusterEvents.on('pitStarting', pitId => {
-    let job = db.jobs[pitId]
-    if (job) {
-        job.setState(jobStates.STARTING)
-    }
-})
-*/
-
-clusterEvents.on('pitStopping', async pitId => {
-    let job = await Job.findByPk(pitId)
-    if (job) {
-        await job.setState(jobStates.STOPPING)
-    }
-})
-
-clusterEvents.on('pitStopped', async pitId => {
-    let job = await Job.findByPk(pitId)
-    if (job) {
-        await cleanJob(job)
-    }
-})
-
-clusterEvents.on('pitReport', async pits => {
-    pits = pits.reduce((hashMap, obj) => {
-        hashMap[obj] = true
-        return hashMap
-    }, {})
-    for (let job of (await Job.findAll({ where: { state: jobStates.RUNNING } }))) {
-        if (!pits[job.id]) {
-            await stopJob(job)
-        }
-    }
-})
-
 async function tick () {
     for(let jobId of Object.keys(preparations)) {
         let job = Job.findByPk(jobId)
@@ -242,5 +199,49 @@ exports.startup = async function () {
     for (let job of (await Job.findAll({ where: { state: jobStates.CLEANING } }))) {
         await cleanJob(job)
     }
+
+    clusterEvents.on('restricted', async () => {
+        for(let job of (await Job.findAll({ where: { '$between': [jobStates.PREPARING, jobStates.WAITING] } }))) {
+            if (reservations.canAllocate(job.resourceRequest, job.user)) {
+                await stopJob(job, 'Cluster cannot fulfill resource request anymore')
+            }
+        }
+    })
+    
+    /*
+    clusterEvents.on('pitStarting', pitId => {
+        let job = db.jobs[pitId]
+        if (job) {
+            job.setState(jobStates.STARTING)
+        }
+    })
+    */
+    
+    clusterEvents.on('pitStopping', async pitId => {
+        let job = await Job.findByPk(pitId)
+        if (job) {
+            await job.setState(jobStates.STOPPING)
+        }
+    })
+    
+    clusterEvents.on('pitStopped', async pitId => {
+        let job = await Job.findByPk(pitId)
+        if (job) {
+            await cleanJob(job)
+        }
+    })
+    
+    clusterEvents.on('pitReport', async pits => {
+        pits = pits.reduce((hashMap, obj) => {
+            hashMap[obj] = true
+            return hashMap
+        }, {})
+        for (let job of (await Job.findAll({ where: { state: jobStates.RUNNING } }))) {
+            if (!pits[job.id]) {
+                await stopJob(job)
+            }
+        }
+    })
+    
     loop()
 }

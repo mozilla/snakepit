@@ -313,12 +313,16 @@ async function tick () {
             log.error('PROBLEM ACCESSING NODE ' + node.id, infoErr.toString())
         }
         if (node != headNode) {
-            node.online = !!info
-            await node.save()
+            let online = !!info
+            if (online != node.online) {
+                node.online = online
+                node.since = Date.now()
+                await node.save()
+            }
         }
     }))
     let [err, pits] = await to(getActivePits())
-    //clusterEvents.emit('pitReport', pits)
+    clusterEvents.emit('pitReport', pits)
     await Parallel.each(pits, async pitId => {
         if (await pitRequestedStop(pitId)) {  
             await stopPit(pitId)

@@ -63,7 +63,6 @@ router.put('/:id', async (req, res) => {
     }
     let user = req.body
     await router.trySignIn(req, res)
-    log.error('signed in - next...')
     let dbuser = await User.findByPk(id)
     if (dbuser && (!req.user || (req.user && req.user.id !== id && !req.user.admin))) {
         res.status(403).send()
@@ -116,7 +115,7 @@ async function targetUser (req, res) {
     if (req.user && id == '~') {
         req.targetUser = req.user
     } else {
-        req.targetUser = await Group.findByPk(id)
+        req.targetUser = await User.findByPk(id)
     }
     return req.targetUser ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'User not found' })
 }
