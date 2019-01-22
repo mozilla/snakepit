@@ -5,6 +5,7 @@ const ndir = require('node-dir')
 const Parallel = require('async-parallel')
 const Sequelize = require('sequelize')
 const Router = require('express-promise-router')
+const log = require('../utils/logger.js')
 const Pit = require('../models/Pit-model.js')
 const Job = require('../models/Job-model.js')
 const Group = require('../models/Group-model.js')
@@ -99,14 +100,14 @@ function getJobDescription(job) {
         state:            job.state,
         since:            utils.getDuration(new Date(), job.since),
         schedulePosition: job.rank,
-        utilComp:         job.state == jobStates.RUNNING ? job.currentutilcompute : (job.utilcompute / (job.utilcomputecount || 1)),
-        utilMem:          job.state == jobStates.RUNNING ? job.currentutilmemory  : (job.utilmemory  / (job.utilmemory       || 1))
+        utilComp:         job.state == jobStates.RUNNING ? job.curcompute : (job.aggcompute / (job.samples || 1)),
+        utilMem:          job.state == jobStates.RUNNING ? job.curmemory  : (job.aggmemory  / (job.samples || 1))
     }
 }
 
 router.get('/status', async (req, res) => {
     let jobs = await Job.findAll(Job.infoQuery({
-        where: { state: { '$between': [jobStates.NEW, jobStates.STOPPING] } }
+        where: { state: { [Sequelize.Op.gte]: jobStates.NEW, [Sequelize.Op.lte]: jobStates.STOPPING } }
     }))
     let running = jobs
         .filter(j => j.state >= jobStates.STARTING && j.state <= jobStates.STOPPING)

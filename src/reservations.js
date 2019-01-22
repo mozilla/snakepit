@@ -82,8 +82,8 @@ async function loadNodes (transaction, userId, simulation) {
             'type',
             'index',
             'name',
-            [sequelize.fn('count', sequelize.col('job.id')), 'usecount'],
-            [sequelize.fn('count', sequelize.col('user.id')), 'accesscount'],
+            [sequelize.fn('count', sequelize.col('job.id')),   'usecount'],
+            [sequelize.fn('count', sequelize.col('user.id')),  'accesscount'],
             [sequelize.fn('count', sequelize.col('group.id')), 'groupcount']
         ],
         group: ['resource.id'],

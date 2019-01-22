@@ -8,7 +8,6 @@ const State = require('./State-model.js')
 const ProcessGroup = require('../models/ProcessGroup-model.js')
 const Process = require('../models/Process-model.js')
 const Allocation = require('../models/Allocation-model.js')
-const Utilization = require('../models/Utilization-model.js')
 
 var Job = sequelize.define('job', {
     id:           { type: Sequelize.INTEGER, primaryKey: true },
@@ -151,23 +150,7 @@ Job.infoQuery = options => assign({
                         {
                             model: Allocation,
                             require: false,
-                            attributes: [],
-                            include: [
-                                {
-                                    model: Utilization,
-                                    where: { type: 'compute' },
-                                    as: 'compute',
-                                    attributes: [],
-                                    require: false
-                                },
-                                {
-                                    model: Utilization,
-                                    where: { type: 'memory' },
-                                    as: 'memory',
-                                    attributes: [],
-                                    require: false
-                                }
-                            ]
+                            attributes: []
                         }
                     ]
                 }
@@ -178,13 +161,12 @@ Job.infoQuery = options => assign({
         'job.id'
     ],
     attributes: [
-        [sequelize.fn('first', sequelize.col('state.since')),        'since'],
-        [sequelize.fn('sum',   sequelize.col('compute.numsamples')), 'utilcomputecount'],
-        [sequelize.fn('sum',   sequelize.col('compute.aggregated')), 'utilcompute'],
-        [sequelize.fn('sum',   sequelize.col('memory.numsamples')),  'utilmemoryecount'],
-        [sequelize.fn('sum',   sequelize.col('memory.aggregated')),  'utilmemory'],
-        [sequelize.fn('avg',   sequelize.col('compute.current')),    'currentutilcompute'],
-        [sequelize.fn('avg',   sequelize.col('memory.current')),     'currentutilmemory']
+        [sequelize.fn('first', sequelize.col('state.since')),         'since'],
+        [sequelize.fn('sum',   sequelize.col('allocation.samples')),  'samples'],
+        [sequelize.fn('sum',   sequelize.col('allocation.acompute')), 'aggcompute'],
+        [sequelize.fn('sum',   sequelize.col('allocation.amemory')),  'aggmemory'],
+        [sequelize.fn('avg',   sequelize.col('allocation.ccompute')), 'curcompute'],
+        [sequelize.fn('avg',   sequelize.col('allocation.cmemory')),  'curmemory']
     ]
 }, options)
 
