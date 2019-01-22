@@ -7,11 +7,14 @@ const models = require('./models')
 const pitRunner = require('./pitRunner.js')
 const scheduler = require('./scheduler.js')
 
-if (cluster.isMaster) {
-    models.sequelize.sync()
-    await Parallel.forEach(models.all, async model => await (model.startup || Function)())
+async function startup () {
+    await models.sequelize.sync()
+    await Parallel.each(models.all, async model => await (model.startup || Function)())
     await pitRunner.startup()
     await scheduler.startup()
+}
+
+if (cluster.isMaster) {
     cluster.on('exit', function(deadWorker, code, signal) {
         if (code === 100) {
             process.exit(100) // Preventing fork-loop on startup problems
@@ -20,10 +23,14 @@ if (cluster.isMaster) {
         log.error('Worker ' + deadWorker.process.pid + ' died.')
         log.info('Worker ' + worker.process.pid + ' born.')
     })
-    for (let i = 0; i < cpus; i++) {
-        cluster.fork()
-    }
-    log.error('Snakepit daemon started')
+    startup().then(() => {
+        for (let i = 0; i < cpus; i++) {
+            cluster.fork()
+        }
+        log.info('Snakepit daemon started')
+    }).catch(ex => {
+        log.error('Snakepit startup problem:', ex)
+    })
 } else {
     try {
         const http = require('http')
