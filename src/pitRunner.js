@@ -326,7 +326,11 @@ async function tick () {
     })
 }
 
-exports.tick = function () {
-    let goon = () => setTimeout(exports.tick, config.pollInterval)
+function loop () {
+    let goon = () => setTimeout(loop, config.pollInterval)
     tick().then(goon).catch(goon)
+}
+
+exports.startup = async function () {
+    loop()
 }

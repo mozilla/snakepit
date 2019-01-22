@@ -133,7 +133,6 @@ async function stopJob (job, reason) {
             await job.setState(jobStates.STOPPING, reason)
             preparations[job.id].kill()
             delete preparations[job.id]
-    
         } else if (job.state == jobStates.RUNNING) {
             await job.setState(jobStates.STOPPING, reason)
             await pitRunner.stopPit(job.id)
@@ -156,16 +155,13 @@ async function cleanJob (job, reason) {
 }
 exports.cleanJob = cleanJob
 
-async function resimulateReservations() {
-    let jobs = []
+clusterEvents.on('restricted', async () => {
     for(let job of (await Job.findAll({ where: { '$between': [jobStates.PREPARING, jobStates.WAITING] } }))) {
         if (reservations.canAllocate(job.resourceRequest, job.user)) {
             await stopJob(job, 'Cluster cannot fulfill resource request anymore')
         }
     }
-}
-
-clusterEvents.on('restricted', resimulateReservations)
+})
 
 /*
 clusterEvents.on('pitStarting', pitId => {
@@ -190,18 +186,54 @@ clusterEvents.on('pitStopped', async pitId => {
     }
 })
 
-clusterEvents.on('pitReport', pits => {
+clusterEvents.on('pitReport', async pits => {
     pits = pits.reduce((hashMap, obj) => {
         hashMap[obj] = true
         return hashMap
     }, {})
-    for (let jobId of Object.keys(db.jobs)) {
-        let job = db.jobs[jobId]
-        if (job.state == jobStates.RUNNING && !pits[jobId]) {
-            stopJob(job)
+    for (let job of (await Job.findAll({ where: { state: jobStates.RUNNING } }))) {
+        if (!pits[job.id]) {
+            await stopJob(job)
         }
     }
 })
+
+async function tick () {
+    for(let jobId of Object.keys(preparations)) {
+        let job = Job.findByPk(jobId)
+        if (job && job.state == jobStates.PREPARING) {
+            if (new Date(job.stateChanges[job.state]).getTime() + config.maxPrepDuration < Date.now()) {
+                log.debug('Preparation timeout for job', jobId)
+                await stopJob(job, 'Job exceeded max preparation time')
+            }
+        } else {
+            delete preparations[jobId]
+            if (!job) {
+                log.error('Removed preparation process for orphan job', jobId)
+            }
+        }
+    }
+    for(let job of (await Job.findAll({ where: { state: jobStates.NEW } }))) {
+        if (Object.keys(preparations).length < config.maxParallelPrep) {
+            log.debug('Preparing job', job.id)
+            preparations[job.id] = await prepareJob(job)
+        } else {
+            break
+        }
+    }
+    let job = await Job.findOne({ where: { state: jobStates.WAITING }, order: ['rank'] })
+    if (job) {
+        if (await reservations.tryAllocate(job)) {
+            log.debug('Starting job', job.id)
+            await startJob(job)
+        }
+    }
+}
+
+function loop () {
+    let goon = () => setTimeout(loop, config.pollInterval)
+    tick().then(goon).catch(goon)
+}
 
 exports.startup = async function () {
     for (let job of (await Job.findAll({ where: { state: jobStates.PREPARING } }))) {
@@ -210,73 +242,5 @@ exports.startup = async function () {
     for (let job of (await Job.findAll({ where: { state: jobStates.CLEANING } }))) {
         await cleanJob(job)
     }
-}
-
-exports.tick = function() {
-    /*
-    store.lockAsyncRelease('jobs', release => {
-        let goon = () => {
-            release()
-            setTimeout(exports.tick, config.pollInterval)
-        }
-        let running = {}
-        for(let job of Object.keys(db.jobs).map(k => db.jobs[k])) {
-            let stateTime = new Date(job.stateChanges[job.state]).getTime()
-            if (
-                job.state == jobStates.NEW && 
-                Object.keys(preparations).length < config.maxParallelPrep
-            ) {
-                preparations[job.id] = prepareJob(job)
-            } else if (
-                job.state == jobStates.DONE && 
-                stateTime + config.keepDoneDuration < Date.now()
-            ) {
-                job.setState(jobStates.ARCHIVED)
-                delete db.jobs[job.id]
-            } else if (job.state >= jobStates.STARTING && job.state <= jobStates.STOPPING) {
-                running[job.id] = job
-            }
-        }
-        for (let node of Object.keys(db.nodes).map(k => db.nodes[k])) {
-            for (let resource of node.resources || []) {
-                if (resource.job && !running[resource.job]) {
-                    delete resource.job
-                }
-            }   
-        }
-        for(let jobId of Object.keys(preparations)) {
-            let job = db.jobs[jobId]
-            if (job && job.state == jobStates.PREPARING) {
-                if (new Date(job.stateChanges[job.state]).getTime() + config.maxPrepDuration < Date.now()) {
-                    appendError(job, 'Job exceeded max preparation time')
-                    stopJob(job)
-                }
-            } else {
-                delete preparations[jobId]
-                if (!job) {
-                    console.error('Removed preparation process for orphan job ' + jobId)
-                }
-            }
-        }
-        if (db.schedule.length > 0) {
-            let job = db.jobs[db.schedule[0]]
-            if (job) {
-                let clusterRequest = parseClusterRequest(job.clusterRequest)
-                let clusterReservation = reservations.reserveCluster(clusterRequest, db.users[job.user], false)
-                log.debug('STARTING SCHEDULED JOB', job.id, job.user, JSON.stringify(clusterRequest), clusterReservation)
-                if (clusterReservation) {
-                    db.schedule.shift()
-                    startJob(job, clusterReservation, goon)
-                } else {
-                    goon()
-                }
-            } else {
-                db.schedule.shift()
-                goon()
-            }
-        } else {
-            goon()
-        }
-    })
-    */
+    loop()
 }

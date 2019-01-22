@@ -1,4 +1,5 @@
 const cluster = require('cluster')
+const Parallel = require('async-parallel')
 const cpus = require('os').cpus().length
 const log = require('./utils/logger.js')
 const config = require('./config.js')
@@ -8,9 +9,9 @@ const scheduler = require('./scheduler.js')
 
 if (cluster.isMaster) {
     models.sequelize.sync()
-    models.all.forEach(model => (model.startup || Function)())
-    pitRunner.tick()
-    scheduler.tick()
+    await Parallel.forEach(models.all, async model => await (model.startup || Function)())
+    await pitRunner.startup()
+    await scheduler.startup()
     cluster.on('exit', function(deadWorker, code, signal) {
         if (code === 100) {
             process.exit(100) // Preventing fork-loop on startup problems
