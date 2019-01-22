@@ -15,7 +15,7 @@ async function startup () {
 }
 
 if (cluster.isMaster) {
-    cluster.on('exit', function(deadWorker, code, signal) {
+    cluster.on('exit', (deadWorker, code, signal) => {
         if (code === 100) {
             process.exit(100) // Preventing fork-loop on startup problems
         }
@@ -30,6 +30,7 @@ if (cluster.isMaster) {
         log.info('Snakepit daemon started')
     }).catch(ex => {
         log.error('Snakepit startup problem:', ex)
+        process.exit(1)
     })
 } else {
     try {

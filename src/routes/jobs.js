@@ -7,15 +7,10 @@ const Sequelize = require('sequelize')
 const Router = require('express-promise-router')
 const Pit = require('../models/Pit-model.js')
 const Job = require('../models/Job-model.js')
-const State = require('../models/State-model.js')
-const ProcessGroup = require('../models/ProcessGroup-model.js')
-const Process = require('../models/Process-model.js')
-const Allocation = require('../models/Allocation-model.js')
-const Utilization = require('../models/Utilization-model.js')
 const Group = require('../models/Group-model.js')
 const scheduler = require('../scheduler.js')
 const reservations = require('../reservations.js')
-const parseClusterRequest = require('./clusterParser.js').parse
+const parseClusterRequest = require('../clusterParser.js').parse
 
 const fslib = require('../utils/httpfs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
@@ -109,72 +104,10 @@ function getJobDescription(job) {
     }
 }
 
-const jobInclude = [
-    {
-        model: State,
-        require: true,
-        attributes: [],
-        where: { state: Sequelize.col('job.state') }
-    },
-    {
-        model: ProcessGroup,
-        require: false,
-        attributes: [],
-        include: [
-            {
-                model: Process,
-                require: false,
-                attributes: [],
-                include: 
-                [
-                    {
-                        model: Allocation,
-                        require: false,
-                        attributes: [],
-                        include: [
-                            {
-                                model: Utilization,
-                                where: { type: 'compute' },
-                                as: 'compute',
-                                attributes: [],
-                                require: false
-                            },
-                            {
-                                model: Utilization,
-                                where: { type: 'memory' },
-                                as: 'memory',
-                                attributes: [],
-                                require: false
-                            }
-                        ]
-                    }
-                ]
-            }
-        ]
-    }
-]
-
-const jobGrouping = [
-    'job.id'
-],
-
-const jobAttributes = [
-    [sequelize.fn('first', sequelize.col('state.since')), 'since'],
-    [sequelize.fn('sum', sequelize.col('compute.numsamples')), 'utilcomputecount'],
-    [sequelize.fn('sum', sequelize.col('compute.aggregated')), 'utilcompute'],
-    [sequelize.fn('sum', sequelize.col('memory.numsamples')),  'utilmemoryecount'],
-    [sequelize.fn('sum', sequelize.col('memory.aggregated')),  'utilmemory'],
-    [sequelize.fn('avg', sequelize.col('compute.current')),    'currentutilcompute'],
-    [sequelize.fn('avg', sequelize.col('memory.current')),     'currentutilmemory']
-]
-
 router.get('/status', async (req, res) => {
-    let jobs = await Job.findAll({
-        attributes: jobAttributes,
-        include: jobInclude,
-        where: { state: { '$between': [jobStates.NEW, jobStates.STOPPING] } },
-        group: jobGrouping
-    })
+    let jobs = await Job.findAll(Job.infoQuery({
+        where: { state: { '$between': [jobStates.NEW, jobStates.STOPPING] } }
+    }))
     let running = jobs
         .filter(j => j.state >= jobStates.STARTING && j.state <= jobStates.STOPPING)
         .sort((a,b) => a.id - b.id)
@@ -183,14 +116,11 @@ router.get('/status', async (req, res) => {
         .sort((a,b) => a.rank - b.rank)
     waiting = waiting.concat(jobs.filter(j => j.state == jobStates.PREPARING))
     waiting = waiting.concat(jobs.filter(j => j.state == jobStates.NEW))
-    let done = await Job.findAll({
-        attributes: jobAttributes,
-        include: jobInclude,
+    let done = await Job.findAll(Job.infoQuery({
         where: { state: { [Sequelize.Op.gt]: jobStates.STOPPING } },
-        group: jobGrouping,
         order: [['id', 'ASC']], 
         limit: 20 
-    })
+    }))
     res.send({
         running: running.map(job => getJobDescription(job)),
         waiting: waiting.map(job => getJobDescription(job)),

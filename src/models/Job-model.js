@@ -1,10 +1,14 @@
+const assign = require('assign-deep')
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
 const Pit = require('./Pit-model.js')
 const Group = require('./Group-model.js')
 const User = require('./User-model.js')
 const State = require('./State-model.js')
-const ProcessGroup = require('./ProcessGroup-model.js')
+const ProcessGroup = require('../models/ProcessGroup-model.js')
+const Process = require('../models/Process-model.js')
+const Allocation = require('../models/Allocation-model.js')
+const Utilization = require('../models/Utilization-model.js')
 
 var Job = sequelize.define('job', {
     id:           { type: Sequelize.INTEGER, primaryKey: true },
@@ -124,5 +128,64 @@ Job.prototype.setState = async (state, reason) => {
         throw err
     }
 }
+
+Job.infoQuery = options => assign({
+    include: [
+        {
+            model: State,
+            require: true,
+            attributes: [],
+            where: { state: Sequelize.col('job.state') }
+        },
+        {
+            model: ProcessGroup,
+            require: false,
+            attributes: [],
+            include: [
+                {
+                    model: Process,
+                    require: false,
+                    attributes: [],
+                    include: 
+                    [
+                        {
+                            model: Allocation,
+                            require: false,
+                            attributes: [],
+                            include: [
+                                {
+                                    model: Utilization,
+                                    where: { type: 'compute' },
+                                    as: 'compute',
+                                    attributes: [],
+                                    require: false
+                                },
+                                {
+                                    model: Utilization,
+                                    where: { type: 'memory' },
+                                    as: 'memory',
+                                    attributes: [],
+                                    require: false
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    group: [
+        'job.id'
+    ],
+    attributes: [
+        [sequelize.fn('first', sequelize.col('state.since')),        'since'],
+        [sequelize.fn('sum',   sequelize.col('compute.numsamples')), 'utilcomputecount'],
+        [sequelize.fn('sum',   sequelize.col('compute.aggregated')), 'utilcompute'],
+        [sequelize.fn('sum',   sequelize.col('memory.numsamples')),  'utilmemoryecount'],
+        [sequelize.fn('sum',   sequelize.col('memory.aggregated')),  'utilmemory'],
+        [sequelize.fn('avg',   sequelize.col('compute.current')),    'currentutilcompute'],
+        [sequelize.fn('avg',   sequelize.col('memory.current')),     'currentutilmemory']
+    ]
+}, options)
 
 module.exports = Job

@@ -17,8 +17,8 @@ User.belongsToMany(Group, { through: UserGroup })
 Group.belongsToMany(User, { through: UserGroup })
 
 var AutoShare = User.AutoShare = sequelize.define('autoshare')
-User.belongsToMany(Group, { as: 'autosharegroup', through: AutoShare })
-Group.belongsToMany(User, { as: 'autosharegroup', through: AutoShare })
+User.belongsToMany(Group, { through: AutoShare })
+Group.belongsToMany(User, { through: AutoShare })
 
 const userPrefix = '/data/home/'
 
