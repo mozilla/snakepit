@@ -106,9 +106,10 @@ function getJobDescription(job) {
 }
 
 router.get('/status', async (req, res) => {
-    let jobs = await Job.findAll(Job.infoQuery({
+    let query = Job.infoQuery({
         where: { state: { [Sequelize.Op.gte]: jobStates.NEW, [Sequelize.Op.lte]: jobStates.STOPPING } }
-    }))
+    })
+    let jobs = await Job.findAll(query)
     let running = jobs
         .filter(j => j.state >= jobStates.STARTING && j.state <= jobStates.STOPPING)
         .sort((a,b) => a.id - b.id)

@@ -129,12 +129,13 @@ Job.prototype.setState = async (state, reason) => {
 }
 
 Job.infoQuery = options => assign({
+    subQuery: false,
     include: [
         {
             model: State,
-            require: true,
+            require: false,
             attributes: [],
-            where: { state: Sequelize.col('job.state') }
+            where: { state: { [Sequelize.Op.eq]: sequelize.col('job.state') } }
         },
         {
             model: ProcessGroup,
@@ -160,14 +161,16 @@ Job.infoQuery = options => assign({
     group: [
         'job.id'
     ],
-    attributes: [
-        [sequelize.fn('first', sequelize.col('state.since')),         'since'],
-        [sequelize.fn('sum',   sequelize.col('allocation.samples')),  'samples'],
-        [sequelize.fn('sum',   sequelize.col('allocation.acompute')), 'aggcompute'],
-        [sequelize.fn('sum',   sequelize.col('allocation.amemory')),  'aggmemory'],
-        [sequelize.fn('avg',   sequelize.col('allocation.ccompute')), 'curcompute'],
-        [sequelize.fn('avg',   sequelize.col('allocation.cmemory')),  'curmemory']
-    ]
+    attributes: {
+        include: [
+            [sequelize.fn('max',   sequelize.col('states.since')), 'since'],
+            [sequelize.fn('sum',   sequelize.col('processgroups->processes->allocations.samples')),  'samples'],
+            [sequelize.fn('sum',   sequelize.col('processgroups->processes->allocations.acompute')), 'aggcompute'],
+            [sequelize.fn('sum',   sequelize.col('processgroups->processes->allocations.amemory')),  'aggmemory'],
+            [sequelize.fn('avg',   sequelize.col('processgroups->processes->allocations.ccompute')), 'curcompute'],
+            [sequelize.fn('avg',   sequelize.col('processgroups->processes->allocations.cmemory')),  'curmemory']
+        ]
+    }
 }, options)
 
 module.exports = Job

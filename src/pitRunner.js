@@ -269,7 +269,7 @@ async function extractResults (pitId) {
 }
 
 async function stopPit (pitId) {
-    log.debug('STOPPING PIT', pitId)
+    log.debug('Stopping pit', pitId)
     clusterEvents.emit('pitStopping', pitId)
     let results = await extractResults(pitId) 
     let nodes = await getAllNodes()
@@ -310,7 +310,7 @@ async function tick () {
     await to(Parallel.each(nodes, async node => {
         let [infoErr, info] = await to(getNodeInfo(node))
         if (infoErr) {
-            log.error('PROBLEM ACCESSING NODE ' + node.id, infoErr.toString())
+            log.error('Problem accessing node ' + node.id, infoErr.toString())
         }
         if (node != headNode) {
             let online = !!info
