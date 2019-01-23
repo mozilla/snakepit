@@ -54,12 +54,12 @@ router.get('/:id', targetNode, async (req, res) => {
         online:      req.targetNode.online,
         since:       req.targetNode.since,
         resources:   dbResources.length == 0 ? undefined : await Parallel.map(dbResources, async dbResource => {
-            let dbGroups = await dbResource.getGroups()
+            let dbGroups = await dbResource.getResourcegroups()
             return {
                 type:    dbResource.type,
                 name:    dbResource.name,
                 index:   dbResource.index,
-                groups:  dbGroups.length == 0 ? undefined : dbGroups.map(group => group.id),
+                groups:  dbGroups.length == 0 ? undefined : dbGroups.map(group => group.groupId),
                 alias:   await getAlias(dbResource.name)
             }
         })

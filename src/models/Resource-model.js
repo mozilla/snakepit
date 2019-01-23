@@ -1,5 +1,7 @@
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
+const Alias = require('./Alias-model.js')
+const Allocation = require('./Allocation-model.js')
 const Group = require('./Group-model.js')
 const User = require('./User-model.js')
 
@@ -10,9 +12,17 @@ var Resource = sequelize.define('resource', {
     name:         { type: Sequelize.STRING,  allowNull: false }
 })
 
+Resource.hasMany(Allocation)
+Allocation.belongsTo(Resource)
+
+Resource.belongsTo(Alias, { foreignKey: 'name', targetKey: 'name' })
+//Alias.belongsTo(Resource, { foreignKey: 'name', targetKey: 'name' })
+
 var ResourceGroup = Resource.ResourceGroup = sequelize.define('resourcegroup')
-Resource.belongsToMany(Group, { through: ResourceGroup })
-Group.belongsToMany(Resource, { through: ResourceGroup })
+Resource.hasMany(ResourceGroup)
+Group.hasMany(ResourceGroup)
+ResourceGroup.belongsTo(Resource)
+ResourceGroup.belongsTo(Group)
 
 User.prototype.canAccessResource = async (resource) => {
     if (await resource.countGroups() == 0) {

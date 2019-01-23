@@ -13,12 +13,16 @@ var User = sequelize.define('user', {
 })
 
 var UserGroup = User.UserGroup = sequelize.define('usergroup')
-User.belongsToMany(Group, { through: UserGroup })
-Group.belongsToMany(User, { through: UserGroup })
+User.hasMany(UserGroup)
+Group.hasMany(UserGroup)
+UserGroup.belongsTo(User)
+UserGroup.belongsTo(Group)
 
 var AutoShare = User.AutoShare = sequelize.define('autoshare')
-User.belongsToMany(Group, { through: AutoShare })
-Group.belongsToMany(User, { through: AutoShare })
+User.hasMany(AutoShare)
+Group.hasMany(AutoShare)
+AutoShare.belongsTo(User)
+AutoShare.belongsTo(Group)
 
 const userPrefix = '/data/home/'
 

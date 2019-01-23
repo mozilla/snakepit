@@ -11,6 +11,7 @@ var Process = sequelize.define('process', {
 })
 
 Process.hasMany(Allocation)
+Allocation.belongsTo(Process)
 
 Process.belongsTo(Node)
 

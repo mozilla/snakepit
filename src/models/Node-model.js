@@ -15,6 +15,7 @@ var Node = sequelize.define('node', {
 })
 
 Node.hasMany(Resource)
+Resource.belongsTo(Node)
 
 Node.beforeCreate(async node => {
     if (!(await Node.findOne({ where: { endpoint: node.endpoint } }))) {

@@ -32,8 +32,10 @@ Job.jobStates = {
 }
 
 Job.hasMany(State)
+State.belongsTo(Job)
 
 Job.hasMany(ProcessGroup)
+ProcessGroup.belongsTo(Job)
 
 Job.belongsTo(Pit, { foreignKey: 'id' })
 

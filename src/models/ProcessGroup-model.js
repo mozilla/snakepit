@@ -8,5 +8,6 @@ var ProcessGroup = sequelize.define('processgroup', {
 })
 
 ProcessGroup.hasMany(Process)
+Process.belongsTo(ProcessGroup)
 
 module.exports = ProcessGroup

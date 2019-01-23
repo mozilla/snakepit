@@ -1,6 +1,5 @@
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
-const Resource = require('./Resource-model.js')
 
 var Allocation = sequelize.define('allocation', {
     id:           { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
@@ -10,7 +9,5 @@ var Allocation = sequelize.define('allocation', {
     acompute:     { type: Sequelize.DOUBLE,  allowNull: true },
     samples:      { type: Sequelize.INTEGER, defaultValue: 0 }
 })
-
-Allocation.belongsTo(Resource)
 
 module.exports = Allocation

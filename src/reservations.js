@@ -1,11 +1,17 @@
 const { MultiRange } = require('multi-integer-range')
+const sequelize = require('./models/db.js')
 const Node = require('./models/Node-model.js')
 const Resource = require('./models/Resource-model.js')
+const Alias = require('./models/Alias-model.js')
 const Job = require('./models/Job-model.js')
+const User = require('./models/User-model.js')
+const Group = require('./models/Group-model.js')
 const ProcessGroup = require('./models/ProcessGroup-model.js')
 const Process = require('./models/Process-model.js')
 const Allocation = require('./models/Allocation-model.js')
 const Sequelize = require('sequelize')
+
+const log = require('./utils/logger.js')
 
 var exports = module.exports = {}
 
@@ -21,9 +27,17 @@ async function loadNodes (transaction, userId, simulation) {
         include: [
             { 
                 model: Node, 
+                attributes: [],
                 transaction: transaction,
                 lock: transaction.LOCK,
-                where: nodeWhere 
+                where: nodeWhere
+            },
+            {
+                model: Alias, 
+                require: false,
+                attributes: ['id'],
+                transaction: transaction,
+                lock: transaction.LOCK
             },
             { 
                 model: Allocation, 
@@ -33,12 +47,35 @@ async function loadNodes (transaction, userId, simulation) {
                 lock: transaction.LOCK,
                 include: [
                     {
-                        model: Job,
+                        model: Process,
                         require: false,
                         attributes: [],
                         transaction: transaction,
                         lock: transaction.LOCK,
-                        where: { state: { between: [Job.jobStates.STARTING, Job.jobStates.STOPPING] } }
+                        include: [
+                            {
+                                model: ProcessGroup,
+                                require: false,
+                                attributes: [],
+                                transaction: transaction,
+                                lock: transaction.LOCK,
+                                include: [
+                                    {
+                                        model: Job,
+                                        require: false,
+                                        attributes: [],
+                                        transaction: transaction,
+                                        lock: transaction.LOCK,
+                                        where: { 
+                                            state: { 
+                                                [Sequelize.Op.gte]: Job.jobStates.STARTING, 
+                                                [Sequelize.Op.lte]: Job.jobStates.STOPPING 
+                                            } 
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ]
             },
@@ -58,67 +95,55 @@ async function loadNodes (transaction, userId, simulation) {
                         include: [
                             {
                                 model: User.UserGroup,
-                                require: true,
+                                require: false,
                                 attributes: [],
                                 transaction: transaction,
                                 lock: transaction.LOCK,
                                 include: [
                                     {
                                         model: User,
-                                        require: true,
+                                        require: false,
                                         attributes: [],
+                                        transaction: transaction,
+                                        lock: transaction.LOCK,
                                         where: { id: userId }
                                     }
-                                ],
+                                ]
                             }
-                        ],
+                        ]
                     }
-                ],
+                ]
             }
         ],
-        attributes: [
-            'id',
-            'node',
-            'type',
-            'index',
-            'name',
-            [sequelize.fn('count', sequelize.col('job.id')),   'usecount'],
-            [sequelize.fn('count', sequelize.col('user.id')),  'accesscount'],
-            [sequelize.fn('count', sequelize.col('group.id')), 'groupcount']
-        ],
-        group: ['resource.id'],
-        where: {
-            'usecount': 0,
-            [Sequelize.Op.or]: [
-                { 'groupcount': 0 }, 
-                { 'accesscount': { [Sequelize.Op.gt]: 0 } }
-            ]
-        }
+        group: ['resource.id', 'alias.id'],
+        having: [
+            sequelize.where(sequelize.fn('count', sequelize.col('allocations->process->processgroup->job.id')), 0),
+            sequelize.or(
+                sequelize.where(sequelize.fn('count', sequelize.col('resourcegroups->group->usergroups->user.id')), { [Sequelize.Op.gt]: 0 }),
+                sequelize.where(sequelize.fn('count', sequelize.col('resourcegroups->group.id')), 0)
+            )
+        ]
     })
     for (let resource of resources) {
-        let nodeResources = nodes[resource.node]
+        let nodeResources = nodes[resource.nodeId]
         if (!nodeResources) {
-            nodeResources = nodes[resource.node] = {}
+            nodeResources = nodes[resource.nodeId] = {}
         }
-        nodeResources[resource.id] = resources
+        nodeResources[resource.id] = resource
     }
     return nodes
 }
 
-function reserveProcess (node, clusterReservation, resourceList) {
-    if (!node || !node.resources) {
-        return null
-    }
+function reserveProcess (nodeResources, clusterReservation, resourceList) {
     let processReservation = {}
     for (let resource of resourceList) {
         let resourceCounter = resource.count
-        //console.log('Looking for ' + resource.count + ' x ' + resource.name)
-        let name = db.aliases[resource.name] ? db.aliases[resource.name].name : resource.name
-        for(let resourceId of Object.keys(node.resources)) {
-            //console.log('Testing ' + resourceId)
+        log.debug('Looking for', resource.count, ' x ', resource.name)
+        for(let resourceId of Object.keys(nodeResources)) {
+            log.debug('Testing', resourceId)
             if (resourceCounter > 0) {
-                let nodeResource = node.resources[resourceId]
-                if (nodeResource.name == name && !clusterReservation[resourceId]) {
+                let nodeResource = nodeResources[resourceId]
+                if ((nodeResource.name == resource.name || nodeResource.alias.id == resource.name) && !clusterReservation[resourceId]) {
                     processReservation[resourceId] = nodeResource
                     resourceCounter--
                 }
@@ -178,31 +203,40 @@ async function allocate (clusterRequest, userId, job) {
         let clusterReservation = {}
         for(let groupIndex = 0; groupIndex < clusterRequest.length; groupIndex++) {
             let groupRequest = clusterRequest[groupIndex]
+            log.debug('Reserving process group', groupIndex)
             let jobProcessGroup
             if (!simulation) {
                 jobProcessGroup = await ProcessGroup.create({ index: groupIndex })
                 await job.addProcessGroup(jobProcessGroup)
             }
             for(let processIndex = 0; processIndex < groupRequest.count; processIndex++) {
+                log.debug('Reserving process', processIndex, 'for process group', groupIndex)
                 let processReservation
                 let jobProcess
                 if (!simulation) {
                     jobProcess = await Process.create({ index: processIndex })
                     await jobProcessGroup.addProcess(jobProcess)
                 }
-                for (let node of nodes) {
+                for (let nodeId of Object.keys(nodes)) {
+                    let node = nodes[nodeId]
+                    log.debug('Trying node', nodeId)
                     processReservation = reserveProcess(node, clusterReservation, groupRequest.process)
                     if (processReservation) {
-                        await jobProcess.setNode(node)
+                        log.debug('Successfully reserved process', processIndex, 'for process group', groupIndex, 'on node', nodeId)
+                        if (!simulation) {
+                            await jobProcess.setNode(node)
+                        }
                         break
                     }
                 }
                 if (processReservation) {
                     clusterReservation = Object.assign(clusterReservation, processReservation)
-                    for(let resource of Object.keys(processReservation).map(k => processReservation[k])) {
-                        let allocation = await Allocation.create()
-                        await jobProcess.addAllocation(allocation)
-                        await allocation.addResource(resource)
+                    if (!simulation) {
+                        for(let resource of Object.keys(processReservation).map(k => processReservation[k])) {
+                            let allocation = await Allocation.create()
+                            await jobProcess.addAllocation(allocation)
+                            await allocation.addResource(resource)
+                        }
                     }
                 } else if (simulation) {
                     return false
@@ -219,7 +253,7 @@ async function allocate (clusterRequest, userId, job) {
         }
         return true
     } catch (err) {
-        await t.rollback()
+        t && await t.rollback()
         throw err
     }
 }

@@ -7,8 +7,8 @@ var Alias = sequelize.define('alias', {
 })
 
 Alias.getAlias = async name => {
-    let entry = await Alias.findOne({ where: { name: name } }, { rejectOnEmpty: false })
-    return entry && entry.alias
+    let entry = await Alias.findOne({ where: { name: name } })
+    return entry && entry.id
 }
 
 module.exports = Alias
