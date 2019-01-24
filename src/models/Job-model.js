@@ -41,12 +41,17 @@ Job.belongsTo(Pit, { foreignKey: 'id' })
 
 Job.belongsTo(User)
 
-var JobGroup = Job.JobGroup = sequelize.define('jobgroup')
-Job.belongsToMany(Group, { through: JobGroup })
-Group.belongsToMany(Job, { through: JobGroup })
+var JobGroup = Job.JobGroup = sequelize.define('jobgroup', {
+    jobId:        { type: Sequelize.INTEGER, unique: 'pk' },
+    groupId:      { type: Sequelize.STRING,  unique: 'pk' }
+})
+Job.hasMany(JobGroup)
+Group.hasMany(JobGroup)
+JobGroup.belongsTo(Job)
+JobGroup.belongsTo(Group)
 
-User.prototype.canAccessJob = async (job) => {
-    if (this.admin || await job.hasUser(this)) {
+User.prototype.canAccessJob = async function (job) {
+    if (this.admin || job.userId == this.id) {
         return true
     }
     return await job.hasOne({
@@ -173,6 +178,6 @@ Job.infoQuery = options => assign({
             [sequelize.fn('avg',   sequelize.col('processgroups->processes->allocations.cmemory')),  'curmemory']
         ]
     }
-}, options)
+}, options || {})
 
 module.exports = Job

@@ -12,13 +12,19 @@ var User = sequelize.define('user', {
     email:        { type: Sequelize.STRING,  allowNull: true }
 })
 
-var UserGroup = User.UserGroup = sequelize.define('usergroup')
+var UserGroup = User.UserGroup = sequelize.define('usergroup', {
+    userId:       { type: Sequelize.STRING, unique: 'pk' },
+    groupId:      { type: Sequelize.STRING, unique: 'pk' }
+})
 User.hasMany(UserGroup)
 Group.hasMany(UserGroup)
 UserGroup.belongsTo(User)
 UserGroup.belongsTo(Group)
 
-var AutoShare = User.AutoShare = sequelize.define('autoshare')
+var AutoShare = User.AutoShare = sequelize.define('autoshare', {
+    userId:       { type: Sequelize.STRING, unique: 'pk' },
+    groupId:      { type: Sequelize.STRING, unique: 'pk' }
+})
 User.hasMany(AutoShare)
 Group.hasMany(AutoShare)
 AutoShare.belongsTo(User)

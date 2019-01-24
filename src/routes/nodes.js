@@ -131,7 +131,7 @@ async function targetGroup (req, res) {
 
 router.put('/:id/groups/:group', targetNode, targetGroup, async (req, res) => {
     for (let resource of await req.targetNode.getResources()) {
-        await resource.addGroup(req.targetGroup)
+        await Resource.ResourceGroup.insertOrUpdate({ resourceId: resource.id, groupId: req.targetGroup.id })
     }
     res.send()
     clusterEvents.emit('restricted')
@@ -139,7 +139,7 @@ router.put('/:id/groups/:group', targetNode, targetGroup, async (req, res) => {
 
 router.delete('/:id/groups/:group', targetNode, targetGroup, async (req, res) => {
     for (let resource of await req.targetNode.getResources()) {
-        await resource.removeGroup(req.targetGroup)
+        await Resource.ResourceGroup.destroy({ where: { resourceId: resource.id, groupId: req.targetGroup.id } })
     }
     res.send()
     clusterEvents.emit('restricted')
@@ -152,13 +152,13 @@ async function targetResource (req, res) {
 }
 
 router.put('/:id/resources/:resource/groups/:group', targetNode, targetResource, targetGroup, async (req, res) => {
-    await req.targetResource.addGroup(req.targetGroup)
+    await Resource.ResourceGroup.insertOrUpdate({ resourceId: req.targetResource.id, groupId: req.targetGroup.id })
     res.send()
     clusterEvents.emit('restricted')
 })
 
 router.delete('/:id/resources/:resource/groups/:group', targetNode, targetResource, targetGroup, async (req, res) => {
-    await req.targetResource.removeGroup(req.targetGroup)
+    await Resource.ResourceGroup.destroy({ where: { resourceId: req.targetResource.id, groupId: req.targetGroup.id } })
     res.send()
     clusterEvents.emit('restricted')
 })

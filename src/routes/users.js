@@ -155,7 +155,7 @@ async function ownerOrAdmin (req, res) {
 
 router.get('/:id', targetUser, ownerOrAdmin, async (req, res) => {
     let dbuser = req.targetUser
-    let groups = (await dbuser.getGroups()).map(group => group.id)
+    let groups = (await dbuser.getUsergroups()).map(ug => ug.groupId)
     res.json({
         id:        dbuser.id,
         fullname:  dbuser.fullname,
@@ -177,12 +177,12 @@ async function targetGroup (req, res) {
 }
 
 router.put('/:id/groups/:group', router.ensureAdmin, targetUser, targetGroup, async (req, res) => {
-    await req.targetUser.addGroup(req.targetGroup)
+    await User.UserGroup.insertOrUpdate({ userId: req.targetUser.id, groupId: req.targetGroup.id })
     res.send()
 })
 
 router.delete('/:id/groups/:group', router.ensureAdmin, targetUser, targetGroup, async (req, res) => {
-    await req.targetUser.removeGroup(req.targetGroup)
+    await User.UserGroup.destroy({ where: { userId: req.targetUser.id, groupId: req.targetGroup.id } })
     res.send()
     clusterEvents.emit('restricted')
 })

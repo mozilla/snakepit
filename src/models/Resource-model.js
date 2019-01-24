@@ -15,17 +15,20 @@ var Resource = sequelize.define('resource', {
 Resource.hasMany(Allocation)
 Allocation.belongsTo(Resource)
 
-Resource.belongsTo(Alias, { foreignKey: 'name', targetKey: 'name' })
+Resource.belongsTo(Alias, { constraints: false, foreignKey: 'name', targetKey: 'name' })
 //Alias.belongsTo(Resource, { foreignKey: 'name', targetKey: 'name' })
 
-var ResourceGroup = Resource.ResourceGroup = sequelize.define('resourcegroup')
+var ResourceGroup = Resource.ResourceGroup = sequelize.define('resourcegroup', {
+    resourceId:   { type: Sequelize.INTEGER,  unique: 'pk' },
+    groupId:      { type: Sequelize.STRING,   unique: 'pk' }
+})
 Resource.hasMany(ResourceGroup)
 Group.hasMany(ResourceGroup)
 ResourceGroup.belongsTo(Resource)
 ResourceGroup.belongsTo(Group)
 
 User.prototype.canAccessResource = async (resource) => {
-    if (await resource.countGroups() == 0) {
+    if (await resource.countResourcegroups() == 0) {
         return true
     }
     return (await Resource.count({ 

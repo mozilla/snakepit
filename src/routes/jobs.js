@@ -14,6 +14,7 @@ const parseClusterRequest = require('../clusterParser.js').parse
 
 const fslib = require('../utils/httpfs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
+const { getDuration } = require('../utils/dateTime.js')
 const { ensureSignedIn } = require('./users.js')
 
 const jobStates = Job.jobStates
@@ -59,6 +60,7 @@ router.post('/', async (req, res) => {
     }
     let dbjob = Job.create({
         id:           pit.id,
+        userId:       req.user.id,
         description:  ('' + job.description).substring(0,20),
         provisioning: provisioning,
         request:      job.clusterRequest,
@@ -66,7 +68,7 @@ router.post('/', async (req, res) => {
     })
     if (!job.private) {
         for(let autoshare of (await req.user.getAutoshares())) {
-            await dbjob.addGroup(autoshare.group)
+            await Job.JobGroup.create({ jobId: job.id, groupId: autoshare.groupId })
         }
     }
     var files = {}
@@ -94,10 +96,10 @@ function getJobDescription(job) {
     return {
         id:               job.id,
         description:      job.description,
-        user:             job.user,
+        user:             job.userId,
         resources:        job.state >= jobStates.STARTING ? job.allocation : job.clusterRequest,
         state:            job.state,
-        since:            utils.getDuration(new Date(), job.since),
+        since:            getDuration(new Date(), job.since),
         schedulePosition: job.rank,
         utilComp:         job.state == jobStates.RUNNING ? job.curcompute : (job.aggcompute / (job.samples || 1)),
         utilMem:          job.state == jobStates.RUNNING ? job.curmemory  : (job.aggmemory  / (job.samples || 1))
@@ -130,11 +132,7 @@ router.get('/status', async (req, res) => {
 })
 
 router.get('/:id', async (req, res) => {
-    let job = await Job.findByPk(req.params.id, {
-        attributes: jobAttributes,
-        include: jobInclude,
-        group: jobGrouping
-    })
+    let job = await Job.findByPk(req.params.id)
     if (!job) {
         return Promise.reject({ code: 404, message: 'Job not found' })
     }
@@ -142,9 +140,9 @@ router.get('/:id', async (req, res) => {
     description.allocation = job.allocation
     description.clusterRequest = job.clusterRequest
     description.continueJob = job.continueJob
-    if(await user.canAccessJob(job)) {
+    if(await req.user.canAccessJob(job)) {
         description.provisioning = job.provisioning
-        description.groups = (await job.getGroups()).map(g => g.id).join(' ')
+        description.groups = (await job.getJobgroups()).map(jg => jg.groupId).join(' ')
         description.states = (await job.getStates()).map(s => ({
             state:  s.state,
             since:  s.since,
@@ -169,12 +167,12 @@ async function targetGroup (req, res) {
 }
 
 router.put('/:id/groups/:group', targetJob, canAccess, targetGroup, async (req, res) => {
-    await req.targetJob.addGroup(req.targetGroup)
+    await Job.JobGroup.insertOrUpdate({ jobId: req.targetJob.id, groupId: req.targetGroup.id })
     res.send()
 })
 
 router.delete('/:id/groups/:group', targetJob, canAccess, targetGroup, async (req, res) => {
-    await req.targetJob.removeGroup(req.targetGroup)
+    await Job.JobGroup.destroy({ where: { jobId: req.targetJob.id, groupId: req.targetGroup.id } })
     res.send()
     clusterEvents.emit('restricted')
 })

@@ -8,6 +8,7 @@ const config = require('./config.js')
 const pitRunner = require('./pitRunner.js')
 const reservations = require('./reservations.js')
 const Job = require('./models/Job-model.js')
+const Group = require('./models/Group-model.js')
 
 
 const jobStates = Job.jobStates
@@ -62,12 +63,12 @@ async function startJob (job) {
     jobEnv.DATA_ROOT = '/data'
     jobEnv.SHARED_DIR = '/data/ro/shared'
     jobEnv.USER_DIR = '/data/rw/home'
-    for (let group of (await user.getGroups())) {
-        shares['/data/rw/group-' + group] = group.getDirExternal()
-        jobEnv[group.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + group
+    for (let ug of (await user.getUsergroups())) {
+        shares['/data/rw/group-' + ug.groupId] = Group.getDirExternal(ug.groupId)
+        jobEnv[group.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
     }
 
-    let processGroups = await job.getProcessGroups({ 
+    let processGroups = await job.getProcessgroups({ 
         include: [
             {
                 model: Process,
