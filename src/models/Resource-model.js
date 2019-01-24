@@ -22,8 +22,8 @@ var ResourceGroup = Resource.ResourceGroup = sequelize.define('resourcegroup', {
     resourceId:   { type: Sequelize.INTEGER,  unique: 'pk' },
     groupId:      { type: Sequelize.STRING,   unique: 'pk' }
 })
-Resource.hasMany(ResourceGroup)
-Group.hasMany(ResourceGroup)
+Resource.hasMany(ResourceGroup, { onDelete: 'cascade' })
+Group.hasMany(ResourceGroup, { onDelete: 'cascade' })
 ResourceGroup.belongsTo(Resource)
 ResourceGroup.belongsTo(Group)
 

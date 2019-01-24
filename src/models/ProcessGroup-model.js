@@ -7,7 +7,7 @@ var ProcessGroup = sequelize.define('processgroup', {
     index:        { type: Sequelize.INTEGER, allowNull: false }
 })
 
-ProcessGroup.hasMany(Process)
+ProcessGroup.hasMany(Process, { onDelete: 'cascade' })
 Process.belongsTo(ProcessGroup)
 
 module.exports = ProcessGroup

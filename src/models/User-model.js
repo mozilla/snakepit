@@ -1,8 +1,10 @@
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
+const config = require('../config.js')
 const Group = require('./Group-model.js')
 
 const fs = require('fs-extra')
+const path = require('path')
 
 var User = sequelize.define('user', {
     id:           { type: Sequelize.STRING,  allowNull: false, primaryKey: true },
@@ -16,8 +18,8 @@ var UserGroup = User.UserGroup = sequelize.define('usergroup', {
     userId:       { type: Sequelize.STRING, unique: 'pk' },
     groupId:      { type: Sequelize.STRING, unique: 'pk' }
 })
-User.hasMany(UserGroup)
-Group.hasMany(UserGroup)
+User.hasMany(UserGroup, { onDelete: 'cascade' })
+Group.hasMany(UserGroup, { onDelete: 'cascade' })
 UserGroup.belongsTo(User)
 UserGroup.belongsTo(Group)
 
@@ -25,8 +27,8 @@ var AutoShare = User.AutoShare = sequelize.define('autoshare', {
     userId:       { type: Sequelize.STRING, unique: 'pk' },
     groupId:      { type: Sequelize.STRING, unique: 'pk' }
 })
-User.hasMany(AutoShare)
-Group.hasMany(AutoShare)
+User.hasMany(AutoShare, { onDelete: 'cascade' })
+Group.hasMany(AutoShare, { onDelete: 'cascade' })
 AutoShare.belongsTo(User)
 AutoShare.belongsTo(Group)
 

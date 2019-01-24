@@ -1,6 +1,5 @@
 const fs = require('fs-extra')
 const path = require('path')
-
 const log = require('./utils/logger.js')
 const { runScript } = require('./utils/scripts.js')
 const clusterEvents = require('./utils/clusterEvents.js')
@@ -9,7 +8,9 @@ const pitRunner = require('./pitRunner.js')
 const reservations = require('./reservations.js')
 const Job = require('./models/Job-model.js')
 const Group = require('./models/Group-model.js')
-
+const Process = require('./models/Process-model.js')
+const Allocation = require('./models/Allocation-model.js')
+const Resource = require('./models/Resource-model.js')
 
 const jobStates = Job.jobStates
 
@@ -50,80 +51,80 @@ async function prepareJob (job) {
 exports.prepareJob = prepareJob
 
 async function startJob (job) {
-    await job.setState(jobStates.STARTING)
-    let user = await job.getUser()
-    let jobEnv = getBasicEnv(job)
-    
-    jobEnv.JOB_DIR = '/data/rw/pit'
-    jobEnv.SRC_DIR = jobEnv.WORK_DIR = '/data/rw/pit/src'
-    let shares = {
-        '/ro/shared':    path.join(config.mountRoot, 'shared'),
-        '/data/rw/home': user.getDirExternal()
-    }
-    jobEnv.DATA_ROOT = '/data'
-    jobEnv.SHARED_DIR = '/data/ro/shared'
-    jobEnv.USER_DIR = '/data/rw/home'
-    for (let ug of (await user.getUsergroups())) {
-        shares['/data/rw/group-' + ug.groupId] = Group.getDirExternal(ug.groupId)
-        jobEnv[group.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
-    }
+    try {
+        await job.setState(jobStates.STARTING)
+        let user = await job.getUser()
+        let jobEnv = getBasicEnv(job)
+        
+        jobEnv.JOB_DIR = '/data/rw/pit'
+        jobEnv.SRC_DIR = jobEnv.WORK_DIR = '/data/rw/pit/src'
+        let shares = {
+            '/ro/shared':    path.join(config.mountRoot, 'shared'),
+            '/data/rw/home': user.getDirExternal()
+        }
+        jobEnv.DATA_ROOT = '/data'
+        jobEnv.SHARED_DIR = '/data/ro/shared'
+        jobEnv.USER_DIR = '/data/rw/home'
+        for (let ug of (await user.getUsergroups())) {
+            shares['/data/rw/group-' + ug.groupId] = Group.getDirExternal(ug.groupId)
+            jobEnv[group.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
+        }
 
-    let processGroups = await job.getProcessgroups({ 
-        include: [
-            {
-                model: Process,
-                require: true,
-                include: 
-                [
-                    {
-                        model: Allocation,
-                        require: false,
-                        include: [
-                            {
-                                model: Resource,
-                                require: true
-                            }
-                        ]
-                    }
-                ]
-            }
-        ]
-    })
+        let processGroups = await job.getProcessgroups({ 
+            include: [
+                {
+                    model: Process,
+                    require: true,
+                    include: 
+                    [
+                        {
+                            model: Allocation,
+                            require: false,
+                            include: [
+                                {
+                                    model: Resource,
+                                    require: true
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        })
 
-    let workers = []
-    jobEnv.NUM_GROUPS = processGroups.length
-    for(let processGroup of processGroups) {
-        jobEnv['NUM_PROCESSES_GROUP' + processGroup.index] = processGroup.Processes.length
-        for(let jobProcess of processGroup.Processes) {
-            jobEnv['HOST_GROUP' + gIndex + '_PROCESS' + pIndex] = 
-                pitRunner.getWorkerHost(job.id, jobProcess.node, workers.length)
-            let gpus = {}
-            for(let allocation of jobProcess.Allocations) {
-                let resource = allocation.Resource
-                if (resource.type == 'cuda') {
-                    gpus['gpu' + resource.index] = {
-                        type:  'gpu',
-                        id:    '' + resource.index
+        let workers = []
+        jobEnv.NUM_GROUPS = processGroups.length
+        for(let processGroup of processGroups) {
+            jobEnv['NUM_PROCESSES_GROUP' + processGroup.index] = processGroup.Processes.length
+            for(let jobProcess of processGroup.Processes) {
+                jobEnv['HOST_GROUP' + gIndex + '_PROCESS' + pIndex] = 
+                    pitRunner.getWorkerHost(job.id, jobProcess.node, workers.length)
+                let gpus = {}
+                for(let allocation of jobProcess.Allocations) {
+                    let resource = allocation.Resource
+                    if (resource.type == 'cuda') {
+                        gpus['gpu' + resource.index] = {
+                            type:  'gpu',
+                            id:    '' + resource.index
+                        }
                     }
                 }
+                workers.push({
+                    node:    node,
+                    options: { devices: gpus },
+                    env:     Object.assign({
+                                GROUP_INDEX:   processReservation.groupIndex,
+                                PROCESS_INDEX: processReservation.processIndex
+                            }, jobEnv),
+                    script:  job.script
+                })
             }
-            workers.push({
-                node:    node,
-                options: { devices: gpus },
-                env:     Object.assign({
-                            GROUP_INDEX:   processReservation.groupIndex,
-                            PROCESS_INDEX: processReservation.processIndex
-                         }, jobEnv),
-                script:  job.script
-            })
         }
-    }
-    try {
         await pitRunner.startPit(job.id, shares, workers)
         await job.setState(jobStates.RUNNING)
     } catch (ex) {
-        log.error('START PROBLEM', ex.toString())
-        await cleanJob(job, 'Problem during startup: ' + ex.toString())
+        log.error('START PROBLEM', ex)
+        await to(cleanJob(job, 'Problem during startup: ' + ex.toString()))
     }
 }
 exports.startJob = startJob
@@ -137,20 +138,18 @@ async function stopJob (job, reason) {
         } else if (job.state == jobStates.RUNNING) {
             await job.setState(jobStates.STOPPING, reason)
             await pitRunner.stopPit(job.id)
-        } else {
-            return
         }
     } catch (ex) {
         await cleanJob(job, 'Problem during stopping')
         return
     }
-    await cleanJob()
+    await cleanJob(job)
 }
 exports.stopJob = stopJob
 
 async function cleanJob (job, reason) {
     await job.setState(jobStates.CLEANING, reason)
-    utils.runScript('clean.sh', getPreparationEnv(job), async (code, stdout, stderr) => {
+    runScript('clean.sh', getPreparationEnv(job), async (code, stdout, stderr) => {
         await job.setState(jobStates.DONE, code > 0 ? ('Problem during cleaning step - exit code: ' + code + '\n' + stderr) : undefined)
     })
 }
@@ -179,8 +178,10 @@ async function tick () {
             break
         }
     }
+    log.debug('Looking for waiting job...')
     let job = await Job.findOne({ where: { state: jobStates.WAITING }, order: ['rank'] })
     if (job) {
+        log.debug('Trying to allocate job', job.id)
         if (await reservations.tryAllocate(job)) {
             log.debug('Starting job', job.id)
             await startJob(job)

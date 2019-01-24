@@ -1,6 +1,8 @@
 const fs = require('fs-extra')
+const path = require('path')
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
+const config = require('../config.js')
 const log = require('../utils/logger.js')
 
 var Group = sequelize.define('group', {

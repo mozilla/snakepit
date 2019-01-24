@@ -9,12 +9,15 @@ const ProcessGroup = require('../models/ProcessGroup-model.js')
 const Process = require('../models/Process-model.js')
 const Allocation = require('../models/Allocation-model.js')
 
+const log = require('../utils/logger.js')
+
 var Job = sequelize.define('job', {
     id:           { type: Sequelize.INTEGER, primaryKey: true },
     description:  { type: Sequelize.STRING,  allowNull: false },
     provisioning: { type: Sequelize.STRING,  allowNull: false },
     request:      { type: Sequelize.STRING,  allowNull: false },
     state:        { type: Sequelize.INTEGER, allowNull: true },
+    since:        { type: Sequelize.DATE,    allowNull: true },
     rank:         { type: Sequelize.INTEGER, allowNull: false, defaultValue: 0 },
     allocation:   { type: Sequelize.STRING,  allowNull: true },
     continues:    { type: Sequelize.INTEGER, allowNull: true }
@@ -31,13 +34,13 @@ Job.jobStates = {
     DONE: 7
 }
 
-Job.hasMany(State)
+Job.hasMany(State, { onDelete: 'cascade' })
 State.belongsTo(Job)
 
-Job.hasMany(ProcessGroup)
+Job.hasMany(ProcessGroup, { onDelete: 'cascade' })
 ProcessGroup.belongsTo(Job)
 
-Job.belongsTo(Pit, { foreignKey: 'id' })
+Job.belongsTo(Pit, { foreignKey: 'id', onDelete: 'cascade' })
 
 Job.belongsTo(User)
 
@@ -45,8 +48,8 @@ var JobGroup = Job.JobGroup = sequelize.define('jobgroup', {
     jobId:        { type: Sequelize.INTEGER, unique: 'pk' },
     groupId:      { type: Sequelize.STRING,  unique: 'pk' }
 })
-Job.hasMany(JobGroup)
-Group.hasMany(JobGroup)
+Job.hasMany(JobGroup, { onDelete: 'cascade' })
+Group.hasMany(JobGroup, { onDelete: 'cascade' })
 JobGroup.belongsTo(Job)
 JobGroup.belongsTo(Group)
 
@@ -93,32 +96,22 @@ Job.prototype.getDirExternal = function () {
     return Pit.getDirExternal(this.id)
 }
 
-Job.prototype.setState = async (state, reason) => {
+Job.prototype.setState = async function (state, reason) {
     if (this.state == state) {
         return
     }
     let t
     try {
         t = await sequelize.transaction({ type: Sequelize.Transaction.TYPES.EXCLUSIVE })
-        let stateData = { state: state, since: Date.now(), reason: reason }
-        let stateEntry = await this.getState({ where: { state: state }, transaction: t, lock: t.LOCK })
-        n = new State
-        if (stateEntry) {
-            stateEntry.since = Date.now()
-            stateEntry.reason = reason
-            stateEntry.update({ transaction: t, lock: t.LOCK })
-        } else {
-            await this.addState(stateData, { transaction: t, lock: t.LOCK })
-        }
         if (this.state != Job.jobStates.WAITING && state == Job.jobStates.WAITING) {
-            this.rank = ((await Job.max('rank', { where: { state: Job.jobStates.WAITING }, transaction: t, lock: t.LOCK })) || 0) + 1
+            this.rank = ((await Job.max('rank', { where: { state: Job.jobStates.WAITING } })) || 0) + 1
         } else if (this.state == Job.jobStates.WAITING && state != Job.jobStates.WAITING) {
             await Job.update(
                 { rank: Sequelize.literal('rank - 1') }, 
                 { 
                     where: { 
                         state: Job.jobStates.WAITING, 
-                        rank: { [gt]: this.rank } 
+                        rank: { [Sequelize.Op.gt]: this.rank } 
                     },
                     transaction: t, 
                     lock: t.LOCK
@@ -127,7 +120,9 @@ Job.prototype.setState = async (state, reason) => {
             this.rank = 0
         }
         this.state = state
+        this.since = Date.now()
         await this.save({ transaction: t, lock: t.LOCK })
+        await State.create({ jobId: this.id, state: state, since: Date.now(), reason: reason })
         await t.commit()
     } catch (err) {
         await t.rollback()
@@ -138,12 +133,6 @@ Job.prototype.setState = async (state, reason) => {
 Job.infoQuery = options => assign({
     subQuery: false,
     include: [
-        {
-            model: State,
-            require: false,
-            attributes: [],
-            where: { state: { [Sequelize.Op.eq]: sequelize.col('job.state') } }
-        },
         {
             model: ProcessGroup,
             require: false,
@@ -170,7 +159,6 @@ Job.infoQuery = options => assign({
     ],
     attributes: {
         include: [
-            [sequelize.fn('max',   sequelize.col('states.since')), 'since'],
             [sequelize.fn('sum',   sequelize.col('processgroups->processes->allocations.samples')),  'samples'],
             [sequelize.fn('sum',   sequelize.col('processgroups->processes->allocations.acompute')), 'aggcompute'],
             [sequelize.fn('sum',   sequelize.col('processgroups->processes->allocations.amemory')),  'aggmemory'],

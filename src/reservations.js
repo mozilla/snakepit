@@ -10,6 +10,7 @@ const ProcessGroup = require('./models/ProcessGroup-model.js')
 const Process = require('./models/Process-model.js')
 const Allocation = require('./models/Allocation-model.js')
 const Sequelize = require('sequelize')
+const parseClusterRequest = require('./clusterParser.js').parse
 
 const log = require('./utils/logger.js')
 
@@ -162,11 +163,11 @@ function reservationSummary (clusterReservation) {
     }
     let nodes = {}
     for(let resource of Object.keys(clusterReservation).map(k => clusterReservation[k])) {
-        let resources = nodes[resource.node]
+        let resources = nodes[resource.nodeId]
         if (resources) {
             resources.push(resource)
         } else {
-            nodes[resource.node] = [resource]
+            nodes[resource.nodeId] = [resource]
         }
     }
     let summary = ''
@@ -199,6 +200,7 @@ async function allocate (clusterRequest, userId, job) {
     let t
     try {
         t = await sequelize.transaction({ type: Sequelize.Transaction.TYPES.EXCLUSIVE })
+        let options = { transaction: t, lock: t.LOCK }
         let nodes = await loadNodes(t, userId, simulation)
         let clusterReservation = {}
         for(let groupIndex = 0; groupIndex < clusterRequest.length; groupIndex++) {
@@ -206,16 +208,17 @@ async function allocate (clusterRequest, userId, job) {
             log.debug('Reserving process group', groupIndex)
             let jobProcessGroup
             if (!simulation) {
-                jobProcessGroup = await ProcessGroup.create({ index: groupIndex })
-                await job.addProcessGroup(jobProcessGroup)
+                jobProcessGroup = await ProcessGroup.create({ index: groupIndex }, options)
+                log.debug('Adding process group', groupIndex)
+                await job.addProcessgroup(jobProcessGroup, options)
             }
             for(let processIndex = 0; processIndex < groupRequest.count; processIndex++) {
                 log.debug('Reserving process', processIndex, 'for process group', groupIndex)
                 let processReservation
                 let jobProcess
                 if (!simulation) {
-                    jobProcess = await Process.create({ index: processIndex })
-                    await jobProcessGroup.addProcess(jobProcess)
+                    jobProcess = await Process.create({ index: processIndex }, options)
+                    await jobProcessGroup.addProcess(jobProcess, options)
                 }
                 for (let nodeId of Object.keys(nodes)) {
                     let node = nodes[nodeId]
@@ -224,7 +227,8 @@ async function allocate (clusterRequest, userId, job) {
                     if (processReservation) {
                         log.debug('Successfully reserved process', processIndex, 'for process group', groupIndex, 'on node', nodeId)
                         if (!simulation) {
-                            await jobProcess.setNode(node)
+                            jobProcess.nodeId = nodeId
+                            await jobProcess.save(options)
                         }
                         break
                     }
@@ -233,9 +237,10 @@ async function allocate (clusterRequest, userId, job) {
                     clusterReservation = Object.assign(clusterReservation, processReservation)
                     if (!simulation) {
                         for(let resource of Object.keys(processReservation).map(k => processReservation[k])) {
-                            let allocation = await Allocation.create()
-                            await jobProcess.addAllocation(allocation)
-                            await allocation.addResource(resource)
+                            await Allocation.create({
+                                resourceId: resource.id,
+                                processId:  jobProcess.id 
+                            }, options)
                         }
                     }
                 } else if (simulation) {
@@ -248,15 +253,17 @@ async function allocate (clusterRequest, userId, job) {
         }
         if (!simulation) {
             job.allocation = reservationSummary(clusterReservation)
-            await job.save()
+            log.debug('Successfully reserved job', job.id, job.allocation)
+            await job.save(options)
             await t.commit()
         }
         return true
     } catch (err) {
+        log.error(err)
         t && await t.rollback()
         throw err
     }
 }
 
 exports.canAllocate = (request, user) => allocate(request, user.id)
-exports.tryAllocate = job => allocate(job.request, job.userId, job)
+exports.tryAllocate = job => allocate(parseClusterRequest(job.request), job.userId, job)

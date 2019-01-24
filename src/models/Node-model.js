@@ -14,7 +14,7 @@ var Node = sequelize.define('node', {
     since:        { type: Sequelize.DATE,    allowNull: false }
 })
 
-Node.hasMany(Resource)
+Node.hasMany(Resource, { onDelete: 'cascade' })
 Resource.belongsTo(Node)
 
 Node.beforeCreate(async node => {

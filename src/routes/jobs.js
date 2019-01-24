@@ -1,4 +1,5 @@
 const fs = require('fs-extra')
+const path = require('path')
 const zlib = require('zlib')
 const tar = require('tar-fs')
 const ndir = require('node-dir')
@@ -8,6 +9,7 @@ const Router = require('express-promise-router')
 const Pit = require('../models/Pit-model.js')
 const Job = require('../models/Job-model.js')
 const Group = require('../models/Group-model.js')
+const config = require('../config.js')
 const scheduler = require('../scheduler.js')
 const reservations = require('../reservations.js')
 const parseClusterRequest = require('../clusterParser.js').parse
@@ -15,6 +17,7 @@ const parseClusterRequest = require('../clusterParser.js').parse
 const fslib = require('../utils/httpfs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const { getDuration } = require('../utils/dateTime.js')
+const { to } = require('../utils/async.js')
 const { ensureSignedIn } = require('./users.js')
 
 const jobStates = Job.jobStates
@@ -47,45 +50,58 @@ router.post('/', async (req, res) => {
             return
         }
     }
-    let pit = await Pit.create()
-    let provisioning
-    if (job.origin) {
-        provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
+    let pit
+    let dbjob
+
+    try {
+        pit = await Pit.create()
+        let provisioning
+        if (job.origin) {
+            provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
+            if (job.diff) {
+                provisioning += ' with ' +
+                    (job.diff + '').split('\n').length + ' LoC diff'
+            }
+        } else if (job.archive) {
+            provisioning = 'Archive (' + fs.statSync(job.archive).size + ' bytes)'
+        }
+        let dbjob = await Job.create({
+            id:           pit.id,
+            userId:       req.user.id,
+            description:  ('' + job.description).substring(0,20),
+            provisioning: provisioning,
+            request:      job.clusterRequest,
+            continues:    job.continueJob
+        })
+        if (!job.private) {
+            for(let autoshare of (await req.user.getAutoshares())) {
+                await Job.JobGroup.create({ jobId: job.id, groupId: autoshare.groupId })
+            }
+        }
+        var files = {}
+        files['script'] = (job.script || 'if [ -f .compute ]; then bash .compute; fi') + '\n'
+        if (job.origin) {
+            files['origin'] = job.origin
+        }
+        if (job.hash) {
+            files['hash'] = job.hash
+        }
         if (job.diff) {
-            provisioning += ' with ' +
-                (job.diff + '').split('\n').length + ' LoC diff'
+            files['git.patch'] = job.diff + '\n'
         }
-    } else if (job.archive) {
-        provisioning = 'Archive (' + fs.statSync(job.archive).size + ' bytes)'
-    }
-    let dbjob = Job.create({
-        id:           pit.id,
-        userId:       req.user.id,
-        description:  ('' + job.description).substring(0,20),
-        provisioning: provisioning,
-        request:      job.clusterRequest,
-        continueJob:  job.continueJob
-    })
-    if (!job.private) {
-        for(let autoshare of (await req.user.getAutoshares())) {
-            await Job.JobGroup.create({ jobId: job.id, groupId: autoshare.groupId })
+        let jobDir = Pit.getDir(pit.id)
+        await Parallel.each(Object.keys(files), filename => fs.writeFile(path.join(jobDir, filename), files[filename]))
+        await dbjob.setState(jobStates.NEW)
+        res.status(200).send({ id: pit.id })
+    } catch (ex) {
+        if (dbjob) {
+            await to(dbjob.destroy())
         }
+        if (pit) {
+            await to(pit.destroy())
+        }
+        res.status(500).send({ message: ex.toString() })
     }
-    var files = {}
-    files['script'] = (job.script || 'if [ -f .compute ]; then bash .compute; fi') + '\n'
-    if (job.origin) {
-        files['origin'] = job.origin
-    }
-    if (job.hash) {
-        files['hash'] = job.hash
-    }
-    if (job.diff) {
-        files['git.patch'] = job.diff + '\n'
-    }
-    let jobDir = Pit.getDir(pit.id)
-    await Parallel.each(Object.keys(files), filename => fs.writeFile(path.join(jobDir, filename), content))
-    await job.setState(jobStates.NEW)
-    res.status(200).send({ id: id })
 })
 
 router.get('/', async (req, res) => {
@@ -97,7 +113,7 @@ function getJobDescription(job) {
         id:               job.id,
         description:      job.description,
         user:             job.userId,
-        resources:        job.state >= jobStates.STARTING ? job.allocation : job.clusterRequest,
+        resources:        job.state >= jobStates.STARTING ? job.allocation : job.request,
         state:            job.state,
         since:            getDuration(new Date(), job.since),
         schedulePosition: job.rank,
@@ -139,7 +155,7 @@ router.get('/:id', async (req, res) => {
     let description = getJobDescription(job)
     description.allocation = job.allocation
     description.clusterRequest = job.clusterRequest
-    description.continueJob = job.continueJob
+    description.continueJob = job.continues
     if(await req.user.canAccessJob(job)) {
         description.provisioning = job.provisioning
         description.groups = (await job.getJobgroups()).map(jg => jg.groupId).join(' ')
@@ -296,6 +312,7 @@ router.post('/:id/stop', targetJob, canAccess, async (req, res) => {
 router.delete('/:id', targetJob, canAccess, async (req, res) => {
     if (req.targetJob.state >= jobStates.DONE) {
         await req.targetJob.destroy()
+        res.send()
     } else {
         res.status(412).send({ message: 'Only stopped jobs can be deleted' })
     }
