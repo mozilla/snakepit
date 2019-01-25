@@ -8,9 +8,6 @@ const pitRunner = require('./pitRunner.js')
 const reservations = require('./reservations.js')
 const Job = require('./models/Job-model.js')
 const Group = require('./models/Group-model.js')
-const Process = require('./models/Process-model.js')
-const Allocation = require('./models/Allocation-model.js')
-const Resource = require('./models/Resource-model.js')
 
 const jobStates = Job.jobStates
 
@@ -70,38 +67,20 @@ async function startJob (job) {
             jobEnv[group.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
         }
 
-        let processGroups = await job.getProcessgroups({ 
-            include: [
-                {
-                    model: Process,
-                    require: true,
-                    include: 
-                    [
-                        {
-                            model: Allocation,
-                            require: false,
-                            include: [
-                                {
-                                    model: Resource,
-                                    require: true
-                                }
-                            ]
-                        }
-                    ]
-                }
-            ]
-        })
-
         let workers = []
+        let processGroups = await job.getProcessgroups()
         jobEnv.NUM_GROUPS = processGroups.length
         for(let processGroup of processGroups) {
-            jobEnv['NUM_PROCESSES_GROUP' + processGroup.index] = processGroup.Processes.length
-            for(let jobProcess of processGroup.Processes) {
-                jobEnv['HOST_GROUP' + gIndex + '_PROCESS' + pIndex] = 
-                    pitRunner.getWorkerHost(job.id, jobProcess.node, workers.length)
+            let processes = await processGroup.getProcesses()
+            jobEnv['NUM_PROCESSES_GROUP' + processGroup.index] = processes.length
+            for(let jobProcess of processes) {
+                let node = await jobProcess.getNode()
+                jobEnv['HOST_GROUP' + processGroup.index + '_PROCESS' + jobProcess.index] = 
+                    pitRunner.getWorkerHost(job.id, node.id, workers.length)
                 let gpus = {}
-                for(let allocation of jobProcess.Allocations) {
-                    let resource = allocation.Resource
+                let allocations = await jobProcess.getAllocations()
+                for(let allocation of allocations) {
+                    let resource = await allocation.getResource()
                     if (resource.type == 'cuda') {
                         gpus['gpu' + resource.index] = {
                             type:  'gpu',
@@ -113,18 +92,17 @@ async function startJob (job) {
                     node:    node,
                     options: { devices: gpus },
                     env:     Object.assign({
-                                GROUP_INDEX:   processReservation.groupIndex,
-                                PROCESS_INDEX: processReservation.processIndex
-                            }, jobEnv),
-                    script:  job.script
+                                 GROUP_INDEX:   processGroup.index,
+                                 PROCESS_INDEX: jobProcess.index
+                             }, jobEnv)
                 })
             }
         }
         await pitRunner.startPit(job.id, shares, workers)
         await job.setState(jobStates.RUNNING)
     } catch (ex) {
-        log.error('START PROBLEM', ex)
-        await to(cleanJob(job, 'Problem during startup: ' + ex.toString()))
+        log.error('Problem starting job', job.id, ex)
+        await cleanJob(job, 'Problem during startup: ' + ex.toString())
     }
 }
 exports.startJob = startJob

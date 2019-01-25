@@ -15,6 +15,7 @@ const reservations = require('../reservations.js')
 const parseClusterRequest = require('../clusterParser.js').parse
 
 const fslib = require('../utils/httpfs.js')
+const log = require('../utils/logger.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const { getDuration } = require('../utils/dateTime.js')
 const { to } = require('../utils/async.js')
@@ -50,9 +51,9 @@ router.post('/', async (req, res) => {
             return
         }
     }
+
     let pit
     let dbjob
-
     try {
         pit = await Pit.create()
         let provisioning
@@ -64,6 +65,8 @@ router.post('/', async (req, res) => {
             }
         } else if (job.archive) {
             provisioning = 'Archive (' + fs.statSync(job.archive).size + ' bytes)'
+        } else {
+            provisioning = 'Script'
         }
         let dbjob = await Job.create({
             id:           pit.id,
@@ -137,7 +140,7 @@ router.get('/status', async (req, res) => {
     waiting = waiting.concat(jobs.filter(j => j.state == jobStates.NEW))
     let done = await Job.findAll(Job.infoQuery({
         where: { state: { [Sequelize.Op.gt]: jobStates.STOPPING } },
-        order: [['id', 'ASC']], 
+        order: [['since', 'DESC']], 
         limit: 20 
     }))
     res.send({
@@ -159,7 +162,7 @@ router.get('/:id', async (req, res) => {
     if(await req.user.canAccessJob(job)) {
         description.provisioning = job.provisioning
         description.groups = (await job.getJobgroups()).map(jg => jg.groupId).join(' ')
-        description.states = (await job.getStates()).map(s => ({
+        description.stateChanges = (await job.getStates({ order: ['since'] })).map(s => ({
             state:  s.state,
             since:  s.since,
             reason: s.reason
@@ -252,12 +255,13 @@ router.get('/:id/content/(*)?', targetJob, canAccess, targetPath, async (req, re
 
 router.get('/:id/log', targetJob, canAccess, async (req, res) => {
     res.writeHead(200, {
-        'Connection': 'keep-alive',
-        'Content-Type': 'text/plain',
+        'Connection':    'keep-alive',
+        'Content-Type':  'text/plain',
         'Cache-Control': 'no-cache'
     })
     req.connection.setTimeout(60 * 60 * 1000)
-    let interval = config.pollInterval / 10
+    let divisor = 10
+    let interval = config.pollInterval / divisor
     let logPath = path.join(Pit.getDir(req.targetJob.id), 'pit.log')
     let written = 0
     let writeStream = cb => {
@@ -268,23 +272,32 @@ router.get('/:id/log', targetJob, canAccess, async (req, res) => {
         })
         stream.on('end', cb)
     }
+    let counter = 0
     let poll = () => {
-        if (req.targetJob.state <= jobStates.STOPPING) {
-            if (fs.existsSync(logPath)) {
-                fs.stat(logPath, (err, stats) => {
-                    if (!err && stats.size > written) {
-                        writeStream(() => setTimeout(poll, interval))
-                    } else  {
-                        setTimeout(poll, interval)
-                    }
-                })
-            } else {
+        if (counter > divisor) {
+            req.targetJob.reload().then(() => {
+                counter = 0
                 setTimeout(poll, interval)
-            }
-        } else if (fs.existsSync(logPath)) {
-            writeStream(res.end.bind(res))
+            }).catch(res.end.bind(res))
         } else {
-            res.status(404).send()
+            counter++
+            if (req.targetJob.state <= jobStates.STOPPING) {
+                if (fs.existsSync(logPath)) {
+                    fs.stat(logPath, (err, stats) => {
+                        if (!err && stats.size > written) {
+                            writeStream(() => setTimeout(poll, interval))
+                        } else  {
+                            setTimeout(poll, interval)
+                        }
+                    })
+                } else {
+                    setTimeout(poll, interval)
+                }
+            } else if (fs.existsSync(logPath)) {
+                writeStream(res.end.bind(res))
+            } else {
+                res.status(404).send()
+            }
         }
     }
     poll()
@@ -302,7 +315,7 @@ router.post('/:id/fs', targetJob, canAccess, async (req, res) => {
 
 router.post('/:id/stop', targetJob, canAccess, async (req, res) => {
     if (req.targetJob.state <= jobStates.RUNNING) {
-        await scheduler.stopJob(req.targetJob)
+        await scheduler.stopJob(req.targetJob, 'Stopped by user ' + req.user.id)
         res.send()
     } else {
         res.status(412).send({ message: 'Only jobs before or in running state can be stopped' })

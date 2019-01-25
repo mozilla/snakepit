@@ -17,20 +17,26 @@ const log = require('./utils/logger.js')
 var exports = module.exports = {}
 
 async function loadNodes (transaction, userId, simulation) {
+    let lock = transaction && transaction.LOCK
     let nodes = {}
     let nodeWhere = { available: true }
-    
+    let having = [
+        sequelize.or(
+            sequelize.where(sequelize.fn('count', sequelize.col('resourcegroups->group->usergroups->user.id')), { [Sequelize.Op.gt]: 0 }),
+            sequelize.where(sequelize.fn('count', sequelize.col('resourcegroups->group.id')), 0)
+        )
+    ]
     if (!simulation) {
+        having.push(sequelize.where(sequelize.fn('count', sequelize.col('allocations->process->processgroup->job.id')), 0))
         nodeWhere.online = true
     }
-
     let resources = await Resource.findAll({
         include: [
             { 
                 model: Node, 
                 attributes: [],
                 transaction: transaction,
-                lock: transaction.LOCK,
+                lock: lock,
                 where: nodeWhere
             },
             {
@@ -38,35 +44,35 @@ async function loadNodes (transaction, userId, simulation) {
                 require: false,
                 attributes: ['id'],
                 transaction: transaction,
-                lock: transaction.LOCK
+                lock: lock
             },
             { 
                 model: Allocation, 
                 require: false,
                 attributes: [],
                 transaction: transaction,
-                lock: transaction.LOCK,
+                lock: lock,
                 include: [
                     {
                         model: Process,
                         require: false,
                         attributes: [],
                         transaction: transaction,
-                        lock: transaction.LOCK,
+                        lock: lock,
                         include: [
                             {
                                 model: ProcessGroup,
                                 require: false,
                                 attributes: [],
                                 transaction: transaction,
-                                lock: transaction.LOCK,
+                                lock: lock,
                                 include: [
                                     {
                                         model: Job,
                                         require: false,
                                         attributes: [],
                                         transaction: transaction,
-                                        lock: transaction.LOCK,
+                                        lock: lock,
                                         where: { 
                                             state: { 
                                                 [Sequelize.Op.gte]: Job.jobStates.STARTING, 
@@ -85,28 +91,28 @@ async function loadNodes (transaction, userId, simulation) {
                 require: false,
                 attributes: [],
                 transaction: transaction,
-                lock: transaction.LOCK,
+                lock: lock,
                 include: [
                     {
                         model: Group,
                         require: false,
                         attributes: [],
                         transaction: transaction,
-                        lock: transaction.LOCK,
+                        lock: lock,
                         include: [
                             {
                                 model: User.UserGroup,
                                 require: false,
                                 attributes: [],
                                 transaction: transaction,
-                                lock: transaction.LOCK,
+                                lock: lock,
                                 include: [
                                     {
                                         model: User,
                                         require: false,
                                         attributes: [],
                                         transaction: transaction,
-                                        lock: transaction.LOCK,
+                                        lock: lock,
                                         where: { id: userId }
                                     }
                                 ]
@@ -117,13 +123,7 @@ async function loadNodes (transaction, userId, simulation) {
             }
         ],
         group: ['resource.id', 'alias.id'],
-        having: [
-            sequelize.where(sequelize.fn('count', sequelize.col('allocations->process->processgroup->job.id')), 0),
-            sequelize.or(
-                sequelize.where(sequelize.fn('count', sequelize.col('resourcegroups->group->usergroups->user.id')), { [Sequelize.Op.gt]: 0 }),
-                sequelize.where(sequelize.fn('count', sequelize.col('resourcegroups->group.id')), 0)
-            )
-        ]
+        having: having
     })
     for (let resource of resources) {
         let nodeResources = nodes[resource.nodeId]
@@ -197,11 +197,15 @@ function reservationSummary (clusterReservation) {
 
 async function allocate (clusterRequest, userId, job) {
     let simulation = !job
-    let t
+    let options
     try {
-        t = await sequelize.transaction({ type: Sequelize.Transaction.TYPES.EXCLUSIVE })
-        let options = { transaction: t, lock: t.LOCK }
-        let nodes = await loadNodes(t, userId, simulation)
+        if (simulation) {
+            options = {}
+        } else {
+            let transaction = await sequelize.transaction({ type: Sequelize.Transaction.TYPES.EXCLUSIVE })
+            options = { transaction: transaction, lock: transaction.LOCK } 
+        } 
+        let nodes = await loadNodes(simulation.transaction, userId, simulation)
         let clusterReservation = {}
         for(let groupIndex = 0; groupIndex < clusterRequest.length; groupIndex++) {
             let groupRequest = clusterRequest[groupIndex]
@@ -243,10 +247,10 @@ async function allocate (clusterRequest, userId, job) {
                             }, options)
                         }
                     }
-                } else if (simulation) {
-                    return false
                 } else {
-                    await t.rollback()
+                    if (!simulation) {
+                        await options.transaction.rollback()
+                    }
                     return false
                 }
             }
@@ -255,12 +259,12 @@ async function allocate (clusterRequest, userId, job) {
             job.allocation = reservationSummary(clusterReservation)
             log.debug('Successfully reserved job', job.id, job.allocation)
             await job.save(options)
-            await t.commit()
+            await options.transaction.commit()
         }
         return true
     } catch (err) {
         log.error(err)
-        t && await t.rollback()
+        options.transaction && await options.transaction.rollback()
         throw err
     }
 }
