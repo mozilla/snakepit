@@ -194,9 +194,6 @@ async function startPit (pitId, drives, workers) {
             if (worker.env) {
                 await fs.writeFile(path.join(workerDir, 'env.sh'), envToScript(worker.env, true))
             }
-            if (worker.script) {
-                await fs.writeFile(path.join(workerDir, 'script.sh'), worker.script)
-            }
             await addContainer(
                 containerName, 
                 workerHash, 

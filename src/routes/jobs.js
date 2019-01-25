@@ -15,10 +15,8 @@ const reservations = require('../reservations.js')
 const parseClusterRequest = require('../clusterParser.js').parse
 
 const fslib = require('../utils/httpfs.js')
-const log = require('../utils/logger.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const { getDuration } = require('../utils/dateTime.js')
-const { to } = require('../utils/async.js')
 const { ensureSignedIn } = require('./users.js')
 
 const jobStates = Job.jobStates
@@ -82,7 +80,7 @@ router.post('/', async (req, res) => {
             }
         }
         var files = {}
-        files['script'] = (job.script || 'if [ -f .compute ]; then bash .compute; fi') + '\n'
+        files['script.sh'] = (job.script || 'if [ -f .compute ]; then bash .compute; fi') + '\n'
         if (job.origin) {
             files['origin'] = job.origin
         }
@@ -98,10 +96,10 @@ router.post('/', async (req, res) => {
         res.status(200).send({ id: pit.id })
     } catch (ex) {
         if (dbjob) {
-            await to(dbjob.destroy())
+            await dbjob.destroy()
         }
         if (pit) {
-            await to(pit.destroy())
+            await pit.destroy()
         }
         res.status(500).send({ message: ex.toString() })
     }

@@ -94,7 +94,7 @@ async function startJob (job) {
                     env:     Object.assign({
                                  GROUP_INDEX:   processGroup.index,
                                  PROCESS_INDEX: jobProcess.index
-                             }, jobEnv)
+                             }, jobEnv) 
                 })
             }
         }
