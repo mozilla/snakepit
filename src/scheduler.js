@@ -218,7 +218,7 @@ exports.startup = async function () {
         }, {})
         for (let job of (await Job.findAll({ where: { state: jobStates.RUNNING } }))) {
             if (!pits[job.id]) {
-                await stopJob(job)
+                await stopJob(job, 'Missing pit')
             }
         }
     })

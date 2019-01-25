@@ -156,10 +156,13 @@ router.get('/:id', async (req, res) => {
     let description = getJobDescription(job)
     description.allocation = job.allocation
     description.clusterRequest = job.clusterRequest
-    description.continueJob = job.continues
+    if (job.continues) {
+        description.continueJob = job.continues
+    }
     if(await req.user.canAccessJob(job)) {
+        let groups = (await job.getJobgroups()).map(jg => jg.groupId)
         description.provisioning = job.provisioning
-        description.groups = (await job.getJobgroups()).map(jg => jg.groupId).join(' ')
+        description.groups = groups.length > 0 && groups
         description.stateChanges = (await job.getStates({ order: ['since'] })).map(s => ({
             state:  s.state,
             since:  s.since,
