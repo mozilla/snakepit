@@ -1,5 +1,8 @@
 const Router = require('express-promise-router')
 const Parallel = require('async-parallel')
+const fs = require('fs-extra')
+const path = require('path')
+const log = require('../utils/logger.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const pitRunner = require('../pitRunner.js')
 const Pit = require('../models/Pit-model.js')
@@ -12,25 +15,24 @@ const { ensureSignedIn, ensureAdmin } = require('./users.js')
 
 const resourceParser = /resource:([^,]*),([^,]*),([^,]*)/
 
-function getResourcesFromResult (result) {
-    let workers = result.workers
+async function getResourcesFromScan (pitId) {
+    let workers = await pitRunner.getResults(pitId)
     let resources = []
-    if (workers.length > 0) {
-        for (let line of workers[0].result.split('\n')) {
-            let match = resourceParser.exec(line)
-            if (match) {
-                let resource = Resource.build({ 
-                    type:  match[1],  
-                    name:  match[3],
-                    index: Number(match[2])
-                })
-                resources.push(resource)
-            }
-        }
-        return resources
-    } else {
+    if (workers.length <= 0 || !(workers[0].result)) {
         return
     }
+    for (let line of workers[0].result.split('\n')) {
+        let match = resourceParser.exec(line)
+        if (match) {
+            let resource = Resource.build({ 
+                type:  match[1],  
+                name:  match[3],
+                index: Number(match[2])
+            })
+            resources.push(resource)
+        }
+    }
+    return resources
 }
 
 var router = module.exports = new Router() 
@@ -86,12 +88,12 @@ router.put('/:id', async (req, res) => {
                 available: false
             })
             pit = await Pit.create()
-            let result = await pitRunner.runPit(pit.id, {}, [{ 
+            await fs.writeFile(path.join(pit.getDir(), 'script.sh'), getScript('scan.sh'))
+            await pitRunner.runPit(pit.id, {}, [{ 
                 node:    dbnode,
-                devices: { 'gpu': { type: 'gpu' } },
-                script:  getScript('scan.sh')
+                devices: { 'gpu': { type: 'gpu' } }
             }])
-            let resources = getResourcesFromResult(result)
+            let resources = await getResourcesFromScan(pit.id)
             if (resources) {
                 resources.forEach(async resource => {
                     await resource.save()
@@ -110,9 +112,9 @@ router.put('/:id', async (req, res) => {
             }
             res.status(400).send({ message: 'Problem adding node:\n' + ex })
         } finally {
-            if (pit) {
-                await pit.destroy()
-            }
+            //if (pit) {
+            //    await pit.destroy()
+            //}
         }
     } else {
         res.status(400).send()

@@ -218,13 +218,13 @@ exports.startPit = startPit
 function waitForPit (pitId, timeout) {
     return new Promise((resolve, reject) => {
         let timer
-        let stopListener = (stoppingPitId, results) => {
+        let stopListener = (stoppingPitId) => {
             if (stoppingPitId == pitId) {
                 if (timer) {
                     clearTimeout(timer)
                 }
                 clusterEvents.removeListener('pitStopped', stopListener)
-                resolve(results)
+                resolve()
             }
         }
         let timeoutListener = () => {
@@ -241,34 +241,49 @@ exports.waitForPit = waitForPit
 
 async function runPit (pitId, drives, workers, timeout) {
     await startPit(pitId, drives, workers)
-    return await waitForPit(pitId, timeout)
+    await waitForPit(pitId, timeout)
 }
 exports.runPit = runPit
 
-async function extractResults (pitId) {
-    let pitDir = Pit.getDir(pitId)
-    if (await fs.pathExists(pitDir)) {
-        let [errLog, pitLog] = await to(fs.readFile(path.join(pitDir, 'pit.log')))
-        let workersDir = path.join(pitDir, 'workers')
-        let [errWorkers, workers] = await to(fs.readdir(workersDir))
-        let [errResults, workerResults] = await to(Parallel.map(workers || [], async worker => {
-            let workerDir = path.join(workersDir, worker)
-            let [errStatus, statusContent] = await to(fs.readFile(path.join(workerDir, 'status')))
-            let status = statusContent ? Number(statusContent.toString()) : 1
-            let [errResult, resultContent] = await to(fs.readFile(path.join(workerDir, 'result')))
-            let result = resultContent ?        resultContent.toString()  : ''
-            return { status: status, result: result }
-        }))
-        return { log: (pitLog || '').toString(), workers: workerResults || []}
-    } else {
-        return { log: 'No pit directory', workers: [] }
+function getLogPath (pitId) {
+    return path.join(Pit.getDir(pitId), 'pit.log')
+}
+exports.getLogPath = getLogPath
+
+async function getLog (pitId) {
+    try {
+        return await fs.readFile(getLogPath(pitId))
+    } catch (ex) {
+        return undefined
     }
 }
+exports.getLog = getLog
+
+async function getResults (pitId) {
+    let pitDir = Pit.getDir(pitId)
+    let workersDir = path.join(pitDir, 'workers')
+    let workers = await fs.readdir(workersDir)
+    workers = workers.map(w => parseInt(w)).filter(w => !isNaN(w)).sort((a, b) => a - b)
+    let results = []
+    await Parallel.each(workers, async worker => {
+        let result = {}
+        let [errStatus, statusContent] = await to(fs.readFile(path.join(workersDir, worker + '', 'status')))
+        if (statusContent) {
+            result.status = Number(statusContent.toString())
+        }
+        let [errResult, resultContent] = await to(fs.readFile(path.join(workersDir, worker + '', 'result')))
+        if (resultContent) {
+            result.result = resultContent.toString()
+        }
+        results[worker] = result
+    })
+    return results
+}
+exports.getResults = getResults
 
 async function stopPit (pitId) {
     log.debug('Stopping pit', pitId)
-    clusterEvents.emit('pitStopping', pitId)
-    let results = await extractResults(pitId) 
+    clusterEvents.emit('pitStopping', pitId) 
     let nodes = await getAllNodes()
     for (let node of nodes) {
         let [err, containers] = await to(getContainersOnNode(node))
@@ -285,7 +300,7 @@ async function stopPit (pitId) {
     await to(Parallel.each(nodes, async node => {
         await to(lxd.delete(node.endpoint, 'networks/' + snakepitPrefix + pitId))
     }))
-    clusterEvents.emit('pitStopped', pitId, results)
+    clusterEvents.emit('pitStopped', pitId)
 }
 exports.stopPit = stopPit
 

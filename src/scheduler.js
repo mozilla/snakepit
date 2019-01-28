@@ -1,6 +1,7 @@
 const fs = require('fs-extra')
 const path = require('path')
 const log = require('./utils/logger.js')
+const { to } = require('./utils/async.js')
 const { runScript } = require('./utils/scripts.js')
 const clusterEvents = require('./utils/clusterEvents.js')
 const config = require('./config.js')
@@ -8,6 +9,7 @@ const pitRunner = require('./pitRunner.js')
 const reservations = require('./reservations.js')
 const Job = require('./models/Job-model.js')
 const Group = require('./models/Group-model.js')
+
 
 const jobStates = Job.jobStates
 
@@ -127,6 +129,23 @@ exports.stopJob = stopJob
 
 async function cleanJob (job, reason) {
     await job.setState(jobStates.CLEANING, reason)
+    let [err, results] = await to(pitRunner.getResults(job.id))
+    if (results) {
+        let workerIndex = 0
+        let processGroups = await job.getProcessgroups()
+        for(let processGroup of processGroups) {
+            let processes = await processGroup.getProcesses()
+            for(let jobProcess of processes) {
+                let workerResult = results[workerIndex]
+                workerIndex++
+                if (workerResult) {
+                    jobProcess.result = workerResult.result
+                    jobProcess.status = workerResult.status
+                    await jobProcess.save()
+                }
+            }
+        }
+    }
     runScript('clean.sh', getPreparationEnv(job), async (code, stdout, stderr) => {
         await job.setState(jobStates.DONE, code > 0 ? ('Problem during cleaning step - exit code: ' + code + '\n' + stderr) : undefined)
     })

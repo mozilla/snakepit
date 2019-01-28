@@ -139,12 +139,11 @@ function reserveProcess (nodeResources, clusterReservation, resourceList) {
     let processReservation = {}
     for (let resource of resourceList) {
         let resourceCounter = resource.count
-        log.debug('Looking for', resource.count, ' x ', resource.name)
         for(let resourceId of Object.keys(nodeResources)) {
-            log.debug('Testing', resourceId)
             if (resourceCounter > 0) {
                 let nodeResource = nodeResources[resourceId]
-                if ((nodeResource.name == resource.name || nodeResource.alias.id == resource.name) && !clusterReservation[resourceId]) {
+                if ((nodeResource.name == resource.name || (nodeResource.alias && nodeResource.alias.id == resource.name)) && 
+                    !clusterReservation[resourceId]) {
                     processReservation[resourceId] = nodeResource
                     resourceCounter--
                 }
@@ -209,15 +208,12 @@ async function allocate (clusterRequest, userId, job) {
         let clusterReservation = {}
         for(let groupIndex = 0; groupIndex < clusterRequest.length; groupIndex++) {
             let groupRequest = clusterRequest[groupIndex]
-            log.debug('Reserving process group', groupIndex)
             let jobProcessGroup
             if (!simulation) {
                 jobProcessGroup = await ProcessGroup.create({ index: groupIndex }, options)
-                log.debug('Adding process group', groupIndex)
                 await job.addProcessgroup(jobProcessGroup, options)
             }
             for(let processIndex = 0; processIndex < groupRequest.count; processIndex++) {
-                log.debug('Reserving process', processIndex, 'for process group', groupIndex)
                 let processReservation
                 let jobProcess
                 if (!simulation) {
@@ -226,10 +222,8 @@ async function allocate (clusterRequest, userId, job) {
                 }
                 for (let nodeId of Object.keys(nodes)) {
                     let node = nodes[nodeId]
-                    log.debug('Trying node', nodeId)
                     processReservation = reserveProcess(node, clusterReservation, groupRequest.process)
                     if (processReservation) {
-                        log.debug('Successfully reserved process', processIndex, 'for process group', groupIndex, 'on node', nodeId)
                         if (!simulation) {
                             jobProcess.nodeId = nodeId
                             await jobProcess.save(options)
@@ -257,7 +251,6 @@ async function allocate (clusterRequest, userId, job) {
         }
         if (!simulation) {
             job.allocation = reservationSummary(clusterReservation)
-            log.debug('Successfully reserved job', job.id, job.allocation)
             await job.save(options)
             await options.transaction.commit()
         }

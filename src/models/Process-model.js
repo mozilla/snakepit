@@ -6,7 +6,7 @@ const Node = require('./Node-model.js')
 var Process = sequelize.define('process', {
     id:           { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
     index:        { type: Sequelize.INTEGER, allowNull: true },
-    statuscode:   { type: Sequelize.INTEGER, allowNull: true },
+    status:       { type: Sequelize.INTEGER, allowNull: true },
     result:       { type: Sequelize.STRING,  allowNull: true }
 })
 

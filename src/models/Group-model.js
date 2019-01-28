@@ -13,7 +13,6 @@ var Group = sequelize.define('group', {
 const groupPrefix = '/data/groups/'
 
 Group.afterCreate(async group => {
-    log.debug('Group created!')
     let groupDir = groupPrefix + group.id
     if (!(await fs.pathExists(groupDir))) {
         await fs.mkdirp(groupDir)

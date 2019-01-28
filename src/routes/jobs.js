@@ -14,6 +14,7 @@ const scheduler = require('../scheduler.js')
 const reservations = require('../reservations.js')
 const parseClusterRequest = require('../clusterParser.js').parse
 
+const log = require('../utils/logger.js')
 const fslib = require('../utils/httpfs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const { getDuration } = require('../utils/dateTime.js')
@@ -168,6 +169,20 @@ router.get('/:id', async (req, res) => {
             since:  s.since,
             reason: s.reason
         }))
+        let processes = []
+        for(let processGroup of await job.getProcessgroups()) {
+            for(let jobProcess of await processGroup.getProcesses()) {
+                processes.push({ 
+                    groupIndex:     processGroup.index,
+                    processIndex:   jobProcess.index,
+                    status:         jobProcess.status >= 0 ? jobProcess.status : '?',
+                    result:         jobProcess.result 
+                })
+            }
+        }
+        if (processes.length > 0) {
+            description.processes = processes
+        }
     }
     res.send(description)
 })
