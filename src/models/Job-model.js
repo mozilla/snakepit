@@ -5,9 +5,9 @@ const Pit = require('./Pit-model.js')
 const Group = require('./Group-model.js')
 const User = require('./User-model.js')
 const State = require('./State-model.js')
-const ProcessGroup = require('../models/ProcessGroup-model.js')
-const Process = require('../models/Process-model.js')
-const Allocation = require('../models/Allocation-model.js')
+const ProcessGroup = require('./ProcessGroup-model.js')
+const Process = require('./Process-model.js')
+const Allocation = require('./Allocation-model.js')
 
 const log = require('../utils/logger.js')
 
@@ -167,5 +167,35 @@ Job.infoQuery = options => assign({
         ]
     }
 }, options || {})
+
+Allocation.activeQuery = {
+    include: [
+        {
+            model: Process,
+            require: true,
+            attributes: [],
+            include: [
+                {
+                    model: ProcessGroup,
+                    require: true,
+                    attributes: [],
+                    include: [
+                        {
+                            model: Job,
+                            require: true,
+                            attributes: []
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    where: { 
+        '$process->processgroup->job.state$': { 
+            [Sequelize.Op.gte]: Job.jobStates.STARTING, 
+            [Sequelize.Op.lte]: Job.jobStates.STOPPING 
+        } 
+    }
+}
 
 module.exports = Job

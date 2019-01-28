@@ -119,8 +119,10 @@ function getJobDescription(job) {
         state:            job.state,
         since:            getDuration(new Date(), job.since),
         schedulePosition: job.rank,
-        utilComp:         job.state == jobStates.RUNNING ? job.curcompute : (job.aggcompute / (job.samples || 1)),
-        utilMem:          job.state == jobStates.RUNNING ? job.curmemory  : (job.aggmemory  / (job.samples || 1))
+        utilComp:         job.state == jobStates.RUNNING ? job.dataValues.curcompute :
+                            (job.dataValues.aggcompute / (job.dataValues.samples || 1)),
+        utilMem:          job.state == jobStates.RUNNING ? job.dataValues.curmemory  :
+                            (job.dataValues.aggmemory  / (job.dataValues.samples || 1))
     }
 }
 

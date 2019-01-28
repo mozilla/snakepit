@@ -41,4 +41,17 @@ User.prototype.canAccessResource = async (resource) => {
     }) > 0)
 }
 
+Resource.prototype.addUtilization = async function (compute, memory) {
+    let allocations = await this.getAllocations(Allocation.activeQuery)
+    if (allocations && allocations.length > 0) {
+        let allocation = allocations[0]
+        allocation.cmemory   = memory
+        allocation.amemory  += memory
+        allocation.ccompute  = compute
+        allocation.acompute += compute
+        allocation.samples++
+        await allocation.save()
+    }
+}
+
 module.exports = Resource

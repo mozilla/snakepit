@@ -1,5 +1,7 @@
 const fs = require('fs-extra')
+const url = require('url')
 const path = require('path')
+const axios = require('axios')
 const assign = require('assign-deep')
 const Parallel = require('async-parallel')
 
@@ -14,6 +16,7 @@ const config = require('./config.js')
 
 const snakepitPrefix = 'sp'
 const containerNameParser = /sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/
+const utilParser = /[^,]+, ([0-9]+), ([0-9]+) \%, ([0-9]+) \%/
 
 const headNode = Node.build({
     id: 'head',
@@ -155,7 +158,7 @@ async function startPit (pitId, drives, workers) {
                     config: tunnelConfig
                 })
             } catch (ex) {
-                log.error('PROBLEM CREATING NETWORK', network, ex.toString())
+                log.error('Problem creating network', network, ex.toString())
                 throw ex
             }
         })
@@ -330,6 +333,30 @@ async function tick () {
                 node.online = online
                 node.since = Date.now()
                 await node.save()
+            }
+            if (online) {
+                let murl = url.parse(node.endpoint)
+                let durl = 'http://' + murl.hostname + ':' + (parseInt(murl.port || 80) + 1)
+                try {
+                    let utilizations = []
+                    for (let data of (await axios.get(durl)).data.split('\n')) {
+                        if (data = utilParser.exec(data)) {
+                            utilizations.push(data)
+                        }
+                    }
+                    if (utilizations.length > 0) {
+                        let resources = await node.getResources()
+                        for (let i = 0; i < utilizations.length; i++) {
+                            let resource = resources.find(r => r.index == i)
+                            if (resource) {
+                                await resource.addUtilization(
+                                    parseFloat(utilizations[i][2]) / 100.0,
+                                    parseFloat(utilizations[i][3]) / 100.0
+                                )
+                            }
+                        }
+                    }
+                } catch (ex) {}                
             }
         }
     }))
