@@ -67,7 +67,7 @@ function callLxd(method, endpoint, resource, data, options) {
         url: getUrl(endpoint, resource),
         httpsAgent: agent,
         data: data,
-        timeout: 2000
+        timeout: config.lxdTimeout
     }, options || {})
     log.debug(method, axiosConfig.url, data || '')
     return wrapLxdResponse(endpoint, axios(axiosConfig))

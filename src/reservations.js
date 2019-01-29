@@ -205,6 +205,13 @@ async function allocate (clusterRequest, userId, job) {
             options = { transaction: transaction, lock: transaction.LOCK } 
         } 
         let nodes = await loadNodes(simulation.transaction, userId, simulation)
+        let nodesWhere = { available: true }
+        if (!simulation) {
+            nodesWhere.online = true
+        }
+        let nodeIds = (await Node.findAll({ where: nodesWhere }, options)).map(n => n.id)
+        let resourceCount = nId => nodes[nId] ? Object.keys(nodes[nId]).length : 0
+        nodeIds = nodeIds.sort((a, b) => resourceCount(a) - resourceCount(b))
         let clusterReservation = {}
         for(let groupIndex = 0; groupIndex < clusterRequest.length; groupIndex++) {
             let groupRequest = clusterRequest[groupIndex]
@@ -220,8 +227,8 @@ async function allocate (clusterRequest, userId, job) {
                     jobProcess = await Process.create({ index: processIndex }, options)
                     await jobProcessGroup.addProcess(jobProcess, options)
                 }
-                for (let nodeId of Object.keys(nodes)) {
-                    let node = nodes[nodeId]
+                for (let nodeId of nodeIds) {
+                    let node = nodes[nodeId] || {}
                     processReservation = reserveProcess(node, clusterReservation, groupRequest.process)
                     if (processReservation) {
                         if (!simulation) {

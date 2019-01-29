@@ -115,7 +115,7 @@ async function stopJob (job, reason) {
             await job.setState(jobStates.STOPPING, reason)
             preparations[job.id].kill()
             delete preparations[job.id]
-        } else if (job.state == jobStates.RUNNING) {
+        } else if (job.state >= jobStates.STARTING && job.state <= jobStates.STOPPING) {
             await job.setState(jobStates.STOPPING, reason)
             await pitRunner.stopPit(job.id)
         }

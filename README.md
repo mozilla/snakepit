@@ -256,10 +256,10 @@ Possible configuration values are:
 - endpoint:          Head node's LXD HTTPS API endpoint
 - clientKey:         Path to cryptographic key file for accessing head node's LXD endpoint
 - clientCert:        Path to cryptographic certificate file for accessing head node's LXD endpoint
-- timeout:           HTTP timeout in seconds for all LXD API access (time-value) - default 30s
+- lxdTimeout:        HTTP timeout in seconds for all LXD API access (time-value) - default 10s
+- containerTimeout:  Timeout for LXD container state change - default 30s
 - pollInterval:      Polling interval for checking LXD container states in ms - default 1000
 - maxParallelPrep:   Maximum number of parallel job preparations - default 2
-- keepDoneDuration:  How log a job is kept in state DONE before moved to state ARCHIVED (time-value) - default 1d
 - maxPrepDuration:   Timeout for preparation phase (time-value) - default 1h
 - maxStartDuration:  Timeout for start phase (time-value) - default 5m
 - mountRoot:         Path to data-root on head-node - default /snakepit

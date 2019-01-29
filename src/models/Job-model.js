@@ -16,6 +16,7 @@ var Job = sequelize.define('job', {
     description:  { type: Sequelize.STRING,  allowNull: false },
     provisioning: { type: Sequelize.STRING,  allowNull: false },
     request:      { type: Sequelize.STRING,  allowNull: false },
+    image:        { type: Sequelize.STRING,  allowNull: true },
     state:        { type: Sequelize.INTEGER, allowNull: true },
     since:        { type: Sequelize.DATE,    allowNull: true },
     rank:         { type: Sequelize.INTEGER, allowNull: false, defaultValue: 0 },

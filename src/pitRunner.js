@@ -92,7 +92,7 @@ async function setContainerState (containerName, state, force, stateful) {
     let node = await getNodeFromName(containerName)
     await lxd.put(node.endpoint, 'containers/' + containerName + '/state', {
         action:   state,
-        timeout:  config.lxdTimeout,
+        timeout:  config.containerTimeout,
         force:    !!force,
         stateful: !!stateful
     })
@@ -361,12 +361,14 @@ async function tick () {
         }
     }))
     let [err, pits] = await to(getActivePits())
-    clusterEvents.emit('pitReport', pits)
-    await Parallel.each(pits, async pitId => {
-        if (await pitRequestedStop(pitId)) {  
-            await stopPit(pitId)
-        }
-    })
+    if (pits) {
+        clusterEvents.emit('pitReport', pits)
+        await Parallel.each(pits, async pitId => {
+            if (await pitRequestedStop(pitId)) {  
+                await stopPit(pitId)
+            }
+        })
+    }
 }
 
 function loop () {

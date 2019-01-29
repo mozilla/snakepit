@@ -53,12 +53,12 @@ if (!config.endpoint) {
 }
 config.clientKey        = readConfigFile('clientKey', true)
 config.clientCert       = readConfigFile('clientCert', true)
-config.timeout          = parseDuration(config.timeout || '30s')
+config.containerTimeout = parseDuration(config.timeout || '30s')
 
 config.pollInterval     = config.pollInterval     ? Number(config.pollInterval)    : oneSecond
 config.maxParallelPrep  = config.maxParallelPrep  ? Number(config.maxParallelPrep) : 2
-config.keepDoneDuration = parseDuration(config.keepDoneDuration || '1d')
 config.maxPrepDuration  = parseDuration(config.maxPrepDuration  || '1h')
 config.maxStartDuration = parseDuration(config.maxStartDuration || '5m')
+config.lxdTimeout       = parseDuration(config.lxdTimeout       || '10s')
 
 config.mountRoot        = config.mountRoot || '/snakepit'

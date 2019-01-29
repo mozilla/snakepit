@@ -115,7 +115,7 @@ function getJobDescription(job) {
         id:               job.id,
         description:      job.description,
         user:             job.userId,
-        resources:        job.state >= jobStates.STARTING ? job.allocation : job.request,
+        resources:        job.allocation || job.request,
         state:            job.state,
         since:            getDuration(new Date(), job.since),
         schedulePosition: job.rank,
@@ -152,7 +152,8 @@ router.get('/status', async (req, res) => {
 })
 
 router.get('/:id', async (req, res) => {
-    let job = await Job.findByPk(req.params.id)
+    let query = Job.infoQuery({ where: { id: req.params.id } })
+    let job = await Job.findOne(query)
     if (!job) {
         return Promise.reject({ code: 404, message: 'Job not found' })
     }
@@ -177,7 +178,7 @@ router.get('/:id', async (req, res) => {
                 processes.push({ 
                     groupIndex:     processGroup.index,
                     processIndex:   jobProcess.index,
-                    status:         jobProcess.status >= 0 ? jobProcess.status : '?',
+                    status:         (jobProcess.status === 0 || jobProcess.status > 0) ? jobProcess.status : '?',
                     result:         jobProcess.result 
                 })
             }
@@ -186,6 +187,7 @@ router.get('/:id', async (req, res) => {
             description.processes = processes
         }
     }
+    log.debug(JSON.stringify(description))
     res.send(description)
 })
 
@@ -332,7 +334,7 @@ router.post('/:id/fs', targetJob, canAccess, async (req, res) => {
 })
 
 router.post('/:id/stop', targetJob, canAccess, async (req, res) => {
-    if (req.targetJob.state <= jobStates.RUNNING) {
+    if (req.targetJob.state <= jobStates.STOPPING) {
         await scheduler.stopJob(req.targetJob, 'Stopped by user ' + req.user.id)
         res.send()
     } else {
