@@ -106,10 +106,6 @@ router.post('/', async (req, res) => {
     }
 })
 
-router.get('/', async (req, res) => {
-    res.send((await Job.findAll()).map(job => job.id))
-})
-
 function getJobDescription(job) {
     return {
         id:               job.id,
@@ -117,6 +113,7 @@ function getJobDescription(job) {
         user:             job.userId,
         resources:        job.allocation || job.request,
         state:            job.state,
+        date:             job.since,
         since:            getDuration(new Date(), job.since),
         schedulePosition: job.rank,
         utilComp:         job.state == jobStates.RUNNING ? job.dataValues.curcompute :
@@ -125,6 +122,41 @@ function getJobDescription(job) {
                             (job.dataValues.aggmemory  / (job.dataValues.samples || 1))
     }
 }
+
+router.get('/', async (req, res) => {
+    const orderings = {
+        'date':  'since', 
+        'user':  'user', 
+        'title': 'description', 
+        'state': 'state'
+    }
+    let query = { where: {}, order: [], limit: config.queryLimit }
+    const parseDate = v => { try { return new Date(v) } catch (ex) { return null } }
+    let parsers = {
+        since:  v => parseDate(v) ? (query.where.since = { [Sequelize.Op.gte]: parseDate(v) }) : false,
+        till:   v => parseDate(v) ? (query.where.since = { [Sequelize.Op.lte]: parseDate(v) }) : false,
+        user:   v => query.where.userId = v,
+        title:  v => query.where.description = { [Sequelize.Op.like]: v },
+        asc:    v => orderings[v] ? query.order.push([orderings[v], 'ASC']) : false,
+        desc:   v => orderings[v] ? query.order.push([orderings[v], 'DESC']) : false,
+        limit:  v => !isNaN(parseInt(v)) && (query.limit = Math.min(v, query.limit)),
+        offset: v => !isNaN(parseInt(v)) && (query.offset = v)
+    }
+    for(param of Object.keys(req.query)) {
+        let parser = parsers[param]
+        if (parser) {
+            if (!parser(req.query[param])) {
+                res.status(400).send({ message: 'Cannot parse query parameter ' + param })
+                return
+            }
+        } else {
+            res.status(400).send({ message: 'Unknown query parameter ' + param })
+            return
+        }
+    }
+    let jobs = await Job.findAll(Job.infoQuery(query))
+    res.send(jobs.map(job => getJobDescription(job)))
+})
 
 router.get('/status', async (req, res) => {
     let query = Job.infoQuery({

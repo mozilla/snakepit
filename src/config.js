@@ -62,3 +62,5 @@ config.maxStartDuration = parseDuration(config.maxStartDuration || '5m')
 config.lxdTimeout       = parseDuration(config.lxdTimeout       || '10s')
 
 config.mountRoot        = config.mountRoot || '/snakepit'
+
+config.queryLimit       = config.queryLimit || 100

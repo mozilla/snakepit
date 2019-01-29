@@ -263,6 +263,7 @@ Possible configuration values are:
 - maxPrepDuration:   Timeout for preparation phase (time-value) - default 1h
 - maxStartDuration:  Timeout for start phase (time-value) - default 5m
 - mountRoot:         Path to data-root on head-node - default /snakepit
+- queryLimit:        Maximum number of returned list entries per user query
 
 ## Managing data
 
