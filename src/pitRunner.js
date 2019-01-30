@@ -137,7 +137,7 @@ async function startPit (pitId, drives, workers) {
         let workerHash = (await lxd.get(headNode.endpoint, 'images/aliases/snakepit-worker')).target
         let physicalNodes = { [headNode.endpoint]: headNode }
         for (let worker of workers) {
-            // we just need one virtual node representant of/on each physical node
+            // we just need one virtual node for each endpoint
             physicalNodes[worker.node.endpoint] = worker.node
         }
         let network
@@ -178,9 +178,9 @@ async function startPit (pitId, drives, workers) {
         }
         let daemonContainerName = getDaemonName(pitId)
         await addContainer(
-            daemonContainerName, 
-            daemonHash, 
-            { 
+            daemonContainerName,
+            daemonHash,
+            {
                 devices: daemonDevices,
                 config: { 'raw.idmap': 'both ' + config.mountUid + ' 2525' }
             }
@@ -198,8 +198,8 @@ async function startPit (pitId, drives, workers) {
                 await fs.writeFile(path.join(workerDir, 'env.sh'), envToScript(worker.env, true))
             }
             await addContainer(
-                containerName, 
-                workerHash, 
+                containerName,
+                workerHash,
                 assign({ devices: workerDevices }, worker.options || {})
             )
         })
@@ -286,7 +286,7 @@ exports.getResults = getResults
 
 async function stopPit (pitId) {
     log.debug('Stopping pit', pitId)
-    clusterEvents.emit('pitStopping', pitId) 
+    clusterEvents.emit('pitStopping', pitId)
     let nodes = await getAllNodes()
     for (let node of nodes) {
         let [err, containers] = await to(getContainersOnNode(node))
@@ -356,7 +356,7 @@ async function tick () {
                             }
                         }
                     }
-                } catch (ex) {}                
+                } catch (ex) {}
             }
         }
     }))
@@ -364,7 +364,7 @@ async function tick () {
     if (pits) {
         clusterEvents.emit('pitReport', pits)
         await Parallel.each(pits, async pitId => {
-            if (await pitRequestedStop(pitId)) {  
+            if (await pitRequestedStop(pitId)) {
                 await stopPit(pitId)
             }
         })
