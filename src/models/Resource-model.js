@@ -27,18 +27,37 @@ Group.hasMany(ResourceGroup, { onDelete: 'cascade' })
 ResourceGroup.belongsTo(Resource)
 ResourceGroup.belongsTo(Group)
 
-User.prototype.canAccessResource = async (resource) => {
-    if (await resource.countResourcegroups() == 0) {
+User.prototype.canAccessResource = async function (resource) {
+    if (this.admin) {
         return true
     }
-    return (await Resource.count({ 
-        where: { id: resource.id }, 
+    return await resource.hasOne({
         include: [
-            { model: ResourceGroup },
-            { model: User.UserGroup },
-            { model: User, where: { id: this.id } }
+            {
+                model: ResourceGroup,
+                require: true,
+                include: [
+                    {
+                        model: Group,
+                        require: true,
+                        include: [
+                            {
+                                model: User.UserGroup,
+                                require: true,
+                                include: [
+                                    {
+                                        model: User,
+                                        require: true,
+                                        where: { id: this.id }
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
         ]
-    }) > 0)
+    })
 }
 
 Resource.prototype.addUtilization = async function (compute, memory) {

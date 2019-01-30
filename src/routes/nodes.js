@@ -17,9 +17,12 @@ const resourceParser = /resource:([^,]*),([^,]*),([^,]*)/
 
 async function getResourcesFromScan (pitId) {
     let workers = await pitRunner.getResults(pitId)
-    let resources = []
-    if (workers.length <= 0 || !(workers[0].result)) {
+    if (workers.length <= 0) {
         return
+    }
+    let resources = []
+    if (!(workers[0].result)) {
+        return resources
     }
     for (let line of workers[0].result.split('\n')) {
         let match = resourceParser.exec(line)
@@ -110,11 +113,12 @@ router.put('/:id', async (req, res) => {
             if (dbnode) {
                 await dbnode.destroy()
             }
-            res.status(400).send({ message: 'Problem adding node:\n' + ex })
+            log.debug(ex)
+            res.status(400).send({ message: 'Problem adding node:\n' + ex.toString() })
         } finally {
-            //if (pit) {
-            //    await pit.destroy()
-            //}
+            if (pit) {
+                await pit.destroy()
+            }
         }
     } else {
         res.status(400).send()

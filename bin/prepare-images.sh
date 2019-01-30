@@ -11,9 +11,10 @@ bin/prepare-lxd.sh
 
 for role in "${roles[@]}"; do
     print_header "Creating ${role} image"
-	lxc init ubuntu-minimal:18.04/amd64 snakepit-${role}
+    lxc init ubuntu-minimal:18.04/amd64 snakepit-${role}
     lxc start snakepit-${role}
     exe="lxc exec snakepit-${role} -- "
+    sleep 2
     $exe systemctl isolate multi-user.target
 
     print_header "Creating ${role} SSH identity"
