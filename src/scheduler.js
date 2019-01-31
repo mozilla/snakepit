@@ -66,7 +66,7 @@ async function startJob (job) {
         jobEnv.USER_DIR = '/data/rw/home'
         for (let ug of (await user.getUsergroups())) {
             shares['/data/rw/group-' + ug.groupId] = Group.getDirExternal(ug.groupId)
-            jobEnv[group.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
+            jobEnv[ug.groupId.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
         }
 
         let workers = []
@@ -147,7 +147,11 @@ async function cleanJob (job, reason) {
         }
     }
     runScript('clean.sh', getPreparationEnv(job), async (code, stdout, stderr) => {
-        await job.setState(jobStates.DONE, code > 0 ? ('Problem during cleaning step - exit code: ' + code + '\n' + stderr) : undefined)
+        await job.setState(
+            jobStates.DONE, code > 0 ?
+                ('Problem during cleaning step - exit code: ' + code + '\n' + stderr) :
+                undefined
+        )
     })
 }
 exports.cleanJob = cleanJob
@@ -200,7 +204,9 @@ exports.startup = async function () {
     }
 
     clusterEvents.on('restricted', async () => {
-        for(let job of (await Job.findAll({ where: { '$between': [jobStates.PREPARING, jobStates.WAITING] } }))) {
+        for(let job of (await Job.findAll({
+            where: { '$between': [jobStates.PREPARING, jobStates.WAITING] }
+        }))) {
             if (reservations.canAllocate(job.resourceRequest, job.user)) {
                 await stopJob(job, 'Cluster cannot fulfill resource request anymore')
             }

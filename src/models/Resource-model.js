@@ -31,7 +31,8 @@ User.prototype.canAccessResource = async function (resource) {
     if (this.admin) {
         return true
     }
-    return await resource.hasOne({
+    return await Resource.findOne({
+        where: { id: resource.id, '$resourcegroups->group->usergroups.userId$': this.id },
         include: [
             {
                 model: ResourceGroup,
@@ -43,18 +44,11 @@ User.prototype.canAccessResource = async function (resource) {
                         include: [
                             {
                                 model: User.UserGroup,
-                                require: true,
-                                include: [
-                                    {
-                                        model: User,
-                                        require: true,
-                                        where: { id: this.id }
-                                    }
-                                ],
+                                require: true
                             }
-                        ],
+                        ]
                     }
-                ],
+                ]
             }
         ]
     })

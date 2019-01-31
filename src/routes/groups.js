@@ -27,7 +27,7 @@ router.get('/:id', targetGroup, async (req, res) => {
 })
 
 router.post('/:id/fs', targetGroup, async (req, res) => {
-    if (req.user.admin || await req.user.hasGroup(req.targetGroup)) {
+    if (req.user.admin || await req.user.isMemberOf(req.targetGroup)) {
         let chunks = []
         req.on('data', chunk => chunks.push(chunk));
         req.on('end', () => fslib.serve(

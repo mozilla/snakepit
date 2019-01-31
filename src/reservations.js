@@ -16,7 +16,7 @@ const log = require('./utils/logger.js')
 
 var exports = module.exports = {}
 
-async function loadNodes (transaction, userId, simulation) {
+async function loadAvailableResources (transaction, userId, simulation) {
     let lock = transaction && transaction.LOCK
     let nodes = {}
     let nodeWhere = { available: true }
@@ -171,7 +171,7 @@ function reservationSummary (clusterReservation) {
     }
     let summary = ''
     for(let nodeId of Object.keys(nodes)) {
-        let nodeResources = nodes[nodeId]
+        let nodeResources = nodes[nodeId].filter(r => r.type)
         if (summary != '') {
             summary += ' + '
         }
@@ -204,14 +204,14 @@ async function allocate (clusterRequest, userId, job) {
             let transaction = await sequelize.transaction({ type: Sequelize.Transaction.TYPES.EXCLUSIVE })
             options = { transaction: transaction, lock: transaction.LOCK } 
         } 
-        let nodes = await loadNodes(simulation.transaction, userId, simulation)
+        let availableResources = await loadAvailableResources(simulation.transaction, userId, simulation)
         let nodesWhere = { available: true }
         if (!simulation) {
             nodesWhere.online = true
         }
-        let nodeIds = (await Node.findAll({ where: nodesWhere }, options)).map(n => n.id)
-        let resourceCount = nId => nodes[nId] ? Object.keys(nodes[nId]).length : 0
-        nodeIds = nodeIds.sort((a, b) => resourceCount(a) - resourceCount(b))
+        let availableNodes = (await Node.findAll({ where: nodesWhere }, options))
+        let resourceCount = n => availableResources[n.id] ? Object.keys(availableResources[n.id]).length : 0
+        availableNodes = availableNodes.sort((a, b) => resourceCount(a) - resourceCount(b))
         let clusterReservation = {}
         for(let groupIndex = 0; groupIndex < clusterRequest.length; groupIndex++) {
             let groupRequest = clusterRequest[groupIndex]
@@ -227,12 +227,13 @@ async function allocate (clusterRequest, userId, job) {
                     jobProcess = await Process.create({ index: processIndex }, options)
                     await jobProcessGroup.addProcess(jobProcess, options)
                 }
-                for (let nodeId of nodeIds) {
-                    let node = nodes[nodeId] || {}
-                    processReservation = reserveProcess(node, clusterReservation, groupRequest.process)
+                for (let node of availableNodes) {
+                    let nodeResources = availableResources[node.id] || {}
+                    processReservation = reserveProcess(nodeResources, clusterReservation, groupRequest.process)
                     if (processReservation) {
+                        clusterReservation['node ' + node.id] = { nodeId: node.id }
                         if (!simulation) {
-                            jobProcess.nodeId = nodeId
+                            jobProcess.nodeId = node.id
                             await jobProcess.save(options)
                         }
                         break

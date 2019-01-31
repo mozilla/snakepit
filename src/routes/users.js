@@ -87,11 +87,18 @@ router.put('/:id', async (req, res) => {
             if (user.email) {
                 dbuser.email = user.email
             }
-            if (user.autoshare) {
-                dbuser.autoshare = user.autoshare
-            }
             dbuser.password = hash
             await dbuser.save()
+            if (user.autoshare) {
+                for(let asg of user.autoshare) {
+                    if (await Group.findByPk(asg)) {
+                        await User.AutoShare.insertOrUpdate({
+                            userId:  dbuser.id,
+                            groupId: asg
+                        })
+                    }
+                }
+            }
             res.send()
         }
         if (user.password) {
@@ -156,12 +163,13 @@ async function ownerOrAdmin (req, res) {
 router.get('/:id', targetUser, ownerOrAdmin, async (req, res) => {
     let dbuser = req.targetUser
     let groups = (await dbuser.getUsergroups()).map(ug => ug.groupId)
+    let autoshares = (await dbuser.getAutoshares()).map(a => a.groupId)
     res.json({
         id:        dbuser.id,
         fullname:  dbuser.fullname,
         email:     dbuser.email,
         groups:    groups.length > 0 ? groups : undefined,
-        autoshare: dbuser.autoshare,
+        autoshare: autoshares.length > 0 ? autoshares : undefined,
         admin:     dbuser.admin ? 'yes' : 'no'
     })
 })

@@ -58,7 +58,8 @@ User.prototype.canAccessJob = async function (job) {
     if (this.admin || job.userId == this.id) {
         return true
     }
-    return await job.hasOne({
+    return await Job.findOne({
+        where: { id: job.id, '$jobgroups->group->usergroups.userId$': this.id },
         include: [
             {
                 model: JobGroup,
@@ -70,18 +71,11 @@ User.prototype.canAccessJob = async function (job) {
                         include: [
                             {
                                 model: User.UserGroup,
-                                require: true,
-                                include: [
-                                    {
-                                        model: User,
-                                        require: true,
-                                        where: { id: this.id }
-                                    }
-                                ],
+                                require: true
                             }
-                        ],
+                        ]
                     }
-                ],
+                ]
             }
         ]
     })

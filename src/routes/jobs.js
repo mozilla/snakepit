@@ -77,7 +77,7 @@ router.post('/', async (req, res) => {
         })
         if (!job.private) {
             for(let autoshare of (await req.user.getAutoshares())) {
-                await Job.JobGroup.create({ jobId: job.id, groupId: autoshare.groupId })
+                await Job.JobGroup.create({ jobId: dbjob.id, groupId: autoshare.groupId })
             }
         }
         var files = {}
