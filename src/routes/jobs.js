@@ -142,7 +142,7 @@ router.get('/', async (req, res) => {
         limit:  v => !isNaN(parseInt(v)) && (query.limit = Math.min(v, query.limit)),
         offset: v => !isNaN(parseInt(v)) && (query.offset = v)
     }
-    for(param of Object.keys(req.query)) {
+    for(let param of Object.keys(req.query)) {
         let parser = parsers[param]
         if (parser) {
             if (!parser(req.query[param])) {
@@ -154,6 +154,7 @@ router.get('/', async (req, res) => {
             return
         }
     }
+    query.order.push(['since', 'DESC'])
     let jobs = await Job.findAll(Job.infoQuery(query))
     res.send(jobs.map(job => getJobDescription(job)))
 })
@@ -229,7 +230,7 @@ async function targetJob (req, res) {
 }
 
 async function canAccess (req, res) {
-    return req.user.canAccessJob(req.targetJob) ? Promise.resolve('next') : Promise.reject({ code: 403, message: 'Not allowed' })
+    return (await req.user.canAccessJob(req.targetJob)) ? Promise.resolve('next') : Promise.reject({ code: 403, message: 'Not allowed' })
 }
 
 async function targetGroup (req, res) {
