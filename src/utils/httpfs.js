@@ -436,7 +436,6 @@ exports.serve = function (root, call, cb, debug) {
             wrap(unixCodes.ENOENT)
         }
     } else {
-        console.log(call.operation, false)
         wrap(unixCodes.EACCES)
     }
 }

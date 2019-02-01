@@ -8,7 +8,6 @@ const Sequelize = require('sequelize')
 const Router = require('express-promise-router')
 const Pit = require('../models/Pit-model.js')
 const Job = require('../models/Job-model.js')
-const Group = require('../models/Group-model.js')
 const config = require('../config.js')
 const scheduler = require('../scheduler.js')
 const reservations = require('../reservations.js')
@@ -18,7 +17,7 @@ const log = require('../utils/logger.js')
 const fslib = require('../utils/httpfs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const { getDuration } = require('../utils/dateTime.js')
-const { ensureSignedIn } = require('./users.js')
+const { ensureSignedIn, targetJob, targetGroup } = require('./mw.js')
 
 const jobStates = Job.jobStates
 
@@ -184,8 +183,8 @@ router.get('/status', async (req, res) => {
     })
 })
 
-router.get('/:id', async (req, res) => {
-    let query = Job.infoQuery({ where: { id: req.params.id } })
+router.get('/:job', async (req, res) => {
+    let query = Job.infoQuery({ where: { id: req.params.job } })
     let job = await Job.findOne(query)
     if (!job) {
         return Promise.reject({ code: 404, message: 'Job not found' })
@@ -220,36 +219,25 @@ router.get('/:id', async (req, res) => {
             description.processes = processes
         }
     }
-    log.debug(JSON.stringify(description))
     res.send(description)
 })
 
-async function targetJob (req, res) {
-    req.targetJob = await Job.findByPk(req.params.id)
-    return req.targetJob ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Job not found' })
-}
-
 async function canAccess (req, res) {
-    return (await req.user.canAccessJob(req.targetJob)) ? Promise.resolve('next') : Promise.reject({ code: 403, message: 'Not allowed' })
+    return (await req.user.canAccessJob(req.targetJob)) ? Promise.resolve('next') : Promise.reject({ code: 403, message: 'Forbidden' })
 }
 
-async function targetGroup (req, res) {
-    req.targetGroup = await Group.findByPk(req.params.group)
-    return req.targetGroup ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Group not found' })
-}
-
-router.put('/:id/groups/:group', targetJob, canAccess, targetGroup, async (req, res) => {
+router.put('/:job/groups/:group', targetJob, canAccess, targetGroup, async (req, res) => {
     await Job.JobGroup.insertOrUpdate({ jobId: req.targetJob.id, groupId: req.targetGroup.id })
     res.send()
 })
 
-router.delete('/:id/groups/:group', targetJob, canAccess, targetGroup, async (req, res) => {
+router.delete('/:job/groups/:group', targetJob, canAccess, targetGroup, async (req, res) => {
     await Job.JobGroup.destroy({ where: { jobId: req.targetJob.id, groupId: req.targetGroup.id } })
     res.send()
     clusterEvents.emit('restricted')
 })
 
-router.get('/:id/targz', targetJob, canAccess, async (req, res) => {
+router.get('/:job/targz', targetJob, canAccess, async (req, res) => {
     let jobDir = Pit.getDir(req.targetJob.id)
     res.status(200).type('tar.gz')
     tar.pack(jobDir).pipe(zlib.createGzip()).pipe(res)
@@ -266,7 +254,7 @@ async function targetPath (req, res) {
     }
 }
 
-router.get('/:id/stats/(*)?', targetJob, canAccess, targetPath, async (req, res) => {
+router.get('/:job/stats/(*)?', targetJob, canAccess, targetPath, async (req, res) => {
     fs.stat(req.targetPath, (err, stats) => {
         if (err || !(stats.isDirectory() || stats.isFile())) {
             res.status(404).send()
@@ -282,7 +270,7 @@ router.get('/:id/stats/(*)?', targetJob, canAccess, targetPath, async (req, res)
     })
 })
 
-router.get('/:id/content/(*)?', targetJob, canAccess, targetPath, async (req, res) => {
+router.get('/:job/content/(*)?', targetJob, canAccess, targetPath, async (req, res) => {
     fs.stat(req.targetPath, (err, stats) => {
         if (err || !(stats.isDirectory() || stats.isFile())) {
             res.status(404).send()
@@ -306,7 +294,7 @@ router.get('/:id/content/(*)?', targetJob, canAccess, targetPath, async (req, re
     })
 })
 
-router.get('/:id/log', targetJob, canAccess, async (req, res) => {
+router.get('/:job/log', targetJob, canAccess, async (req, res) => {
     res.writeHead(200, {
         'Connection':    'keep-alive',
         'Content-Type':  'text/plain',
@@ -356,7 +344,7 @@ router.get('/:id/log', targetJob, canAccess, async (req, res) => {
     poll()
 })
 
-router.post('/:id/fs', targetJob, canAccess, async (req, res) => {
+router.post('/:job/fs', targetJob, canAccess, async (req, res) => {
     let chunks = []
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => fslib.serve(
@@ -366,7 +354,7 @@ router.post('/:id/fs', targetJob, canAccess, async (req, res) => {
     )
 })
 
-router.post('/:id/stop', targetJob, canAccess, async (req, res) => {
+router.post('/:job/stop', targetJob, canAccess, async (req, res) => {
     if (req.targetJob.state <= jobStates.STOPPING) {
         await scheduler.stopJob(req.targetJob, 'Stopped by user ' + req.user.id)
         res.send()
@@ -375,7 +363,7 @@ router.post('/:id/stop', targetJob, canAccess, async (req, res) => {
     }
 })
 
-router.delete('/:id', targetJob, canAccess, async (req, res) => {
+router.delete('/:job', targetJob, canAccess, async (req, res) => {
     if (req.targetJob.state >= jobStates.DONE) {
         await req.targetJob.destroy()
         res.send()

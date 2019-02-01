@@ -1,7 +1,7 @@
 const Router = require('express-promise-router')
 const Alias = require('../models/Alias-model.js')
 
-const { ensureSignedIn, ensureAdmin } = require('./users.js')
+const { ensureSignedIn, ensureAdmin, tryTargetAlias, targetAlias } = require('./mw.js')
 
 const router = module.exports = new Router()
 
@@ -11,12 +11,7 @@ router.get('/', async (req, res) => {
     res.send((await Alias.findAll()).map(alias => alias.id))
 })
 
-async function targetAlias (req, res) {
-    req.targetAlias = await Alias.findByPk(req.params.id)
-    return req.targetAlias ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Alias not found' })
-}
-
-router.get('/:id', targetAlias, async (req, res) => {
+router.get('/:alias', targetAlias, async (req, res) => {
     res.send({
         id:     req.targetAlias.id,
         name:   req.targetAlias.name
@@ -25,19 +20,19 @@ router.get('/:id', targetAlias, async (req, res) => {
 
 router.use(ensureAdmin)
 
-router.put('/:id', async (req, res) => {
+router.put('/:alias', tryTargetAlias, async (req, res) => {
+    if(req.targetAlias) {
+        throw({ code: 400, message: 'Alias already exists' })
+    }
     if (req.body && req.body.name) {
-        await Alias.create({
-            id:   req.params.id,
-            name: req.body.name
-        })
+        await Alias.create({ id: req.params.alias, name: req.body.name })
         res.send()
     } else {
         res.status(400).send()
     }
 })
 
-router.delete('/:id', targetAlias, async (req, res) => {
+router.delete('/:alias', targetAlias, async (req, res) => {
     req.targetAlias.destroy()
     res.send()
 })

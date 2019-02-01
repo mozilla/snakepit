@@ -7,11 +7,10 @@ const clusterEvents = require('../utils/clusterEvents.js')
 const pitRunner = require('../pitRunner.js')
 const Pit = require('../models/Pit-model.js')
 const Node = require('../models/Node-model.js')
-const Group = require('../models/Group-model.js')
 const Resource = require('../models/Resource-model.js')
 const { getAlias } = require('../models/Alias-model.js')
 const { getScript } = require('../utils/scripts.js')
-const { ensureSignedIn, ensureAdmin } = require('./users.js')
+const { ensureSignedIn, ensureAdmin, tryTargetNode, targetNode, targetGroup } = require('./mw.js')
 
 const resourceParser = /resource:([^,]*),([^,]*),([^,]*)/
 
@@ -46,12 +45,7 @@ router.get('/', async (req, res) => {
     res.status(200).send((await Node.findAll()).map(node => node.id))
 })
 
-async function targetNode (req, res) {
-    req.targetNode = await Node.findByPk(req.params.id)
-    return req.targetNode ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Node not found' })
-}
-
-router.get('/:id', targetNode, async (req, res) => {
+router.get('/:node', targetNode, async (req, res) => {
     let dbResources = await req.targetNode.getResources()
     res.status(200).json({
         id:          req.targetNode.id,
@@ -73,16 +67,15 @@ router.get('/:id', targetNode, async (req, res) => {
 
 router.use(ensureAdmin)
 
-router.put('/:id', async (req, res) => {
-    let id = req.params.id
+router.put('/:node', tryTargetNode, async (req, res) => {
+    let id = req.params.node
     let node = req.body
-    let dbnode = await Node.findByPk(id)
-    if (dbnode) {
+    if (req.targetNode) {
         res.status(400).send({ message: 'Node with same id already registered' })
-    } else if (node.endpoint && node.password) {
+    } else if (node && node.endpoint && node.password) {
         let pit
         try {
-            dbnode = await Node.create({ 
+            let dbnode = await Node.create({
                 id: id, 
                 endpoint: node.endpoint,
                 password: node.password,
@@ -113,8 +106,7 @@ router.put('/:id', async (req, res) => {
             if (dbnode) {
                 await dbnode.destroy()
             }
-            log.debug(ex)
-            res.status(400).send({ message: 'Problem adding node:\n' + ex.toString() })
+            res.status(400).send({ message: 'Problem adding node' })
         } finally {
             if (pit) {
                 await pit.destroy()
@@ -125,17 +117,12 @@ router.put('/:id', async (req, res) => {
     }
 })
 
-router.delete('/:id', targetNode, async (req, res) => {
+router.delete('/:node', targetNode, async (req, res) => {
     await req.targetNode.destroy()
     res.send()
 })
 
-async function targetGroup (req, res) {
-    req.targetGroup = await Group.findByPk(req.params.group)
-    return req.targetGroup ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Group not found' })
-}
-
-router.put('/:id/groups/:group', targetNode, targetGroup, async (req, res) => {
+router.put('/:node/groups/:group', targetNode, targetGroup, async (req, res) => {
     for (let resource of await req.targetNode.getResources()) {
         await Resource.ResourceGroup.insertOrUpdate({ resourceId: resource.id, groupId: req.targetGroup.id })
     }
@@ -143,7 +130,7 @@ router.put('/:id/groups/:group', targetNode, targetGroup, async (req, res) => {
     clusterEvents.emit('restricted')
 })
 
-router.delete('/:id/groups/:group', targetNode, targetGroup, async (req, res) => {
+router.delete('/:node/groups/:group', targetNode, targetGroup, async (req, res) => {
     for (let resource of await req.targetNode.getResources()) {
         await Resource.ResourceGroup.destroy({ where: { resourceId: resource.id, groupId: req.targetGroup.id } })
     }
@@ -157,13 +144,13 @@ async function targetResource (req, res) {
     return req.targetResource ? Promise.resolve('next') : Promise.reject({ code: 404, message: 'Resource not found' })
 }
 
-router.put('/:id/resources/:resource/groups/:group', targetNode, targetResource, targetGroup, async (req, res) => {
+router.put('/:node/resources/:resource/groups/:group', targetNode, targetResource, targetGroup, async (req, res) => {
     await Resource.ResourceGroup.insertOrUpdate({ resourceId: req.targetResource.id, groupId: req.targetGroup.id })
     res.send()
     clusterEvents.emit('restricted')
 })
 
-router.delete('/:id/resources/:resource/groups/:group', targetNode, targetResource, targetGroup, async (req, res) => {
+router.delete('/:node/resources/:resource/groups/:group', targetNode, targetResource, targetGroup, async (req, res) => {
     await Resource.ResourceGroup.destroy({ where: { resourceId: req.targetResource.id, groupId: req.targetGroup.id } })
     res.send()
     clusterEvents.emit('restricted')

@@ -27,7 +27,7 @@ if (cluster.isMaster) {
 function log (level, ...args) {
     if (level >= config.logLevel) {
         if (cluster.isMaster) {
-            console.log(...args)
+            level >= 2 : console.error(...args) : console.log(...args)
         } else {
             let iargs = args.map(a => util.inspect(a))
             process.send({ logMessage: true, level: level, args: [...iargs] })
