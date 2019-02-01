@@ -58,6 +58,10 @@ echo -e "# External path of LXD data drive (required for mounting).\nmountRoot: 
 echo -e "# UID of external user that should be mapped to worker/root user (required for write access on mounts).\nmountUid: \"$uid\"\n" >>$conf
 echo -e "# Path to session token secret file.\ntokenSecretPath: \"$token_secret_path\"\n" >>$conf
 
+echo -e "local all all trust\nhost all all 127.0.0.1/32 trust" >/etc/postgresql/10/main/pg_hba.conf
+systemctl restart postgresql.service
+/code/bin/db-init.sh
+
 if systemctl is-active --quiet snakepit; then
     systemctl stop snakepit
 fi

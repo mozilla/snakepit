@@ -1,23 +1,36 @@
 const cluster = require('cluster')
+const Parallel = require('async-parallel')
 const cpus = require('os').cpus().length
-const log = require('./logger.js')
+const log = require('./utils/logger.js')
 const config = require('./config.js')
-const modules = 'users groups nodes jobs aliases'
-    .split(' ').map(name => require('./' + name + '.js'))
+const models = require('./models')
+const pitRunner = require('./pitRunner.js')
+const scheduler = require('./scheduler.js')
+
+async function startup () {
+    await models.sequelize.sync()
+    await Parallel.each(models.all, async model => await (model.startup || Function)())
+    await pitRunner.startup()
+    await scheduler.startup()
+}
 
 if (cluster.isMaster) {
-    modules.forEach(module => (module.initDb || Function)())
-    modules.forEach(module => (module.tick || Function)())
-    for (let i = 0; i < cpus; i++) {
-        cluster.fork()
-    }
-    cluster.on('exit', function(deadWorker, code, signal) {
+    cluster.on('exit', (deadWorker, code, signal) => {
         if (code === 100) {
             process.exit(100) // Preventing fork-loop on startup problems
         }
         var worker = cluster.fork();
         log.error('Worker ' + deadWorker.process.pid + ' died.')
         log.info('Worker ' + worker.process.pid + ' born.')
+    })
+    startup().then(() => {
+        for (let i = 0; i < cpus; i++) {
+            cluster.fork()
+        }
+        log.info('Snakepit daemon started')
+    }).catch(ex => {
+        log.error('Snakepit startup problem:', ex)
+        process.exit(1)
     })
 } else {
     try {
@@ -29,20 +42,26 @@ if (cluster.isMaster) {
         let app = express()
         app.use(bodyParser.json({ limit: '50mb' }))
         app.use(morgan('combined', {
-            skip: (req, res) => res.statusCode < 400 && !config.debugHttp
+            skip: (req, res) => false //res.statusCode < 400 && !config.debugHttp
         }))
         
-        modules.forEach(module => (module.initApp || Function)(app))
+        app.use(require('./routes'))
 
-        app.use(function (err, req, res, next) {
-            console.error(err.stack)
-            res.status(500).send('Something broke')
+        app.use((err, req, res, next) => {
+            let message = err.message || 'Internal error'
+            let code = err.code || 500
+            log.error('ERROR', code, message)
+            if (err.stack) {
+                log.error(err.stack)
+            }
+            res.status(code).send({ message: message })
         })
 
         http.createServer(app).listen(config.port, config.interface)
         log.info('Snakepit service running on ' + config.interface + ':' + config.port)
     } catch (ex) {
-        log.error('Failure during startup: ' + ex)
+        log.error('Failure during startup: ', ex, ex.stack)
+        
         process.exit(100)
     }
 }
