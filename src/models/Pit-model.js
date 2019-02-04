@@ -11,6 +11,7 @@ var Pit = sequelize.define('pit', {
 
 const pitPrefix = '/data/pits/'
 
+/*
 Pit.afterCreate(async pit => {
     let pitDir = pitPrefix + pit.id
     if (!(await fs.pathExists(pitDir))) {
@@ -24,6 +25,7 @@ Pit.afterDestroy(async pit => {
         await fs.remove(pitDir)
     }
 })
+*/
 
 Pit.getDir = (pitId) => pitPrefix + pitId
 Pit.prototype.getDir = function () {
