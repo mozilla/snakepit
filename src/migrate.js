@@ -64,6 +64,7 @@ async function migrate() {
     }
 
     for (let i = 0; i < db.jobIdCounter; i++) {
+        console.log('Checking job index', i, '...')
         let pit = await models.Pit.create()
         let srcPath = '/data/pits/' + pit.id
         if (await fs.pathExists(srcPath)) {
@@ -79,9 +80,9 @@ async function migrate() {
                 id:           pit.id,
                 userId:       job.user,
                 state:        job.state,
-                description:  job.description,
-                provisioning: job.provisioning,
-                request:      job.request,
+                description:  job.description || '',
+                provisioning: job.provisioning || '',
+                request:      job.request || '',
                 allocation:   summarizeReservation(job.clusterReservation)
             })
             for (let state = 0; state <= 7; state++) {
@@ -99,6 +100,15 @@ async function migrate() {
                     })
                 }
             }
+            let log = ''
+            if (await fs.pathExists(srcPath + '/preparation.log')) {
+                log += fs.readFileSync(srcPath + '/preparation.log')
+                log += '\n'
+            }
+            if (await fs.pathExists(srcPath + '/process_0_0.log')) {
+                log += fs.readFileSync(srcPath + '/process_0_0.log')
+            }
+            fs.writeFileSync(srcPath + '/pit.log', log)
         } else {
             await pit.destroy()
         }
