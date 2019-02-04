@@ -88,7 +88,7 @@ async function migrate() {
             })
             for (let state = 0; state <= 7; state++) {
                 let stateChanged = job.stateChanges[state]
-                if (stateChange) {
+                if (stateChanged) {
                     try {
                         stateChanged = new Date(stateChanged)
                     } catch (ex) {
