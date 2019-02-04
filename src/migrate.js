@@ -77,10 +77,9 @@ async function migrate() {
                 console.error('Problem reading meta data for job', pit.id, '.')
                 continue
             }
-            await models.Job.create({
+            let dbjob = await models.Job.create({
                 id:           pit.id,
                 userId:       job.user,
-                state:        job.state,
                 description:  job.description || '',
                 provisioning: job.provisioning || '',
                 request:      job.request || '',
@@ -94,6 +93,8 @@ async function migrate() {
                     } catch (ex) {
                         continue
                     }
+                    dbjob.state = state
+                    dbjob.since = stateChanged
                     await models.State.create({
                         jobId: pit.id,
                         state: state,
@@ -101,10 +102,10 @@ async function migrate() {
                     })
                 }
             }
+            await dbjob.save()
             let log = ''
             if (await fs.pathExists(srcPath + '/preparation.log')) {
                 log += fs.readFileSync(srcPath + '/preparation.log')
-                log += '\n'
             }
             if (await fs.pathExists(srcPath + '/process_0_0.log')) {
                 log += fs.readFileSync(srcPath + '/process_0_0.log')
