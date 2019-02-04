@@ -51,6 +51,7 @@ function summarizeReservation (clusterReservation) {
 }
 
 async function migrate() {
+    await models.sequelize.sync()
     let db = JSON.parse(fs.readFileSync('/data/db.json'))
 
     for (let user of Object.keys(db.users).map(k => db.users[k])) {
