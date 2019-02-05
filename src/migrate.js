@@ -103,14 +103,16 @@ async function migrate() {
                 }
             }
             await dbjob.save()
-            let log = ''
-            if (await fs.pathExists(srcPath + '/preparation.log')) {
-                log += fs.readFileSync(srcPath + '/preparation.log')
-            }
-            if (await fs.pathExists(srcPath + '/process_0_0.log')) {
-                log += fs.readFileSync(srcPath + '/process_0_0.log')
-            }
-            fs.writeFileSync(srcPath + '/pit.log', log)
+            try {
+                let log = ''
+                if (await fs.pathExists(srcPath + '/preparation.log')) {
+                    log += fs.readFileSync(srcPath + '/preparation.log')
+                }
+                if (await fs.pathExists(srcPath + '/process_0_0.log')) {
+                    log += fs.readFileSync(srcPath + '/process_0_0.log')
+                }
+                fs.writeFileSync(srcPath + '/pit.log', log)
+            } catch (ex) {}
         } else {
             await pit.destroy()
         }
