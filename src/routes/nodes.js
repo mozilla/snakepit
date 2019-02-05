@@ -74,8 +74,9 @@ router.put('/:node', tryTargetNode, async (req, res) => {
         res.status(400).send({ message: 'Node with same id already registered' })
     } else if (node && node.endpoint && node.password) {
         let pit
+        let dbnode
         try {
-            let dbnode = await Node.create({
+            dbnode = await Node.create({
                 id: id, 
                 endpoint: node.endpoint,
                 password: node.password,
