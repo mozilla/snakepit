@@ -25,14 +25,14 @@ var Job = sequelize.define('job', {
 })
 
 Job.jobStates = {
-    NEW: 0,
+    NEW:       0,
     PREPARING: 1,
-    WAITING: 2,
-    STARTING: 3,
-    RUNNING: 4,
-    STOPPING: 5,
-    CLEANING: 6,
-    DONE: 7
+    WAITING:   2,
+    STARTING:  3,
+    RUNNING:   4,
+    STOPPING:  5,
+    CLEANING:  6,
+    DONE:      7
 }
 
 Job.hasMany(State, { onDelete: 'cascade' })
@@ -43,7 +43,7 @@ ProcessGroup.belongsTo(Job)
 
 Job.belongsTo(Pit, { foreignKey: 'id', onDelete: 'cascade' })
 
-Job.belongsTo(User)
+Job.belongsTo(User, { constraints: false })
 
 var JobGroup = Job.JobGroup = sequelize.define('jobgroup', {
     jobId:        { type: Sequelize.INTEGER, unique: 'pk' },

@@ -53,6 +53,9 @@ async function startJob (job) {
     try {
         await job.setState(jobStates.STARTING)
         let user = await job.getUser()
+        if (!user) {
+            throw new Error("User not existing")
+        }
         let jobEnv = getBasicEnv(job)
         
         jobEnv.JOB_DIR = '/data/rw/pit'
