@@ -1,4 +1,5 @@
 const fs = require('fs-extra')
+const dns = require('dns')
 const url = require('url')
 const path = require('path')
 const axios = require('axios')
@@ -129,6 +130,19 @@ async function addContainer (containerName, imageHash, options) {
     await lxd.post(node.endpoint, 'containers', containerConfig)
 }
 
+function getAddress(endpoint) {
+    return new Promise((resolve, reject) => {
+        let u = url.parse(endpoint)
+        dns.lookup(u.hostname, (err, address) => {
+            if (err) {
+                reject(err)
+            } else {
+                resolve(address)
+            }
+        })
+    })
+}
+
 async function startPit (pitId, drives, workers) {
     try {
         clusterEvents.emit('pitStarting', pitId)
@@ -140,16 +154,23 @@ async function startPit (pitId, drives, workers) {
             // we just need one virtual node for each endpoint
             physicalNodes[worker.node.endpoint] = worker.node
         }
-        let network
+
         let endpoints = Object.keys(physicalNodes)
-        network = snakepitPrefix + pitId
-        await Parallel.each(endpoints, async function (localEndpoint) {
+        let addresses = {}
+        await Parallel.each(endpoints, async (endpoint) => {
+            addresses[endpoint] = await getAddress(endpoint)
+        })
+
+        let network = snakepitPrefix + pitId
+        await Parallel.each(endpoints, async (localEndpoint) => {
             let tunnelConfig = {}
             for (let remoteEndpoint of endpoints) {
                 if (localEndpoint !== remoteEndpoint) {
                     let tunnel = 'tunnel.' + physicalNodes[remoteEndpoint].id
-                    tunnelConfig[tunnel + '.protocol'] = 'vxlan',
-                    tunnelConfig[tunnel + '.id'] = '' + pitId
+                    tunnelConfig[tunnel + '.protocol'] = 'vxlan'
+                    tunnelConfig[tunnel + '.id']       = '' + pitId
+                    tunnelConfig[tunnel + '.local']    = addresses[localEndpoint]
+                    tunnelConfig[tunnel + '.remote']   = addresses[remoteEndpoint]
                 }
             }
             try {

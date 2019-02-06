@@ -81,7 +81,7 @@ async function startJob (job) {
             for(let jobProcess of processes) {
                 let node = await jobProcess.getNode()
                 jobEnv['HOST_GROUP' + processGroup.index + '_PROCESS' + jobProcess.index] = 
-                    pitRunner.getWorkerHost(job.id, node.id, workers.length)
+                    pitRunner.getWorkerHost(node.id, job.id, workers.length)
                 let gpus = {}
                 let allocations = await jobProcess.getAllocations()
                 for(let allocation of allocations) {
