@@ -72,6 +72,12 @@ async function startJob (job) {
             jobEnv[ug.groupId.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
         }
 
+        if (config.workerEnv) {
+            for(let ev of Object.keys(config.workerEnv)) {
+                jobEnv[ev] = config.workerEnv[ev]
+            }
+        }
+
         let workers = []
         let processGroups = await job.getProcessgroups()
         jobEnv.NUM_GROUPS = processGroups.length
