@@ -173,6 +173,8 @@ async function startPit (pitId, drives, workers) {
                     tunnelConfig[tunnel + '.remote']   = addresses[remoteEndpoint]
                 }
             }
+            tunnelConfig['ipv4.routing'] = 'false'
+            tunnelConfig['ipv6.routing'] = 'false'
             try {
                 await lxd.post(localEndpoint, 'networks', {
                     name: network,
