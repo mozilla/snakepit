@@ -36,7 +36,13 @@ function getUrl (endpoint, resource) {
 }
 
 async function wrapLxdResponse (endpoint, promise) {
-    let response = await promise
+    let response
+    try {
+        response = await promise
+    } catch (ex) {
+        log.debug('LXD error', ex.response && ex.response.data)
+        throw ex
+    }
     let data = response.data
     if (typeof data === 'string' || data instanceof String) {
         return data
