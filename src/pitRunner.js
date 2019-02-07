@@ -161,23 +161,31 @@ async function startPit (pitId, drives, workers) {
             addresses[endpoint] = await getAddress(endpoint)
         })
 
+        let pc = 1
+        let pairs = {}
+        let pairIndex = (a, b) => {
+            let key = [a, b].sort().join(' ')
+            if (!pairs[key]) {
+                pairs[key] = pc++
+            }
+            return pairs[key]
+        }
+
         let network = snakepitPrefix + pitId
         await Parallel.each(endpoints, async (localEndpoint) => {
             let networkConfig = {}
             for (let remoteEndpoint of endpoints) {
                 if (localEndpoint !== remoteEndpoint) {
-                    let localId  = physicalNodes[localEndpoint ].id
-                    let remoteId = physicalNodes[remoteEndpoint].id
-                    let tunnel   = 'tunnel.' + remoteId
-                    let tunnelId = pitId + '_' + localId + '_' + remoteId
+                    let tunnel   = 'tunnel.' + physicalNodes[remoteEndpoint].id
+                    let tunnelId = pitId * 256 + pairIndex(localEndpoint, remoteEndpoint)
                     networkConfig[tunnel + '.protocol'] = 'vxlan'
-                    networkConfig[tunnel + '.id']       = tunnelId
+                    networkConfig[tunnel + '.id']       = '' + tunnelId
                     networkConfig[tunnel + '.local']    = addresses[localEndpoint]
                     networkConfig[tunnel + '.remote']   = addresses[remoteEndpoint]
                 }
             }
-            networkConfig['ipv4.routing'] = 'false'
-            networkConfig['ipv6.routing'] = 'false'
+            //networkConfig['ipv4.routing'] = 'false'
+            //networkConfig['ipv6.routing'] = 'false'
             try {
                 await lxd.post(localEndpoint, 'networks', {
                     name: network,
