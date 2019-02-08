@@ -2,6 +2,7 @@ const fs = require('fs-extra')
 const path = require('path')
 const zlib = require('zlib')
 const tar = require('tar-fs')
+const Tail = require('tail').Tail
 const ndir = require('node-dir')
 const Parallel = require('async-parallel')
 const Sequelize = require('sequelize')
@@ -301,47 +302,49 @@ router.get('/:job/log', targetJob, canAccess, async (req, res) => {
         'Cache-Control': 'no-cache'
     })
     req.connection.setTimeout(60 * 60 * 1000)
-    let divisor = 10
-    let interval = config.pollInterval / divisor
+    let interval = config.pollInterval
     let logPath = path.join(Pit.getDir(req.targetJob.id), 'pit.log')
-    let written = 0
-    let writeStream = cb => {
-        let stream = fs.createReadStream(logPath, { start: written })
-        stream.on('data', chunk => {
-            res.write(chunk)
-            written += chunk.length
-        })
-        stream.on('end', cb)
-    }
-    let counter = 0
-    let poll = () => {
-        if (counter > divisor) {
-            req.targetJob.reload().then(() => {
-                counter = 0
-                setTimeout(poll, interval)
-            }).catch(res.end.bind(res))
-        } else {
-            counter++
-            if (req.targetJob.state <= jobStates.STOPPING) {
-                if (fs.existsSync(logPath)) {
-                    fs.stat(logPath, (err, stats) => {
-                        if (!err && stats.size > written) {
-                            writeStream(() => setTimeout(poll, interval))
-                        } else  {
-                            setTimeout(poll, interval)
-                        }
-                    })
-                } else {
-                    setTimeout(poll, interval)
-                }
-            } else if (fs.existsSync(logPath)) {
-                writeStream(res.end.bind(res))
+
+    if (req.targetJob.state <= jobStates.STOPPING) {
+        let tail
+        let startTail = () => {
+            tail = new Tail(logPath, { fromBeginning: true })
+            tail.on("line", line => !res.finished && res.write(line + '\n'))
+            tail.on("error", stopTail)
+            res.on('close', stopTail)
+            res.on('end', stopTail)
+        }
+        let stopTail = () => {
+            if (tail) {
+                tail.unwatch()
+                tail = null
+            }
+            res.end()
+        }
+        let poll = () => {
+            if (tail) {
+                req.targetJob.reload().then(() => {
+                    if (req.targetJob.state > jobStates.STOPPING) {
+                        stopTail()
+                    } else {
+                        setTimeout(poll, interval)
+                    }
+                }).catch(stopTail)
             } else {
-                res.status(404).send()
+                if (fs.existsSync(logPath)) {
+                    startTail()
+                }
+                setTimeout(poll, interval)
             }
         }
+        poll()
+    } else if (fs.existsSync(logPath)) {
+        let stream = fs.createReadStream(logPath)
+        stream.on('data', chunk => res.write(chunk))
+        stream.on('end',  res.end.bind(res))
+    } else {
+        res.status(404).send()
     }
-    poll()
 })
 
 router.post('/:job/fs', targetJob, canAccess, async (req, res) => {
