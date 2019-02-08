@@ -36,7 +36,4 @@ lxc exec snakepit-daemon -- chown -R worker:worker /home/worker/.ssh
 for role in "${roles[@]}"; do
     print_header "Finalizing ${role}..."
     rm -f /tmp/snakepit_${role}_id.pub
-    lxc stop snakepit-${role}
-    lxc publish --public snakepit-${role} --alias snakepit-${role}
-    lxc delete snakepit-${role}
 done

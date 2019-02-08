@@ -113,6 +113,19 @@ Next step is to create the worker and daemon LXD container images:
 ```
 This is a highly automated process and should not require any interaction.
 
+After this you have the chance to install any required software into the worker image:
+```
+/path/to/snakepit/clone$ sudo lxc exec snakepit-worker -- bash
+root@snakepit-worker:/root# apt install some-requirement
+[...]
+root@snakepit-worker:/root# exit
+```
+
+Before the images can be used, you have to publish them:
+```
+/path/to/snakepit/clone$ sudo bin/publish-images.sh
+```
+
 ### Access to Snakepit service
 
 The snakepit service itself only provides unencrypted HTTP access. 
