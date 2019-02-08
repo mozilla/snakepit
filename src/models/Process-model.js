@@ -13,7 +13,7 @@ var Process = sequelize.define('process', {
 Process.hasMany(Allocation, { onDelete: 'cascade' })
 Allocation.belongsTo(Process)
 
-Node.hasMany(Process, { onDelete: 'no action' })
-Process.belongsTo(Node)
+Node.hasMany(Process, { onDelete: 'no action', constraints: false })
+Process.belongsTo(Node, { constraints: false })
 
 module.exports = Process
