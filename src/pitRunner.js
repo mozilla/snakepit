@@ -220,6 +220,7 @@ async function startPit (pitId, drives, workers) {
                 config: { 'raw.idmap': 'both ' + config.mountUid + ' 2525' }
             }
         )
+        await setContainerState(daemonContainerName, 'start')
         await Parallel.each(workers, async function createWorker(worker) {
             let index = workers.indexOf(worker)
             let containerName = getContainerName(worker.node.id, pitId, index)
@@ -243,7 +244,6 @@ async function startPit (pitId, drives, workers) {
             let containerName = getContainerName(worker.node.id, pitId, workers.indexOf(worker))
             await setContainerState(containerName, 'start')
         })
-        await setContainerState(daemonContainerName, 'start')
         clusterEvents.emit('pitStarted', pitId)
     } catch (ex) {
         clusterEvents.emit('pitStartFailed', pitId)
