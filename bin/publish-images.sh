@@ -8,6 +8,7 @@ print_header () {
 
 for role in "${roles[@]}"; do
     print_header "Publishing ${role}..."
-    lxc stop snakepit-${role}
-    lxc publish --public snakepit-${role} --alias snakepit-${role}
+    lxc stop snakepit-${role} || true
+    lxc image delete snakepit-${role} || true
+    lxc publish --public snakepit-${role} --alias snakepit-${role} || true
 done
