@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+
+readarray -t interfaces < <(ip l | awk -F ":" '/^[0-9]+:/{dev=$2 ; if ( dev !~ /^ lo$/) {print $2}}')
+for i in "${interfaces[@]// /}" ; do
+        iface=`echo $i | cut -d'@' -f 1`
+        dhclient $iface || true
+done
+
 worker_index=`hostname | sed -E 's/sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/\3/'`
 head_node=`hostname | sed -E 's/sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/sp-head-\2-d.lxd/'`
 

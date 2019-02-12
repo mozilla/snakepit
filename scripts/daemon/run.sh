@@ -12,6 +12,12 @@ if [ -f "${pit_root}/run" ]; then
 fi
 touch "${pit_root}/run"
 
+readarray -t interfaces < <(ip l | awk -F ":" '/^[0-9]+:/{dev=$2 ; if ( dev !~ /^ lo$/) {print $2}}')
+for i in "${interfaces[@]// /}" ; do
+        iface=`echo $i | cut -d'@' -f 1`
+        dhclient $iface || true
+done
+
 for worker_dir in ${pit_root}/workers/*/ ; do
     worker_dir=${worker_dir%*/}
     touch "${worker_dir}/worker.log"
