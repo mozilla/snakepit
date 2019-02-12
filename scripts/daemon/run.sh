@@ -32,6 +32,7 @@ while true; do
         if [ -f "${worker_dir}/stop" ]; then
             print_log "Worker ${worker_index} requested stop. Stopping pit..."
             touch "${pit_root}/stop"
+            exit 0
         fi
     done
 	sleep 1
