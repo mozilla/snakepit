@@ -17,6 +17,7 @@ const config = require('./config.js')
 
 const snakepitPrefix = 'sp'
 const containerNameParser = /sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/
+const networkNameParser = /sp(0|[1-9][0-9]*)-(0|[1-9][0-9]*)/
 const utilParser = /[^,]+, ([0-9]+), ([0-9]+) \%, ([0-9]+) \%/
 
 const headNode = Node.build({
@@ -44,6 +45,11 @@ function getDaemonName (pitId) {
 function parseContainerName (containerName) {
     let match = containerNameParser.exec(containerName)
     return match && [match[1], match[2], match[3]]
+}
+
+function parseNetworkName (networkName) {
+    let match = networkNameParser.exec(networkName)
+    return match && [match[1], match[2]]
 }
 
 async function getNodeFromName (containerName) {
@@ -75,7 +81,7 @@ async function getHeadCertificate () {
 
 async function getContainersOnNode (node) {
     let results = await lxd.get(node.endpoint, 'containers')
-    var containers = []
+    let containers = []
     for (let result of results) {
         let split = result.split('/')
         if (split.length > 0) {
@@ -87,6 +93,22 @@ async function getContainersOnNode (node) {
         }
     }
     return containers
+}
+
+async function getNetworksOnNode (node) {
+    let results = await lxd.get(node.endpoint, 'networks')
+    let networks = []
+    for (let result of results) {
+        let split = result.split('/')
+        if (split.length > 0) {
+            let network = split[split.length - 1]
+            let networkInfo = parseNetworkName(network)
+            if (networkInfo) {
+                networks.push(network)
+            }
+        }
+    }
+    return networks
 }
 
 async function setContainerState (containerName, state, force, stateful) {
@@ -161,47 +183,75 @@ async function startPit (pitId, drives, workers) {
             addresses[endpoint] = await getAddress(endpoint)
         })
 
-        let pc = 1
-        let pairs = {}
-        let pairIndex = (a, b) => {
-            let key = [a, b].sort().join(' ')
-            if (!pairs[key]) {
-                pairs[key] = pc++
-            }
-            return pairs[key]
-        }
+        let endpointDevices = {}
+        if (endpoints.length > 1) {
+            await Parallel.each(endpoints, async (localEndpoint) => {
+                let i = 0
+                let localDevices = endpointDevices[localEndpoint] = {}
+                for (let remoteEndpoint of endpoints) {
+                    if (localEndpoint !== remoteEndpoint) {
+                        let network = snakepitPrefix + pitId + '-' + i
+                        let networkConfig = {
+                            'ipv4.routing': 'false',
+                            'ipv6.routing': 'false'
+                        }
 
-        let network = snakepitPrefix + pitId
-        await Parallel.each(endpoints, async (localEndpoint) => {
-            let networkConfig = {}
-            let i = 0
-            for (let remoteEndpoint of endpoints) {
-                if (localEndpoint !== remoteEndpoint) {
-                    let tunnel   = 'tunnel.' + physicalNodes[remoteEndpoint].id
-                    let tunnelId = pitId * 256 + (i++) // pairIndex(localEndpoint, remoteEndpoint)
-                    networkConfig[tunnel + '.protocol'] = 'vxlan'
-                    networkConfig[tunnel + '.id']       = '' + tunnelId
-                    networkConfig[tunnel + '.local']    = addresses[localEndpoint]
-                    networkConfig[tunnel + '.remote']   = addresses[remoteEndpoint]
+                        let tunnel   = 'tunnel.' + physicalNodes[remoteEndpoint].id
+                        let tunnelId = pitId * 256 + i
+                        networkConfig[tunnel + '.protocol'] = 'vxlan'
+                        networkConfig[tunnel + '.id']       = '' + tunnelId
+                        networkConfig[tunnel + '.local']    = addresses[localEndpoint]
+                        networkConfig[tunnel + '.remote']   = addresses[remoteEndpoint]
+
+                        try {
+                            await lxd.post(localEndpoint, 'networks', {
+                                name: network,
+                                config: networkConfig
+                            })
+                        } catch (ex) {
+                            log.error('Problem creating network', network, ex.toString())
+                            throw ex
+                        }
+                        localDevices['eth' + i] = {
+                            type:    'nic',
+                            nictype: 'bridged',
+                            mtu:     '1450',
+                            parent:  network
+                        }
+                        i++
+                    }
                 }
-            }
-            //networkConfig['ipv4.routing'] = 'false'
-            //networkConfig['ipv6.routing'] = 'false'
+            })
+        } else {
+            let localEndpoint = endpoints[0]
+            let network = snakepitPrefix + pitId + '-0'
             try {
                 await lxd.post(localEndpoint, 'networks', {
                     name: network,
-                    config: networkConfig
+                    config: {
+                        'ipv4.routing': 'false',
+                        'ipv6.routing': 'false'
+                    }
                 })
             } catch (ex) {
                 log.error('Problem creating network', network, ex.toString())
                 throw ex
             }
-        })
-
-        let daemonDevices = { 'pit': { path: '/data/rw/pit', source: Pit.getDirExternal(pitId), type: 'disk' } }
-        if (network) {
-            daemonDevices['eth0'] = { nictype: 'bridged', parent: network, type: 'nic' }
+            endpointDevices[localEndpoint] = {
+                'eth0': {
+                    type:    'nic',
+                    nictype: 'bridged',
+                    mtu:     '1450',
+                    parent:  network
+                }
+            }
         }
+
+
+        let daemonDevices = assign(
+            { 'pit': { path: '/data/rw/pit', source: Pit.getDirExternal(pitId), type: 'disk' } },
+            endpointDevices[headNode.endpoint]
+        )
         if (drives) {
             for (let dest of Object.keys(drives)) {
                 daemonDevices[dest] = {
@@ -224,10 +274,6 @@ async function startPit (pitId, drives, workers) {
         await Parallel.each(workers, async function createWorker(worker) {
             let index = workers.indexOf(worker)
             let containerName = getContainerName(worker.node.id, pitId, index)
-            let workerDevices = {}
-            if (network) {
-                workerDevices['eth0'] = { nictype: 'bridged', parent: network, type: 'nic' }
-            }
             let workerDir = path.join(pitDir, 'workers', '' + index)
             await fs.mkdirp(workerDir)
             if (worker.env) {
@@ -236,7 +282,7 @@ async function startPit (pitId, drives, workers) {
             await addContainer(
                 containerName,
                 workerHash,
-                assign({ devices: workerDevices }, worker.options || {})
+                assign({ devices: endpointDevices[worker.node.endpoint] }, worker.options || {})
             )
         })
 
@@ -323,21 +369,27 @@ async function stopPit (pitId) {
     log.debug('Stopping pit', pitId)
     clusterEvents.emit('pitStopping', pitId)
     let nodes = await getAllNodes()
-    for (let node of nodes) {
-        let [err, containers] = await to(getContainersOnNode(node))
+    await Parallel.each(nodes, async node => {
+        let [errC, containers] = await to(getContainersOnNode(node))
         if (containers) {
-            for (let containerName of containers) {
+            await Parallel.each(containers, async containerName => {
                 let containerInfo = parseContainerName(containerName)
                 if (containerInfo && containerInfo[1] == pitId) {
                     let [errStop] = await to(setContainerState(containerName, 'stop', true))
                     let [errDelete] = await to(lxd.delete(node.endpoint, 'containers/' + containerName))
                 }
-            }
+            })
         }
-    }
-    await to(Parallel.each(nodes, async node => {
-        await to(lxd.delete(node.endpoint, 'networks/' + snakepitPrefix + pitId))
-    }))
+        let [errN, networks] = await to(getNetworksOnNode(node))
+        if (networks) {
+            await Parallel.each(networks, async networkName => {
+                let networkInfo = parseNetworkName(networkName)
+                if (networkInfo && networkInfo[0] == pitId) {
+                    let [errDelete] = await to(lxd.delete(node.endpoint, 'networks/' + networkName))
+                }
+            })
+        }
+    })
     clusterEvents.emit('pitStopped', pitId)
 }
 exports.stopPit = stopPit
