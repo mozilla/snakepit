@@ -183,6 +183,16 @@ async function startPit (pitId, drives, workers) {
             addresses[endpoint] = await getAddress(endpoint)
         })
 
+        let pc = 1
+        let pairs = {}
+        let pairIndex = (a, b) => {
+            let key = [a, b].sort().join(' ')
+            if (!pairs[key]) {
+                pairs[key] = pc++
+            }
+            return pairs[key]
+        }
+
         let endpointDevices = {}
         if (endpoints.length > 1) {
             await Parallel.each(endpoints, async (localEndpoint) => {
@@ -197,7 +207,7 @@ async function startPit (pitId, drives, workers) {
                         }
 
                         let tunnel   = 'tunnel.' + physicalNodes[remoteEndpoint].id
-                        let tunnelId = pitId * 256 + i
+                        let tunnelId = pitId * 256 + pairIndex(localEndpoint, remoteEndpoint)
                         networkConfig[tunnel + '.protocol'] = 'vxlan'
                         networkConfig[tunnel + '.id']       = '' + tunnelId
                         networkConfig[tunnel + '.local']    = addresses[localEndpoint]
