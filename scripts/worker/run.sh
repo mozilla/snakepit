@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+if [ "$HOSTNAME" = snakepit-worker ]; then
+    exit 0
+fi
+
 worker_index=`hostname | sed -E 's/sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/\3/'`
 head_node=`hostname | sed -E 's/sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/sp-head-\2-d.lxd/'`
 

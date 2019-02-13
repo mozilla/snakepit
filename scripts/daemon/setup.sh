@@ -16,7 +16,7 @@ mkdir /data/rw
 
 print_header "Installing dependencies"
 aptget update
-aptget install openssh-server vim iputils-ping moreutils bindfs
+aptget install dhcpcd5 openssh-server vim iputils-ping moreutils bindfs
 
 print_header "Creating user worker"
 useradd -m -s /usr/sbin/nologin -u 2525 worker
@@ -29,6 +29,9 @@ systemctl enable data-ro.mount
 
 print_header "Configuring ssh-daemon"
 mv /root/sshd_config /etc/ssh/sshd_config
+
+print_header "Disabling cloud configuration"
+echo 'network: {config: disabled}' >/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
 
 print_header "Installing daemon service"
 mv run.sh /usr/bin/run.sh

@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+if [ "$HOSTNAME" = snakepit-daemon ]; then
+    exit 0
+fi
+
 pit_root="/data/rw/pit"
 touch ${pit_root}/daemon.log
 print_log () {
@@ -28,6 +32,7 @@ while true; do
         if [ -f "${worker_dir}/stop" ]; then
             print_log "Worker ${worker_index} requested stop. Stopping pit..."
             touch "${pit_root}/stop"
+            exit 0
         fi
     done
 	sleep 1

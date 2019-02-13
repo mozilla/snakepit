@@ -93,9 +93,9 @@ async function startJob (job) {
                 for(let allocation of allocations) {
                     let resource = await allocation.getResource()
                     if (resource.type == 'cuda') {
-                        gpus['gpu' + resource.index] = {
+                        gpus['gpu' + (resource.index + 1)] = {
                             type:  'gpu',
-                            id:    '' + resource.index
+                            id:    '' + (resource.index + 1)
                         }
                     }
                 }

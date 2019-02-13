@@ -16,8 +16,11 @@ print_header "Installing dependencies"
 # # !This image and your GPU nodes should feature the very same driver!
 # add-apt-repository -y ppa:graphics-drivers/ppa
 aptget update
-aptget install sshfs vim iputils-ping
+aptget install dhcpcd5 sshfs vim iputils-ping
 # aptget install nvidia-driver-410 nvidia-utils-410 nvidia-cuda-toolkit
+
+print_header "Disabling cloud configuration"
+echo 'network: {config: disabled}' >/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
 
 print_header "Installing worker service"
 mv run.sh /usr/bin/run.sh
