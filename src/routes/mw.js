@@ -7,6 +7,9 @@ const Job   = require('../models/Job-model.js')
 const Node  = require('../models/Node-model.js')
 const User  = require('../models/User-model.js')
 
+const log  = require('../utils/logger.js')
+const parseDuration = require('parse-duration')
+
 var exports = module.exports = {}
 
 async function targetAlias (req, res, ensure) {
@@ -81,30 +84,47 @@ exports.targetUser    = (req, res) => targetUser(req, res, true)
 
 function signIn (req, res, ensure) {
     return new Promise((resolve, reject) => {
+        const msgAut = 'Authentication:'
         let token = req.get('X-Auth-Token')
         if (token) {
             jwt.verify(token, config.tokenSecret, (err, decoded) => {
                 if (err) {
                     if (err.name == 'TokenExpiredError') {
-                        res.status(401).json({ message: 'Token expired' })
+                        const msgExp = 'Token expired'
+                        log.debug(msgAut, msgExp)
+                        res.status(401).json({ message: msgExp })
                     } else {
-                        res.status(400).json({ message: 'Invalid token ' + err})
+                        const msgInv = 'Invalid token'
+                        log.error(msgAut, msgInv)
+                        res.status(400).json({ message: msgInv })
                     }
                     resolve()
                 } else {
-                    User.findByPk(decoded.user).then(user => {
-                        if (user) {
-                            req.user = user
-                            resolve('next')
-                        } else {
-                            res.status(401).json({ message: 'Token for non-existent user' })
-                            resolve()
-                        }
-                    })
+                    if (decoded.exp > (new Date().getTime() + config.tokenTTL) / 1000) {
+                        const msgTTL = 'Token expiration too far in the future'
+                        log.error(msgAut, msgTTL, '- User:', decoded.user)
+                        res.status(401).json({ message: msgTTL })
+                        resolve()
+                    } else {
+                        User.findByPk(decoded.user).then(user => {
+                            if (user) {
+                                log.debug(msgAut, 'Token verification successful', decoded)
+                                req.user = user
+                                resolve('next')
+                            } else {
+                                const msgUnk = 'Token for unknown user'
+                                log.error(msgAut, msgUnk, decoded.user)
+                                res.status(401).json({ message: msgUnk })
+                                resolve()
+                            }
+                        })
+                    }
                 }
             })
         } else if (ensure) {
-            res.status(401).json({ message: 'No token provided' })
+            let msgNT = 'No token'
+            log.error(msgAut, msgNT)
+            res.status(401).json({ message: msgNT })
             resolve()
         } else {
             resolve('next')

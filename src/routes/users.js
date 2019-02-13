@@ -81,9 +81,10 @@ router.post('/:user/authenticate', targetUser, async (req, res) => {
             jwt.sign(
                 { user: req.targetUser.id },
                 config.tokenSecret,
-                { expiresIn: config.tokenTTL },
+                { expiresIn: config.tokenTTL / 1000 },
                 (err, token) => {
                     if (err) {
+                        log.error('Problem signing JWT for user', req.targetUser.id)
                         res.status(500).send()
                     } else {
                         res.status(200).send({ token: token })
@@ -91,6 +92,7 @@ router.post('/:user/authenticate', targetUser, async (req, res) => {
                 }
             )
         } else {
+            log.error('Wrong password - User', req.targetUser.id)
             res.status(400).send()
         }
     })
