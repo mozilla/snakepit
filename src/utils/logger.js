@@ -18,7 +18,7 @@ if (cluster.isMaster) {
     cluster.on('fork', worker => {
         worker.on('message', msg => {
             if (msg.logMessage) {
-                log(msg.level, ...msg.args)
+                log(msg.level, msg.msg)
             }
         })
     })
@@ -26,12 +26,11 @@ if (cluster.isMaster) {
 
 function log (level, ...args) {
     if (level >= config.logLevel) {
+        let msg = args.map(a => (typeof a == 'string') ? a : util.inspect(a)).join(' ')
         if (cluster.isMaster) {
-            level >= 2 ? console.error(...args) : console.log(...args)
+            level >= 2 ? console.error(msg) : console.log(msg)
         } else {
-            let iargs = args.map(a => util.inspect(a))
-            process.send({ logMessage: true, level: level, args: [...iargs] })
+            process.send({ logMessage: true, level: level, msg: msg })
         }
     }
 }
-
