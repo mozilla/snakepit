@@ -42,7 +42,7 @@ if (cluster.isMaster) {
         let app = express()
         app.use(bodyParser.json({ limit: '50mb' }))
         app.use(morgan('combined', {
-            skip: (req, res) => false //res.statusCode < 400 && !config.debugHttp
+            skip: (req, res) => res.statusCode < 400 && !config.debugHttp
         }))
         
         app.use(require('./routes'))
