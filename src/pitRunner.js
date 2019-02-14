@@ -296,9 +296,10 @@ async function startPit (pitId, drives, workers) {
             let containerName = getContainerName(worker.node.id, pitId, index)
             let workerDir = path.join(pitDir, 'workers', '' + index)
             await fs.mkdirp(workerDir)
-            if (worker.env) {
-                await fs.writeFile(path.join(workerDir, 'env.sh'), envToScript(worker.env, true))
-            }
+            worker.env = worker.env || {}
+            worker.env['HEAD_NODE'] = headNode.endpoint
+            worker.env['HEAD_NODE_ADDRESS'] = addresses[headNode.endpoint]
+            await fs.writeFile(path.join(workerDir, 'env.sh'), envToScript(worker.env, true))
             await addContainer(
                 containerName,
                 workerHash,
