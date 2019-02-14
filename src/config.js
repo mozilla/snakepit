@@ -60,6 +60,7 @@ config.maxParallelPrep  = config.maxParallelPrep  ? Number(config.maxParallelPre
 config.maxPrepDuration  = parseDuration(config.maxPrepDuration  || '1h')
 config.maxStartDuration = parseDuration(config.maxStartDuration || '5m')
 config.lxdTimeout       = parseDuration(config.lxdTimeout       || '10s')
+config.lxdBridges       = Array.isArray(config.lxdBridges) ? config.lxdBridges : []
 
 config.mountRoot        = config.mountRoot || '/snakepit'
 

@@ -257,10 +257,20 @@ async function startPit (pitId, drives, workers) {
             }
         }
 
+        let daemonDevices = endpointDevices[headNode.endpoint]
+        let i = Object.keys(daemonDevices).length
+        for (let bridge of config.lxdBridges) {
+            daemonDevices['eth' + i] = {
+                type:    'nic',
+                nictype: 'bridged',
+                parent:  bridge
+            }
+            i++
+        }
 
-        let daemonDevices = assign(
+        daemonDevices = assign(
             { 'pit': { path: '/data/rw/pit', source: Pit.getDirExternal(pitId), type: 'disk' } },
-            endpointDevices[headNode.endpoint]
+            daemonDevices
         )
         if (drives) {
             for (let dest of Object.keys(drives)) {

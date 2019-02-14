@@ -270,6 +270,7 @@ Possible configuration values are:
 - clientKey:         Path to cryptographic key file for accessing head node's LXD endpoint
 - clientCert:        Path to cryptographic certificate file for accessing head node's LXD endpoint
 - lxdTimeout:        HTTP timeout in seconds for all LXD API access (time-value) - default 10s
+- lxdBridges:        List of head node bridges to connect to each job daemon
 - containerTimeout:  Timeout for LXD container state change - default 30s
 - pollInterval:      Polling interval for checking LXD container states in ms - default 1000
 - maxParallelPrep:   Maximum number of parallel job preparations - default 2
