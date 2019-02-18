@@ -58,7 +58,7 @@ async function getNodeFromName (containerName) {
 }
 
 function getWorkerHost (nodeId, pitId, index) {
-    return getContainerName(nodeId, pitId, index) + '.lxd'
+    return getContainerName(nodeId, pitId, index) + '.' + config.lxdDomain
 }
 exports.getWorkerHost = getWorkerHost
 
@@ -95,22 +95,6 @@ async function getContainersOnNode (node) {
     return containers
 }
 
-async function getNetworksOnNode (node) {
-    let results = await lxd.get(node.endpoint, 'networks')
-    let networks = []
-    for (let result of results) {
-        let split = result.split('/')
-        if (split.length > 0) {
-            let network = split[split.length - 1]
-            let networkInfo = parseNetworkName(network)
-            if (networkInfo) {
-                networks.push(network)
-            }
-        }
-    }
-    return networks
-}
-
 async function setContainerState (containerName, state, force, stateful) {
     let node = await getNodeFromName(containerName)
     await lxd.put(node.endpoint, 'containers/' + containerName + '/state', {
@@ -118,6 +102,16 @@ async function setContainerState (containerName, state, force, stateful) {
         timeout:  config.containerTimeout,
         force:    !!force,
         stateful: !!stateful
+    })
+}
+
+async function sendToContainer (containerName, filePath, content) {
+    let node = await getNodeFromName(containerName)
+    await lxd.post(node.endpoint, 'containers/' + containerName + '/files?path=' + filePath, content,{
+        headers: {
+            'Content-Type': 'plain/text',
+            'X-LXD-type':   'file'
+        }
     })
 }
 
@@ -152,126 +146,26 @@ async function addContainer (containerName, imageHash, options) {
     await lxd.post(node.endpoint, 'containers', containerConfig)
 }
 
-function getAddress(endpoint) {
-    return new Promise((resolve, reject) => {
-        let u = url.parse(endpoint)
-        dns.lookup(u.hostname, (err, address) => {
-            if (err) {
-                reject(err)
-            } else {
-                resolve(address)
-            }
-        })
-    })
-}
-
 async function startPit (pitId, drives, workers) {
     try {
         clusterEvents.emit('pitStarting', pitId)
         let pitDir = Pit.getDir(pitId)
         let daemonHash = (await lxd.get(headNode.endpoint, 'images/aliases/snakepit-daemon')).target
         let workerHash = (await lxd.get(headNode.endpoint, 'images/aliases/snakepit-worker')).target
-        let physicalNodes = { [headNode.endpoint]: headNode }
-        for (let worker of workers) {
-            // we just need one virtual node for each endpoint
-            physicalNodes[worker.node.endpoint] = worker.node
-        }
 
-        let endpoints = Object.keys(physicalNodes)
-        let addresses = {}
-        await Parallel.each(endpoints, async (endpoint) => {
-            addresses[endpoint] = await getAddress(endpoint)
-        })
-
-        let pc = 1
-        let pairs = {}
-        let pairIndex = (a, b) => {
-            let key = [a, b].sort().join(' ')
-            if (!pairs[key]) {
-                pairs[key] = pc++
-            }
-            return pairs[key]
-        }
-
-        let endpointDevices = {}
-        if (endpoints.length > 1) {
-            await Parallel.each(endpoints, async (localEndpoint) => {
-                let i = 0
-                let localDevices = endpointDevices[localEndpoint] = {}
-                for (let remoteEndpoint of endpoints) {
-                    if (localEndpoint !== remoteEndpoint) {
-                        let network = snakepitPrefix + pitId + '-' + i
-                        let networkConfig = {
-                            'ipv4.routing': 'false',
-                            'ipv6.routing': 'false'
-                        }
-
-                        let tunnel   = 'tunnel.' + physicalNodes[remoteEndpoint].id
-                        let tunnelId = pitId * 256 + pairIndex(localEndpoint, remoteEndpoint)
-                        networkConfig[tunnel + '.protocol'] = 'vxlan'
-                        networkConfig[tunnel + '.id']       = '' + tunnelId
-                        networkConfig[tunnel + '.local']    = addresses[localEndpoint]
-                        networkConfig[tunnel + '.remote']   = addresses[remoteEndpoint]
-
-                        try {
-                            await lxd.post(localEndpoint, 'networks', {
-                                name: network,
-                                config: networkConfig
-                            })
-                        } catch (ex) {
-                            log.error('Problem creating network', network, ex.toString())
-                            throw ex
-                        }
-                        localDevices['eth' + i] = {
-                            type:    'nic',
-                            nictype: 'bridged',
-                            mtu:     '1450',
-                            parent:  network
-                        }
-                        i++
-                    }
-                }
-            })
-        } else {
-            let localEndpoint = endpoints[0]
-            let network = snakepitPrefix + pitId + '-0'
-            try {
-                await lxd.post(localEndpoint, 'networks', {
-                    name: network,
-                    config: {
-                        'ipv4.routing': 'false',
-                        'ipv6.routing': 'false'
-                    }
-                })
-            } catch (ex) {
-                log.error('Problem creating network', network, ex.toString())
-                throw ex
-            }
-            endpointDevices[localEndpoint] = {
-                'eth0': {
-                    type:    'nic',
-                    nictype: 'bridged',
-                    mtu:     '1450',
-                    parent:  network
-                }
-            }
-        }
-
-        let daemonDevices = endpointDevices[headNode.endpoint]
-        let i = Object.keys(daemonDevices).length
-        for (let bridge of config.lxdBridges) {
-            daemonDevices['eth' + i] = {
+        let daemonDevices = {
+            'pit': {
+                path: '/data/rw/pit',
+                source: Pit.getDirExternal(pitId),
+                type: 'disk'
+            },
+            'eth0': {
                 type:    'nic',
                 nictype: 'bridged',
-                parent:  bridge
+                parent:  config.lxdBridge
             }
-            i++
         }
 
-        daemonDevices = assign(
-            { 'pit': { path: '/data/rw/pit', source: Pit.getDirExternal(pitId), type: 'disk' } },
-            daemonDevices
-        )
         if (drives) {
             for (let dest of Object.keys(drives)) {
                 daemonDevices[dest] = {
@@ -296,20 +190,30 @@ async function startPit (pitId, drives, workers) {
             let containerName = getContainerName(worker.node.id, pitId, index)
             let workerDir = path.join(pitDir, 'workers', '' + index)
             await fs.mkdirp(workerDir)
-            worker.env = worker.env || {}
-            worker.env['HEAD_NODE'] = headNode.endpoint
-            worker.env['HEAD_NODE_ADDRESS'] = addresses[headNode.endpoint]
-            await fs.writeFile(path.join(workerDir, 'env.sh'), envToScript(worker.env, true))
             await addContainer(
                 containerName,
                 workerHash,
-                assign({ devices: endpointDevices[worker.node.endpoint] }, worker.options || {})
+                assign({
+                    devices: {
+                        'eth0': {
+                            type:    'nic',
+                            nictype: 'bridged',
+                            parent:  config.lxdBridge
+                        }
+                    }
+                }, worker.options || {})
             )
         })
 
-        await Parallel.each(workers, async function (worker) {
-            let containerName = getContainerName(worker.node.id, pitId, workers.indexOf(worker))
+        let daemonFQDN = daemonContainerName + '.' + config.lxdDomain
+        await Parallel.each(workers, async worker => {
+            let workerIndex = workers.indexOf(worker)
+            let containerName = getContainerName(worker.node.id, pitId, workerIndex)
             await setContainerState(containerName, 'start')
+            await sendToContainer(containerName, '/env.sh', envToScript(assign({
+                DAEMON:       daemonFQDN,
+                WORKER_INDEX: workerIndex
+            }, worker.env), true))
         })
         clusterEvents.emit('pitStarted', pitId)
     } catch (ex) {
@@ -389,6 +293,7 @@ exports.getResults = getResults
 async function stopPit (pitId) {
     log.debug('Stopping pit', pitId)
     clusterEvents.emit('pitStopping', pitId)
+    await to(fs.ensureFile(path.join(Pit.getDir(pitId), 'stop')))
     let nodes = await getAllNodes()
     await Parallel.each(nodes, async node => {
         let [errC, containers] = await to(getContainersOnNode(node))
@@ -398,15 +303,6 @@ async function stopPit (pitId) {
                 if (containerInfo && containerInfo[1] == pitId) {
                     let [errStop] = await to(setContainerState(containerName, 'stop', true))
                     let [errDelete] = await to(lxd.delete(node.endpoint, 'containers/' + containerName))
-                }
-            })
-        }
-        let [errN, networks] = await to(getNetworksOnNode(node))
-        if (networks) {
-            await Parallel.each(networks, async networkName => {
-                let networkInfo = parseNetworkName(networkName)
-                if (networkInfo && networkInfo[0] == pitId) {
-                    let [errDelete] = await to(lxd.delete(node.endpoint, 'networks/' + networkName))
                 }
             })
         }
