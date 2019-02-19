@@ -59,8 +59,9 @@ config.pollInterval     = config.pollInterval     ? Number(config.pollInterval) 
 config.maxParallelPrep  = config.maxParallelPrep  ? Number(config.maxParallelPrep) : 2
 config.maxPrepDuration  = parseDuration(config.maxPrepDuration  || '1h')
 config.maxStartDuration = parseDuration(config.maxStartDuration || '5m')
-config.lxdTimeout       = parseDuration(config.lxdTimeout       || '10s')
-config.lxdBridges       = Array.isArray(config.lxdBridges) ? config.lxdBridges : []
+config.lxdTimeout       = parseDuration(config.lxdTimeout       || '20s')
+config.lxdBridge        = config.lxdBridge || 'lxdbr0'
+config.lxdDomain        = config.lxdDomain || 'lxd'
 
 config.mountRoot        = config.mountRoot || '/snakepit'
 

@@ -37,13 +37,14 @@ async function prepareJob (job) {
     let env = getPreparationEnv(job)
     await job.setState(jobStates.PREPARING)
     return runScript('prepare.sh', env, async (code, stdout, stderr) => {
-        if (code == 0 && fs.existsSync(job.getDir()) && job.state == jobStates.PREPARING) {
+        if (code == 0 && job.state == jobStates.PREPARING) {
             await job.setState(jobStates.WAITING)
         } else {
             if (job.state != jobStates.STOPPING) {
-                appendError(job, 'Problem during preparation step - exit code: ' + code + '\n' + stdout + '\n' + stderr)  
+                await job.setState(jobStates.DONE, 'Problem during preparation step - exit code: ' + code + '\n' + stdout + '\n' + stderr)
+            } else {
+                await job.setState(jobStates.DONE)
             }
-            await job.setState(jobStates.DONE)
         }
     })
 }
