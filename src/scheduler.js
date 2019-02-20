@@ -37,6 +37,7 @@ async function prepareJob (job) {
     let env = getPreparationEnv(job)
     await job.setState(jobStates.PREPARING)
     preparations[job.id] = runScript('prepare.sh', env, async (code, stdout, stderr) => {
+        await job.reload()
         if (code == 0 && job.state == jobStates.PREPARING) {
             await job.setState(jobStates.WAITING)
         } else {
@@ -52,8 +53,9 @@ async function prepareJob (job) {
 
 function stopPreparation (jobId) {
     if (preparations[jobId]) {
-        preparations[jobId].kill()
+        let pp = preparations[jobId]
         delete preparations[jobId]
+        pp.kill('SIGINT')
     }
 }
 
@@ -126,19 +128,7 @@ async function startJob (job) {
 }
 
 async function stopJob (job, reason) {
-    try {
-        if (job.state == jobStates.PREPARING) {
-            await job.setState(jobStates.STOPPING, reason)
-            stopPreparation(job.id)
-        } else if (job.state >= jobStates.STARTING && job.state <= jobStates.STOPPING) {
-            await job.setState(jobStates.STOPPING, reason)
-            await pitRunner.stopPit(job.id)
-        }
-    } catch (ex) {
-        await cleanJob(job, 'Problem during stopping')
-        return
-    }
-    await cleanJob(job)
+    await job.setState(jobStates.STOPPING, reason)
 }
 exports.stopJob = stopJob
 
@@ -174,17 +164,18 @@ async function tick () {
     log.debug('Tick...')
     for(let jobId of Object.keys(preparations)) {
         let job = await Job.findByPk(jobId)
-        if (job && job.state == jobStates.PREPARING) {
-            if (job.since.getTime() + config.maxPrepDuration < Date.now()) {
-                log.debug('Preparation timeout for job', jobId)
-                await stopJob(job, 'Job exceeded max preparation time')
+        if (job) {
+            if (job.state == jobStates.PREPARING) {
+                if (job.since.getTime() + config.maxPrepDuration < Date.now()) {
+                    log.debug('Preparation timeout for job', jobId)
+                    await stopJob(job, 'Job exceeded max preparation time')
+                }
+            } else if (job.state == jobStates.STOPPING) {
+                stopPreparation(job.id)
             }
         } else {
-            log.debug('Found orphan preparation process for job', jobId)
             stopPreparation(jobId)
-            if (!job) {
-                log.error('Stopped orphan preparation process for job', jobId)
-            }
+            log.error('Stopped orphan preparation process for job', jobId)
         }
     }
     for(let job of (await Job.findAll({ where: { state: jobStates.NEW } }))) {
@@ -215,7 +206,10 @@ exports.startup = async function () {
         await cleanJob(job, 'Job interrupted during preparation')
     }
     for (let job of (await Job.findAll({ where: { state: jobStates.CLEANING } }))) {
-        await cleanJob(job)
+        await cleanJob(job, 'Job interrupted during cleaning')
+    }
+    for (let job of (await Job.findAll({ where: { state: jobStates.STOPPING } }))) {
+        await cleanJob(job, 'Job interrupted during stopping')
     }
 
     clusterEvents.on('restricted', async () => {
