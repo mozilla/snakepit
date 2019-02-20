@@ -250,7 +250,7 @@ exports.startup = async function () {
     clusterEvents.on('pitReport', async pits => {
         await Parallel.each(pits, async pitId => {
             let job = await Job.findByPk(pitId)
-            if (job && job.state < jobStates.STARTING || job.state > jobStates.STOPPING) {
+            if (job && (job.state < jobStates.STARTING || job.state > jobStates.STOPPING)) {
                 log.debug('Stopping zombie containers of stopped job', job.id)
                 await pitRunner.stopPit(job.id)
             }
