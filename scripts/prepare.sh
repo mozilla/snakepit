@@ -1,3 +1,4 @@
+set -o pipefail
 (
 echo "Preparation started..."
 

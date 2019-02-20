@@ -1,6 +1,7 @@
 const fs = require('fs-extra')
 const path = require('path')
 const Sequelize = require('sequelize')
+const Parallel = require('async-parallel')
 const log = require('./utils/logger.js')
 const { to } = require('./utils/async.js')
 const { runScript } = require('./utils/scripts.js')
@@ -42,6 +43,7 @@ async function prepareJob (job) {
         if (code == 0 && job.state == jobStates.PREPARING) {
             await job.setState(jobStates.WAITING)
         } else {
+            log.debug('Problem during preparation phase of job', job.id, '- process returned', code)
             await cleanJob(
                 job,
                 job.state != jobStates.STOPPING ?
@@ -246,18 +248,13 @@ exports.startup = async function () {
     })
     
     clusterEvents.on('pitReport', async pits => {
-        pits = pits.reduce((hashMap, obj) => {
-            hashMap[obj] = true
-            return hashMap
-        }, {})
-        for (let job of (await Job.findAll({ where: { state: {
-            [Sequelize.Op.gte]: Job.jobStates.STARTING,
-            [Sequelize.Op.lte]: Job.jobStates.STOPPING
-        } } }))) {
-            if (!pits[job.id]) {
+        await Parallel.each(pits, async pitId => {
+            let job = await Job.findByPk(pitId)
+            if (job && job.state < jobStates.STARTING || job.state > jobStates.STOPPING) {
+                log.debug('Stopping zombie containers of stopped job', job.id)
                 await pitRunner.stopPit(job.id)
             }
-        }
+        })
     })
     
     loop()
