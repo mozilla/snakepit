@@ -39,11 +39,14 @@ async function prepareJob (job) {
     let env = getPreparationEnv(job)
     await job.setState(jobStates.PREPARING)
     preparations[job.id] = runScript('prepare.sh', env, async (code, stdout, stderr) => {
+        delete preparations[job.id]
         await job.reload()
         if (code == 0 && job.state == jobStates.PREPARING) {
             await job.setState(jobStates.WAITING)
         } else {
-            log.debug('Problem during preparation phase of job', job.id, '- process returned', code)
+            if (code > 0) {
+                log.debug('Problem during preparation phase of job', job.id, '- process returned', code)
+            }
             await cleanJob(
                 job,
                 job.state != jobStates.STOPPING ?
@@ -56,9 +59,7 @@ async function prepareJob (job) {
 
 function stopPreparation (jobId) {
     if (preparations[jobId]) {
-        let pp = preparations[jobId]
-        delete preparations[jobId]
-        pp.kill('SIGINT')
+        preparations[jobId].kill('SIGINT')
     }
 }
 
@@ -178,8 +179,9 @@ async function tick () {
         if (job) {
             if (job.state == jobStates.PREPARING) {
                 if (job.since.getTime() + config.maxPrepDuration < Date.now()) {
-                    log.debug('Preparation timeout for job', jobId)
-                    await stopJob(job, 'Job exceeded max preparation time')
+                    await job.setState(jobStates.STOPPING, 'Exceeded max preparation time')
+                    stopPreparation(jobId)
+                    log.error('Preparation timeout for job', jobId)
                 }
             } else if (job.state == jobStates.STOPPING) {
                 stopPreparation(job.id)
