@@ -1,4 +1,7 @@
-set -e
+(
+echo "Preparation started..."
+
+set -ex
 set -o pipefail
 
 mkdir "$JOB_DIR/tmp"
@@ -44,3 +47,6 @@ patch_file="$JOB_DIR/git.patch"
 if [ -f "$patch_file" ]; then
     cat "$patch_file" | patch -p0
 fi
+
+echo "Preparation done."
+) 2>&1 | ts '[%Y-%m-%d %H:%M:%S] [prepare]' >>"$JOB_DIR/pit.log"

@@ -22,7 +22,7 @@ for worker_dir in ${pit_root}/workers/*/ ; do
     chown -R worker:worker "${worker_dir}"
 done
 
-tail -F -q ${pit_root}/daemon.log ${pit_root}/workers/**/worker.log | ts '[%Y-%m-%d %H:%M:%S]' >${pit_root}/pit.log &
+tail -F -q ${pit_root}/daemon.log ${pit_root}/workers/**/worker.log | ts '[%Y-%m-%d %H:%M:%S]' >>${pit_root}/pit.log &
 
 print_log "Pit daemon started"
 while true; do
