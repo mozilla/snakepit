@@ -325,15 +325,20 @@ async function getActivePits () {
 exports.getActivePits = getActivePits
 
 async function tick () {
+    let pitIds = {}
     let nodes = await getAllNodes()
     await to(Parallel.each(nodes, async node => {
-        let [infoErr, info] = await to(getNodeInfo(node))
-        if (infoErr) {
-            log.error('Problem accessing node ' + node.id, infoErr.toString())
-        }
-        if (node != headNode) {
-            let online = !!info
+        let [err, containers] = await to(getContainersOnNode(node))
+        let online = !!containers
+        if (node == headNode) {
+            if (err) {
+                log.error('Problem accessing head node', err.toString())
+            }
+        } else {
             if (online != node.online) {
+                if (err) {
+                    log.error('Problem accessing node ' + node.id, err.toString())
+                }
                 node.online = online
                 node.since = Date.now()
                 await node.save()
@@ -363,16 +368,22 @@ async function tick () {
                 } catch (ex) {}
             }
         }
-    }))
-    let [err, pits] = await to(getActivePits())
-    if (pits) {
-        clusterEvents.emit('pitReport', pits)
-        await Parallel.each(pits, async pitId => {
-            if (await pitRequestedStop(pitId)) {
-                await stopPit(pitId)
+        if (!err && containers) {
+            for (let containerName of containers) {
+                let containerInfo = parseContainerName(containerName)
+                if (containerInfo) {
+                    pitIds[containerInfo[1]] = true
+                }
             }
-        })
-    }
+        }
+    }))
+    let pits = Object.keys(pitIds)
+    clusterEvents.emit('pitReport', pits)
+    await Parallel.each(pits, async pitId => {
+        if (await pitRequestedStop(pitId)) {
+            await stopPit(pitId)
+        }
+    })
 }
 
 function loop () {
