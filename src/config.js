@@ -53,13 +53,13 @@ if (!config.endpoint) {
 }
 config.clientKey        = readConfigFile('clientKey', true)
 config.clientCert       = readConfigFile('clientCert', true)
-config.containerTimeout = parseDuration(config.timeout || '30s')
 
 config.pollInterval     = config.pollInterval     ? Number(config.pollInterval)    : oneSecond
 config.maxParallelPrep  = config.maxParallelPrep  ? Number(config.maxParallelPrep) : 2
 config.maxPrepDuration  = parseDuration(config.maxPrepDuration  || '1h')
 config.maxStartDuration = parseDuration(config.maxStartDuration || '5m')
-config.lxdTimeout       = parseDuration(config.lxdTimeout       || '20s')
+config.containerTimeout = parseDuration(config.containerTimeout || '20s')
+config.lxdTimeout       = parseDuration(config.lxdTimeout       || '5s')
 config.lxdBridge        = config.lxdBridge || 'lxdbr0'
 config.lxdDomain        = config.lxdDomain || 'lxd'
 

@@ -1,5 +1,4 @@
 const fs = require('fs-extra')
-const dns = require('dns')
 const url = require('url')
 const path = require('path')
 const axios = require('axios')
@@ -45,11 +44,6 @@ function getDaemonName (pitId) {
 function parseContainerName (containerName) {
     let match = containerNameParser.exec(containerName)
     return match && [match[1], match[2], match[3]]
-}
-
-function parseNetworkName (networkName) {
-    let match = networkNameParser.exec(networkName)
-    return match && [match[1], match[2]]
 }
 
 async function getNodeFromName (containerName) {
@@ -294,6 +288,10 @@ async function stopPit (pitId) {
     log.debug('Stopping pit', pitId)
     clusterEvents.emit('pitStopping', pitId)
     await to(fs.ensureFile(path.join(Pit.getDir(pitId), 'stop')))
+}
+exports.stopPit = stopPit
+
+async function stopContainers (pitId) {
     let nodes = await getAllNodes()
     await Parallel.each(nodes, async node => {
         let [errC, containers] = await to(getContainersOnNode(node))
@@ -309,7 +307,6 @@ async function stopPit (pitId) {
     })
     clusterEvents.emit('pitStopped', pitId)
 }
-exports.stopPit = stopPit
 
 async function getActivePits () {
     let [err, containers] = await to(getContainersOnNode(headNode))
@@ -381,7 +378,8 @@ async function tick () {
     clusterEvents.emit('pitReport', pits)
     await Parallel.each(pits, async pitId => {
         if (await pitRequestedStop(pitId)) {
-            await stopPit(pitId)
+            log.debug('Stopping zombie containers of pit', pitId)
+            await stopContainers(pitId)
         }
     })
 }

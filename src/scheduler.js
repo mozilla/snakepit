@@ -1,5 +1,6 @@
 const fs = require('fs-extra')
 const path = require('path')
+const Sequelize = require('sequelize')
 const log = require('./utils/logger.js')
 const { to } = require('./utils/async.js')
 const { runScript } = require('./utils/scripts.js')
@@ -123,12 +124,20 @@ async function startJob (job) {
         await job.setState(jobStates.RUNNING)
     } catch (ex) {
         log.error('Problem starting job', job.id, ex)
-        await cleanJob(job, 'Problem during startup: ' + ex.toString())
+        await job.reload()
+        if (job.state < jobStates.CLEANING) {
+            await cleanJob(job, 'Problem during startup: ' + ex.toString())
+        }
     }
 }
 
 async function stopJob (job, reason) {
-    await job.setState(jobStates.STOPPING, reason)
+    if (job.state >= jobStates.STARTING && job.state <= jobStates.STOPPING) {
+        await job.setState(jobStates.STOPPING, reason)
+        await pitRunner.stopPit(job.id)
+    } else {
+        await job.setState(jobStates.STOPPING, reason)
+    }
 }
 exports.stopJob = stopJob
 
@@ -221,26 +230,17 @@ exports.startup = async function () {
             }
         }
     })
-    
-    /*
-    clusterEvents.on('pitStarting', pitId => {
-        let job = db.jobs[pitId]
-        if (job) {
-            job.setState(jobStates.STARTING)
-        }
-    })
-    */
-    
+
     clusterEvents.on('pitStopping', async pitId => {
         let job = await Job.findByPk(pitId)
-        if (job) {
+        if (job && job.state < jobStates.STOPPING) {
             await job.setState(jobStates.STOPPING)
         }
     })
-    
+
     clusterEvents.on('pitStopped', async pitId => {
         let job = await Job.findByPk(pitId)
-        if (job) {
+        if (job && job.state < jobStates.CLEANING) {
             await cleanJob(job)
         }
     })
@@ -250,9 +250,12 @@ exports.startup = async function () {
             hashMap[obj] = true
             return hashMap
         }, {})
-        for (let job of (await Job.findAll({ where: { state: jobStates.RUNNING } }))) {
+        for (let job of (await Job.findAll({ where: { state: {
+            [Sequelize.Op.gte]: Job.jobStates.STARTING,
+            [Sequelize.Op.lte]: Job.jobStates.STOPPING
+        } } }))) {
             if (!pits[job.id]) {
-                await stopJob(job, 'Missing pit')
+                await pitRunner.stopPit(job.id)
             }
         }
     })
