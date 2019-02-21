@@ -16,7 +16,6 @@ const config = require('./config.js')
 
 const snakepitPrefix = 'sp'
 const containerNameParser = /sp-([a-z][a-z0-9]*)-([0-9]+)-(d|0|[1-9][0-9]*)/
-const networkNameParser = /sp(0|[1-9][0-9]*)-(0|[1-9][0-9]*)/
 const utilParser = /[^,]+, ([0-9]+), ([0-9]+) \%, ([0-9]+) \%/
 
 const headNode = Node.build({
