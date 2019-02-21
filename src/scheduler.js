@@ -1,6 +1,4 @@
-const fs = require('fs-extra')
 const path = require('path')
-const Sequelize = require('sequelize')
 const Parallel = require('async-parallel')
 const log = require('./utils/logger.js')
 const { to } = require('./utils/async.js')
@@ -11,7 +9,6 @@ const pitRunner = require('./pitRunner.js')
 const reservations = require('./reservations.js')
 const Job = require('./models/Job-model.js')
 const Group = require('./models/Group-model.js')
-
 
 const jobStates = Job.jobStates
 
@@ -223,6 +220,9 @@ exports.startup = async function () {
     }
     for (let job of (await Job.findAll({ where: { state: jobStates.STOPPING } }))) {
         await cleanJob(job, 'Job interrupted during stopping')
+    }
+    for (let job of (await Job.findAll({ where: { state: jobStates.STARTING } }))) {
+        await stopJob(job, 'Job interrupted during starting')
     }
 
     clusterEvents.on('restricted', async () => {
