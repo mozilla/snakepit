@@ -229,7 +229,7 @@ exports.startup = async function () {
         for(let job of (await Job.findAll({
             where: { '$between': [jobStates.PREPARING, jobStates.WAITING] }
         }))) {
-            if (reservations.canAllocate(job.resourceRequest, job.user)) {
+            if (await reservations.canAllocate(job.resourceRequest, job.user)) {
                 await stopJob(job, 'Cluster cannot fulfill resource request anymore')
             }
         }
