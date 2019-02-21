@@ -29,13 +29,19 @@ if [ -n "$origin" ]; then
     cache_entry=`echo -n $origin | md5sum | cut -f1 -d" "`
     cache_repo="$DATA_ROOT/cache/$cache_entry"
     if [ -d "$cache_repo" ]; then
-        git -C "$cache_repo" lfs fetch --all >/dev/null
+        git -C "$cache_repo" fetch --all >/dev/null
         touch "$cache_repo"
     else
-        git lfs clone $origin "$cache_repo" >/dev/null
+        git clone $origin "$cache_repo" >/dev/null
     fi
+    cd "$cache_repo"
+    git checkout -q $hash
+    git lfs fetch
+    cd ..
     cp -r "$cache_repo" "$job_src_dir"
-    git -C "$job_src_dir" lfs checkout $hash
+    cd "$job_src_dir"
+    git checkout -q $hash
+    git lfs fetch
 elif [ -f "$archive" ]; then
     tar -xzf "$archive" -C "$job_src_dir"
     rm "$archive"
