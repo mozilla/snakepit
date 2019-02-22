@@ -37,7 +37,7 @@ if [ -n "$origin" ]; then
     cp -r "$cache_repo" "$job_src_dir"
     cd "$job_src_dir"
     git reset --hard $hash
-    git lfs fetch
+    git lfs pull
 elif [ -f "$archive" ]; then
     tar -xzf "$archive" -C "$job_src_dir"
     rm "$archive"
