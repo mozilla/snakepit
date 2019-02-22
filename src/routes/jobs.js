@@ -305,7 +305,7 @@ router.get('/:job/log', targetJob, canAccess, async (req, res) => {
     let interval = config.pollInterval
     let logPath = path.join(Pit.getDir(req.targetJob.id), 'pit.log')
 
-    if (req.targetJob.state <= jobStates.STOPPING) {
+    if (req.targetJob.state < jobStates.DONE) {
         let tail
         let startTail = () => {
             tail = new Tail(logPath, { fromBeginning: true })
@@ -324,7 +324,7 @@ router.get('/:job/log', targetJob, canAccess, async (req, res) => {
         let poll = () => {
             if (tail) {
                 req.targetJob.reload().then(() => {
-                    if (req.targetJob.state > jobStates.STOPPING) {
+                    if (req.targetJob.state == jobStates.DONE) {
                         stopTail()
                     } else {
                         setTimeout(poll, interval)
