@@ -34,14 +34,7 @@ if [ -n "$origin" ]; then
     else
         git clone $origin "$cache_repo" >/dev/null
     fi
-    cd "$cache_repo"
-    git checkout -q $hash
-    git lfs fetch
-    cd ..
-    cp -r "$cache_repo" "$job_src_dir"
-    cd "$job_src_dir"
-    git checkout -q $hash
-    git lfs fetch
+    git -C "$cache_repo" archive --format=tar --prefix=src/ $hash | (cd "$JOB_DIR" && tar xf -)
 elif [ -f "$archive" ]; then
     tar -xzf "$archive" -C "$job_src_dir"
     rm "$archive"
