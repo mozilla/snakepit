@@ -7,6 +7,8 @@ fi
 while [[ ! -f "/env.sh" ]]; do
     sleep 0.1
 done
+
+export DEBIAN_FRONTEND=noninteractive
 source "/env.sh"
 
 mkdir /data
@@ -34,13 +36,23 @@ cd "${WORK_DIR}"
 export RESULT_FILE="${worker_dir}/result"
 
 log_file="${worker_dir}/worker.log"
+pipe_log () {
+    stdbuf -oL awk '{print "[worker '${WORKER_INDEX}'] " $0}' >>"${log_file}"
+}
 print_log () {
-    echo "[worker ${WORKER_INDEX}] $1" >>"${log_file}"
+    echo "$1" | pipe_log
 }
 
 print_log "Worker ${WORKER_INDEX} started"
-stdbuf -oL bash "/data/rw/pit/script.sh" 2>&1 | stdbuf -oL awk '{print "[worker '${WORKER_INDEX}'] " $0}' >>"${log_file}"
+print_log "Preparing script execution..."
+[ ! -z "${http_proxy}" ]  && print_log "Setting HTTP proxy for Apt..."  && echo "Acquire::http::proxy  \"${http_proxy}\";"  >> /etc/apt/apt.conf.d/proxy.conf
+[ ! -z "${https_proxy}" ] && print_log "Setting HTTPS proxy for Apt..." && echo "Acquire::https::proxy \"${https_proxy}\";" >> /etc/apt/apt.conf.d/proxy.conf
+[ ! -z "${ftp_proxy}" ]   && print_log "Setting FTP proxy for Apt..."   && echo "Acquire::ftp::proxy   \"${ftp_proxy}\";"   >> /etc/apt/apt.conf.d/proxy.conf
+apt-get update 2>&1 | pipe_log
+print_log "Starting script..."
+stdbuf -oL bash "/data/rw/pit/script.sh" 2>&1 | pipe_log
 exit_code=${PIPESTATUS[0]}
 echo "$exit_code" >"${worker_dir}/status"
 print_log "Worker ${WORKER_INDEX} ended with exit code ${exit_code}"
 touch "${worker_dir}/stop"
+poweroff
