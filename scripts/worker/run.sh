@@ -45,9 +45,6 @@ print_log () {
 
 print_log "Worker ${WORKER_INDEX} started"
 print_log "Preparing script execution..."
-[ ! -z "${http_proxy}" ]  && print_log "Setting HTTP proxy for Apt..."  && echo "Acquire::http::proxy  \"${http_proxy}\";"  >> /etc/apt/apt.conf.d/proxy.conf
-[ ! -z "${https_proxy}" ] && print_log "Setting HTTPS proxy for Apt..." && echo "Acquire::https::proxy \"${https_proxy}\";" >> /etc/apt/apt.conf.d/proxy.conf
-[ ! -z "${ftp_proxy}" ]   && print_log "Setting FTP proxy for Apt..."   && echo "Acquire::ftp::proxy   \"${ftp_proxy}\";"   >> /etc/apt/apt.conf.d/proxy.conf
 apt-get update 2>&1 | pipe_log
 print_log "Starting script..."
 stdbuf -oL bash "/data/rw/pit/script.sh" 2>&1 | pipe_log
