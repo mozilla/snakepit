@@ -19,7 +19,8 @@ aptget update
 aptget install dhcpcd5 sshfs vim iputils-ping
 # aptget install nvidia-driver-410 nvidia-utils-410 nvidia-cuda-toolkit
 
-sed -i 's/APT::Periodic::Update-Package-Lists "1";/APT::Periodic::Update-Package-Lists "0";/g' /etc/apt/apt.conf.d/20auto-upgrades
+print_header "Disabling automatic updates and upgrades"
+mv 20auto-upgrades /etc/apt/apt.conf.d/20auto-upgrades
 
 print_header "Disabling cloud configuration"
 echo 'network: {config: disabled}' >/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
