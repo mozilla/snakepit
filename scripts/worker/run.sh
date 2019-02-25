@@ -9,6 +9,7 @@ while [[ ! -f "/env.sh" ]]; do
 done
 
 export DEBIAN_FRONTEND=noninteractive
+source "/etc/profile"
 source "/env.sh"
 
 mkdir /data
