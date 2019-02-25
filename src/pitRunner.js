@@ -376,7 +376,7 @@ async function tick () {
     let pits = Object.keys(pitIds)
     clusterEvents.emit('pitReport', pits)
     await Parallel.each(pits, async pitId => {
-        if (await pitRequestedStop(pitId)) {
+        if (!(await Pit.findByPk(pitId)) || (await pitRequestedStop(pitId))) {
             log.debug('Stopping zombie containers of pit', pitId)
             await stopContainers(pitId)
         }
