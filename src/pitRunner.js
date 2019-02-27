@@ -8,6 +8,7 @@ const Parallel = require('async-parallel')
 const lxd = require('./utils/lxd.js')
 const log = require('./utils/logger.js')
 const { to } = require('./utils/async.js')
+const { runScript } = require('./utils/scripts.js')
 const { envToScript } = require('./utils/scripts.js')
 const clusterEvents = require('./utils/clusterEvents.js')
 const Pit = require('./models/Pit-model.js')
@@ -98,14 +99,14 @@ async function setContainerState (containerName, state, force, stateful) {
     })
 }
 
-async function sendToContainer (containerName, filePath, content) {
+async function sendToContainer (containerName, filePath, content, options) {
     let node = await getNodeFromName(containerName)
-    await lxd.post(node.endpoint, 'containers/' + containerName + '/files?path=' + filePath, content,{
+    await lxd.post(node.endpoint, 'containers/' + containerName + '/files?path=' + filePath, content, assign({
         headers: {
             'Content-Type': 'plain/text',
             'X-LXD-type':   'file'
         }
-    })
+    }, options || {}))
 }
 
 function pitRequestedStop (pitId) {
@@ -139,9 +140,33 @@ async function addContainer (containerName, imageHash, options) {
     await lxd.post(node.endpoint, 'containers', containerConfig)
 }
 
+function generateKeyPair () {
+    return new Promise((resolve, reject) => {
+        runScript('keygen.sh', {}, async (code, stdout, stderr) => {
+            if (code) {
+                reject(code)
+                return
+            }
+            let lines = stdout.split('\n')
+            let splitter = lines.indexOf('-----BEGIN SSH-RSA PUBLIC KEY-----')
+            if (splitter <= 0 || splitter >= lines.length - 1) {
+                reject(2)
+                return
+            }
+            resolve([
+                lines.slice(0, splitter).join('\n').trim(),
+                lines.slice(splitter + 1).join('\n').trim()
+            ])
+        })
+    })
+}
+
 async function startPit (pitId, drives, workers) {
     try {
         clusterEvents.emit('pitStarting', pitId)
+
+        let [key, keyPub] = await generateKeyPair()
+
         let pitDir = Pit.getDir(pitId)
         let daemonHash = (await lxd.get(headNode.endpoint, 'images/aliases/snakepit-daemon')).target
         let workerHash = (await lxd.get(headNode.endpoint, 'images/aliases/snakepit-worker')).target
@@ -178,6 +203,17 @@ async function startPit (pitId, drives, workers) {
             }
         )
         await setContainerState(daemonContainerName, 'start')
+        await sendToContainer(
+            daemonContainerName,
+            '/home/worker/.ssh/authorized_keys',
+            keyPub,
+            { headers: {
+                'X-LXD-mode': '0644',
+                'X-LXD-gid':  '2525',
+                'X-LXD-uid':  '2525'
+            } }
+        )
+
         await Parallel.each(workers, async function createWorker(worker) {
             let index = workers.indexOf(worker)
             let containerName = getContainerName(worker.node.id, pitId, index)
@@ -203,6 +239,22 @@ async function startPit (pitId, drives, workers) {
             let workerIndex = workers.indexOf(worker)
             let containerName = getContainerName(worker.node.id, pitId, workerIndex)
             await setContainerState(containerName, 'start')
+            await sendToContainer(
+                containerName,
+                '/root/.ssh/id_rsa',
+                key,
+                { headers: {
+                    'X-LXD-mode': '0600'
+                } }
+            )
+            await sendToContainer(
+                containerName,
+                '/root/.ssh/id_rsa.pub',
+                keyPub,
+                { headers: {
+                    'X-LXD-mode': '0644'
+                } }
+            )
             await sendToContainer(containerName, '/env.sh', envToScript(assign({
                 DAEMON:       daemonFQDN,
                 WORKER_INDEX: workerIndex

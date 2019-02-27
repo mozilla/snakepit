@@ -25,6 +25,9 @@ mv 20auto-upgrades /etc/apt/apt.conf.d/20auto-upgrades
 print_header "Disabling cloud configuration"
 echo 'network: {config: disabled}' >/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
 
+print_header "Creating .ssh directory"
+mkdir -p /root/.ssh
+
 print_header "Installing worker service"
 mv run.sh /usr/bin/run.sh
 mv snakepit.service /lib/systemd/system/

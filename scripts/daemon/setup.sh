@@ -22,6 +22,8 @@ print_header "Creating user worker"
 useradd -m -s /usr/sbin/nologin -u 2525 worker
 password=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
 echo "worker:${password}" | chpasswd
+mkdir -p /home/worker/.ssh
+chown worker:worker /home/worker/.ssh
 
 print_header "Installing read-only mount"
 mv data-ro.mount /lib/systemd/system/
