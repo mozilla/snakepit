@@ -359,19 +359,6 @@ async function stopContainers (pitId) {
     clusterEvents.emit('pitStopped', pitId)
 }
 
-async function getActivePits () {
-    let [err, containers] = await to(getContainersOnNode(headNode))
-    let pitIds = {}
-    for (let containerName of containers) {
-        let containerInfo = parseContainerName(containerName)
-        if (containerInfo) {
-            pitIds[containerInfo[1]] = true
-        }
-    }
-    return Object.keys(pitIds)
-}
-exports.getActivePits = getActivePits
-
 async function tick () {
     let pitIds = {}
     let nodes = await getAllNodes()
