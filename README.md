@@ -35,9 +35,9 @@ you should follow the [snakepit-client user-guide](https://github.com/mozilla/sn
 - A pit (and therefore a job) consists of __processes__ and associated data (checkout of job repository).
 - Each process is represented by its own __LXD container__ which is a para-virtualized environment using Linux-namespaces (think of a lightweight virtual machine).
 - For each job (pit) there is exactly one so called __daemon process__ which will run on the head-node. Its responsibility is to provide data to the other processes of the pit.
-- Next to the daemon process there is always at least one so called __worker process__. Each worker process executes the same __.compute__ script of the job (which is typically taken from the job's repository checkout).
-- All processes (LXD containers) of a pit are connected with each other through a tunnel network based on __VXLAN__.
-- All worker processes are running on worker nodes and each of them has exclusive access to its allocated resources (GPUs).
+- The so called __worker processes__ of a pit can access the provided data through __sshfs__ mounts to the daemon process.
+- Each worker process executes the same __.compute__ script of the job (which is typically taken from the job's repository checkout).
+- All worker processes are running on worker nodes and each of them has exclusive access to its allocated sub-set of resources on it (typically GPUs).
 
 ### Prerequisites
 
@@ -270,7 +270,8 @@ Possible configuration values are:
 - clientKey:         Path to cryptographic key file for accessing head node's LXD endpoint
 - clientCert:        Path to cryptographic certificate file for accessing head node's LXD endpoint
 - lxdTimeout:        HTTP timeout in seconds for all LXD API access (time-value) - default 10s
-- lxdBridges:        List of head node bridges to connect to each job daemon
+- lxdBridge:         Bridge name of the network bridge that each container should connect its first NIC with - default lxdbr0
+- lxdDomain:         Domain name for all containers - default lxd
 - containerTimeout:  Timeout for LXD container state change - default 30s
 - pollInterval:      Polling interval for checking LXD container states in ms - default 1000
 - maxParallelPrep:   Maximum number of parallel job preparations - default 2
