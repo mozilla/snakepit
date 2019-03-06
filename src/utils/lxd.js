@@ -1,6 +1,8 @@
 const https = require('https')
+const WebSocket = require('ws')
 const axios = require('axios')
 const assign = require('assign-deep')
+const Parallel = require('async-parallel')
 
 const log = require('../utils/logger.js')
 const config = require('../config.js')
@@ -35,7 +37,7 @@ function getUrl (endpoint, resource) {
     return endpoint + '/1.0' + (resource ? ('/' + resource) : '')
 }
 
-async function wrapLxdResponse (endpoint, promise) {
+async function wrapLxdResponse (endpoint, promise, options) {
     let response
     try {
         response = await promise
@@ -46,7 +48,7 @@ async function wrapLxdResponse (endpoint, promise) {
     let data = response.data
     if (typeof data === 'string' || data instanceof String) {
         return data
-    } else {
+    } else if (typeof data === 'object') {
         switch(data.type) {
             case 'sync':
                 if (data.metadata) {
@@ -59,7 +61,19 @@ async function wrapLxdResponse (endpoint, promise) {
                 }
             case 'async':
                 log.debug('Forwarding:', data.operation + '/wait')
-                return await wrapLxdResponse(endpoint, axios.get(endpoint + data.operation + '/wait', { httpsAgent: agent }))
+                if (options.openSocket) {
+                    if (data.metadata && data.metadata.metadata && data.metadata.metadata.fds) {
+                        let wsEndpoint = endpoint.startsWith('http') ? ('ws' + endpoint.slice(5)) : endpoint
+                        return [0, 1, 2].map(index => new WebSocket(
+                            wsEndpoint + data.operation + '/websocket?secret=' + data.metadata.metadata.fds['' + index],
+                            { agent: agent }
+                        ))
+                    } else {
+                        throw "Unable to open web-socket"
+                    }
+                } else {
+                    return await wrapLxdResponse(endpoint, axios.get(endpoint + data.operation + '/wait', { httpsAgent: agent }), options)
+                }
             case 'error':
                 log.debug('LXD error', data.error)
                 throw data.error
@@ -76,7 +90,7 @@ function callLxd(method, endpoint, resource, data, options) {
         timeout: config.lxdTimeout
     }, options || {})
     log.debug(method, axiosConfig.url, data || '')
-    return wrapLxdResponse(endpoint, axios(axiosConfig))
+    return wrapLxdResponse(endpoint, axios(axiosConfig), options)
 }
 
 exports.get = function (endpoint, resource, options) {

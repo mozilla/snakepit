@@ -24,6 +24,13 @@ const headNode = Node.build({
     endpoint: config.endpoint
 })
 
+let currentContainers = {}
+function getContainerNode (pitId, instance) {
+    let pitContainers = currentContainers[pitId]
+    let nodeId = pitContainers && pitContainers.find(c => c[2] == instance)
+    return nodeId && getNodeById(nodeId)
+}
+
 async function getAllNodes () {
     let nodes = await Node.findAll()
     return [headNode, ...nodes]
@@ -299,6 +306,24 @@ async function runPit (pitId, drives, workers, timeout) {
 }
 exports.runPit = runPit
 
+async function exec (pitId, instance, command) {
+    let node = getContainerNode(pitId, instance)
+    if (!node) {
+        return
+    }
+    let containerName = getContainerName(node.id, pitId, instance)
+    return await lxd.post(
+        node.endpoint,
+        'containers/' + containerName + '/exec',
+        {
+            'command': command,
+            'wait-for-websocket': true,
+        },
+        { openSocket: true }
+    )
+}
+exports.exec = exec
+
 function getLogPath (pitId) {
     return path.join(Pit.getDir(pitId), 'pit.log')
 }
@@ -360,11 +385,11 @@ async function stopContainers (pitId) {
 }
 
 async function tick () {
-    let pitIds = {}
+    let containers = {}
     let nodes = await getAllNodes()
     await to(Parallel.each(nodes, async node => {
-        let [err, containers] = await to(getContainersOnNode(node))
-        let online = !!containers
+        let [err, nodeContainers] = await to(getContainersOnNode(node))
+        let online = !!nodeContainers
         if (node == headNode) {
             if (err) {
                 log.error('Problem accessing head node', err.toString())
@@ -403,16 +428,22 @@ async function tick () {
                 } catch (ex) {}
             }
         }
-        if (!err && containers) {
-            for (let containerName of containers) {
+        if (!err && nodeContainers) {
+            for (let containerName of nodeContainers) {
                 let containerInfo = parseContainerName(containerName)
                 if (containerInfo) {
-                    pitIds[containerInfo[1]] = true
+                    let pitId = containerInfo[1]
+                    let pitContainers = containers[pitId]
+                    if (!pitContainers) {
+                        pitContainers = containers[pitId] = []
+                    }
+                    pitContainers.push(containerInfo)
                 }
             }
         }
     }))
-    let pits = Object.keys(pitIds)
+    clusterEvents.emit('containerReport', containers)
+    let pits = Object.keys(containers)
     clusterEvents.emit('pitReport', pits)
     await Parallel.each(pits, async pitId => {
         if (!(await Pit.findByPk(pitId)) || (await pitRequestedStop(pitId))) {
@@ -421,6 +452,8 @@ async function tick () {
         }
     })
 }
+
+clusterEvents.on('containerReport', containers => currentContainers = containers)
 
 function loop () {
     let goon = () => setTimeout(loop, config.pollInterval)

@@ -10,6 +10,7 @@ const Pit = require('../models/Pit-model.js')
 const Job = require('../models/Job-model.js')
 const config = require('../config.js')
 const scheduler = require('../scheduler.js')
+const pitRunner = require('../pitRunner.js')
 const reservations = require('../reservations.js')
 const parseClusterRequest = require('../clusterParser.js').parse
 
@@ -18,7 +19,7 @@ const fslib = require('../utils/httpfs.js')
 const simplefs = require('../utils/simplefs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const { getDuration } = require('../utils/dateTime.js')
-const { ensureSignedIn, targetJob, targetGroup } = require('./mw.js')
+const { ensureSignedIn, targetJob, targetInstance, targetGroup } = require('./mw.js')
 
 const jobStates = Job.jobStates
 
@@ -309,6 +310,20 @@ router.post('/:job/fs', targetJob, canAccess, async (req, res) => {
         Buffer.concat(chunks), 
         result => res.send(result), config.debugJobFS)
     )
+})
+
+router.ws('/:job/instances/:instance/exec', targetJob, targetInstance, canAccess, async (client, req) => {
+    if (req.targetInstance === 'd' && !req.user.admin) {
+        throw { code: 403, message: 'Only admins can access daemon instances' }
+    } else {
+        let [stdIn, stdOut, stdErr] = await pitRunner.exec(req.targetJob.id, req.targetInstance, req.query.cmd)
+        client.on('message', msg => stdIn.send(msg))
+        stdOut.on('message', msg => client.send(msg))
+        stdErr.on('message', msg => client.send(msg))
+        let sockets = [client, stdIn, stdOut, stdErr]
+        let close = () => sockets.forEach(s => s.close())
+        sockets.forEach(s => s.on('close', close))
+    }
 })
 
 router.post('/:job/stop', targetJob, canAccess, async (req, res) => {

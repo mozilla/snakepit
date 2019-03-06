@@ -40,6 +40,7 @@ if (cluster.isMaster) {
         const bodyParser = require('body-parser')
 
         let app = express()
+        let expressWs = require('express-ws')(app)
         app.use(bodyParser.json({ limit: '50mb' }))
         app.use(morgan('combined', {
             skip: (req, res) => res.statusCode < 400 && !config.debugHttp
