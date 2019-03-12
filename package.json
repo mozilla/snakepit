@@ -44,7 +44,6 @@
     "commander": "^2.14.1",
     "express": "^4.16.2",
     "express-promise-router": "^3.0.3",
-    "express-ws": "^4.0.0",
     "fs-extra": "^7.0.1",
     "http": "^0.0.0",
     "js-yaml": "^3.12.0",

@@ -5,6 +5,7 @@ const assign = require('assign-deep')
 const Parallel = require('async-parallel')
 
 const log = require('../utils/logger.js')
+const { to } = require('../utils/async.js')
 const config = require('../config.js')
 
 const lxdStatus = {
@@ -60,18 +61,35 @@ async function wrapLxdResponse (endpoint, promise, options) {
                     return data
                 }
             case 'async':
-                log.debug('Forwarding:', data.operation + '/wait')
                 if (options.openSocket) {
+                    log.debug('Opening socket:', data.operation + '/websocket')
                     if (data.metadata && data.metadata.metadata && data.metadata.metadata.fds) {
                         let wsEndpoint = endpoint.startsWith('http') ? ('ws' + endpoint.slice(5)) : endpoint
-                        return [0, 1, 2].map(index => new WebSocket(
-                            wsEndpoint + data.operation + '/websocket?secret=' + data.metadata.metadata.fds['' + index],
-                            { agent: agent }
-                        ))
+                        let [socketErr, sockets] = await to(Parallel.map([0, 1, 2], new Promise((resolve, reject) => {
+                            try {
+                                let wsc = new WebSocket(
+                                    wsEndpoint + data.operation + '/websocket?secret=' + data.metadata.metadata.fds['' + index],
+                                    null,
+                                    { agent: agent }
+                                )
+                                wsc.on('open', () => resolve(wsc))
+                                wsc.on('error', reject)
+                            } catch (ex) {
+                                reject(ex)
+                            }
+                        })))
+                        if (socketErr) {
+                            for (let s of sockets) {
+                                s && s.close()
+                            }
+                            throw socketErr
+                        }
+                        return sockets
                     } else {
                         throw "Unable to open web-socket"
                     }
                 } else {
+                    log.debug('Forwarding:', data.operation + '/wait')
                     return await wrapLxdResponse(endpoint, axios.get(endpoint + data.operation + '/wait', { httpsAgent: agent }), options)
                 }
             case 'error':
