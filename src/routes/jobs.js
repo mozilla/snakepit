@@ -315,16 +315,18 @@ router.post('/:job/fs', targetJob, canAccess, async (req, res) => {
 router.get('/:job/instances/:instance/exec', targetJob, targetInstance, canAccess, async (req, res) => {
     if (req.targetInstance === 'd' && !req.user.admin) {
         throw { code: 403, message: 'Only admins can access daemon instances' }
-    } else {
-        res.openSocket(client => {
+    } else if (res.openSocket) {
+        res.openSocket(async client => {
             let [stdIn, stdOut, stdErr] = await pitRunner.exec(req.targetJob.id, req.targetInstance, req.query.cmd)
-            client.on('message', msg => stdIn.send(msg))
+            client.on('message', msg => stdIn .send(msg))
             stdOut.on('message', msg => client.send(msg))
             stdErr.on('message', msg => client.send(msg))
             let sockets = [client, stdIn, stdOut, stdErr]
-            let close = () => sockets.forEach(s => s.close())
-            sockets.forEach(s => s.on('close', close))
+            let close = () => sockets.forEach(s => s && s.close())
+            sockets.forEach(s => s && s.on('close', close))
         })
+    } else {
+        throw { code: 404, message: 'Only web socket upgrades' }
     }
 })
 

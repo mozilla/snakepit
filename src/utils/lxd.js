@@ -61,11 +61,11 @@ async function wrapLxdResponse (endpoint, promise, options) {
                     return data
                 }
             case 'async':
-                if (options.openSocket) {
+                if (options && options.openSocket) {
                     log.debug('Opening socket:', data.operation + '/websocket')
                     if (data.metadata && data.metadata.metadata && data.metadata.metadata.fds) {
-                        let wsEndpoint = endpoint.startsWith('http') ? ('ws' + endpoint.slice(5)) : endpoint
-                        let [socketErr, sockets] = await to(Parallel.map([0, 1, 2], new Promise((resolve, reject) => {
+                        let wsEndpoint = endpoint.startsWith('http') ? ('ws' + endpoint.slice(4)) : endpoint
+                        let [socketErr, sockets] = await to(Parallel.map([0, 1, 2], index => new Promise((resolve, reject) => {
                             try {
                                 let wsc = new WebSocket(
                                     wsEndpoint + data.operation + '/websocket?secret=' + data.metadata.metadata.fds['' + index],
@@ -79,9 +79,6 @@ async function wrapLxdResponse (endpoint, promise, options) {
                             }
                         })))
                         if (socketErr) {
-                            for (let s of sockets) {
-                                s && s.close()
-                            }
                             throw socketErr
                         }
                         return sockets

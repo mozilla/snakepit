@@ -25,10 +25,10 @@ const headNode = Node.build({
 })
 
 let currentContainers = {}
-function getContainerNode (pitId, instance) {
+async function getContainerNode (pitId, instance) {
     let pitContainers = currentContainers[pitId]
     let nodeId = pitContainers && pitContainers.find(c => c[2] == instance)
-    return nodeId && getNodeById(nodeId)
+    return nodeId && nodeId[0] && await getNodeById(nodeId[0])
 }
 
 async function getAllNodes () {
@@ -307,7 +307,7 @@ async function runPit (pitId, drives, workers, timeout) {
 exports.runPit = runPit
 
 async function exec (pitId, instance, command) {
-    let node = getContainerNode(pitId, instance)
+    let node = await getContainerNode(pitId, instance)
     if (!node) {
         return
     }
@@ -316,7 +316,7 @@ async function exec (pitId, instance, command) {
         node.endpoint,
         'containers/' + containerName + '/exec',
         {
-            'command': command,
+            'command': [command],
             'wait-for-websocket': true,
         },
         { openSocket: true }
