@@ -316,7 +316,8 @@ async function exec (pitId, instance, command) {
         node.endpoint,
         'containers/' + containerName + '/exec',
         {
-            'command': [command],
+            'command': command,
+            'interactive': true,
             'wait-for-websocket': true,
         },
         { openSocket: true }

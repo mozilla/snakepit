@@ -316,12 +316,14 @@ router.get('/:job/instances/:instance/exec', targetJob, targetInstance, canAcces
     if (req.targetInstance === 'd' && !req.user.admin) {
         throw { code: 403, message: 'Only admins can access daemon instances' }
     } else if (res.openSocket) {
+        if (!req.query.cmd) {
+            throw { code: 400, message: 'No command' }
+        }
         res.openSocket(async client => {
-            let [stdIn, stdOut, stdErr] = await pitRunner.exec(req.targetJob.id, req.targetInstance, req.query.cmd)
-            client.on('message', msg => stdIn .send(msg))
-            stdOut.on('message', msg => client.send(msg))
-            stdErr.on('message', msg => client.send(msg))
-            let sockets = [client, stdIn, stdOut, stdErr]
+            let [runner] = await pitRunner.exec(req.targetJob.id, req.targetInstance, req.query.cmd.split(' '))
+            client.on('message', msg => runner.send(msg))
+            runner.on('message', msg => client.send(msg))
+            let sockets = [client, runner]
             let close = () => sockets.forEach(s => s && s.close())
             sockets.forEach(s => s && s.on('close', close))
         })
