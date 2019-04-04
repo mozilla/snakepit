@@ -50,6 +50,7 @@ apt-get update 2>&1 | pipe_log
 systemctl stop apt-daily.service
 systemctl kill --kill-who=all apt-daily.service
 while ! (systemctl list-units --all apt-daily.service | grep -qE 'dead|failed') ; do sleep 1; done
+sleep 10
 print_log "Starting script..."
 stdbuf -oL bash "/data/rw/pit/script.sh" 2>&1 | pipe_log
 exit_code=${PIPESTATUS[0]}
