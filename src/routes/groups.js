@@ -2,8 +2,9 @@ const Router = require('express-promise-router')
 const clusterEvents = require('../utils/clusterEvents.js')
 const config = require('../config.js')
 const fslib = require('../utils/httpfs.js')
+const simplefs = require('../utils/simplefs.js')
 const Group = require('../models/Group-model.js')
-const { ensureSignedIn, ensureAdmin, tryTargetGroup, targetGroup } = require('./mw.js')
+const { ensureSignedIn, ensureAdmin, tryTargetGroup, targetGroup, memberOrAdmin } = require('./mw.js')
 
 const router = module.exports = new Router()
 
@@ -20,18 +21,19 @@ router.get('/:group', targetGroup, async (req, res) => {
     })
 })
 
-router.post('/:group/fs', targetGroup, async (req, res) => {
-    if (req.user.admin || await req.user.isMemberOf(req.targetGroup)) {
-        let chunks = []
-        req.on('data', chunk => chunks.push(chunk));
-        req.on('end', () => fslib.serve(
-            fslib.real(req.targetGroup.getDir()), 
-            Buffer.concat(chunks), 
-            result => res.send(result), config.debugJobFS)
-        )
-    } else {
-        res.status(403).send()
-    }
+router.all('/:group/simplefs/' + simplefs.pattern, targetGroup, memberOrAdmin, async (req, res) => {
+    let baseDir = Group.getDir(req.targetGroup.id)
+    await simplefs.performCommand(baseDir, req, res)
+})
+
+router.post('/:group/fs', targetGroup, memberOrAdmin, async (req, res) => {
+    let chunks = []
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => fslib.serve(
+        fslib.real(req.targetGroup.getDir()),
+        Buffer.concat(chunks),
+        result => res.send(result), config.debugJobFS)
+    )
 })
 
 router.use(ensureAdmin)

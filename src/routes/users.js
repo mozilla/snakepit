@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken')
 const Router = require('express-promise-router')
 const config = require('../config.js')
 const fslib = require('../utils/httpfs.js')
+const simplefs = require('../utils/simplefs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const log = require('../utils/logger.js')
 const User = require('../models/User-model.js')
@@ -132,6 +133,11 @@ router.delete('/:user/groups/:group', ensureAdmin, targetUser, targetGroup, asyn
     await User.UserGroup.destroy({ where: { userId: req.targetUser.id, groupId: req.targetGroup.id } })
     res.send()
     clusterEvents.emit('restricted')
+})
+
+router.all('/:user/simplefs/' + simplefs.pattern, targetUser, selfOrAdmin, async (req, res) => {
+    let baseDir = User.getDir(req.targetUser.id)
+    await simplefs.performCommand(baseDir, req, res)
 })
 
 router.post('/:user/fs', targetUser, selfOrAdmin, async (req, res) => {

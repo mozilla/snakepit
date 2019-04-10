@@ -3,7 +3,6 @@ const path = require('path')
 const zlib = require('zlib')
 const tar = require('tar-fs')
 const Tail = require('tail').Tail
-const ndir = require('node-dir')
 const Parallel = require('async-parallel')
 const Sequelize = require('sequelize')
 const Router = require('express-promise-router')
@@ -16,6 +15,7 @@ const parseClusterRequest = require('../clusterParser.js').parse
 
 const log = require('../utils/logger.js')
 const fslib = require('../utils/httpfs.js')
+const simplefs = require('../utils/simplefs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const { getDuration } = require('../utils/dateTime.js')
 const { ensureSignedIn, targetJob, targetGroup } = require('./mw.js')
@@ -244,55 +244,9 @@ router.get('/:job/targz', targetJob, canAccess, async (req, res) => {
     tar.pack(jobDir).pipe(zlib.createGzip()).pipe(res)
 })
 
-async function targetPath (req, res) {
-    let jobDir = Pit.getDir(req.targetJob.id)
-    let newPath = path.resolve(jobDir, req.params[0] || '')
-    if (newPath.startsWith(jobDir)) {
-        req.targetPath = newPath
-        return Promise.resolve('next')
-    } else {
-        return Promise.reject({ code: 404, message: "Path not found" })
-    }
-}
-
-router.get('/:job/stats/(*)?', targetJob, canAccess, targetPath, async (req, res) => {
-    fs.stat(req.targetPath, (err, stats) => {
-        if (err || !(stats.isDirectory() || stats.isFile())) {
-            res.status(404).send()
-        } else {
-            res.send({
-                isFile: stats.isFile(),
-                size:   stats.size,
-                mtime:  stats.mtime,
-                atime:  stats.atime,
-                ctime:  stats.ctime
-            })
-        }
-    })
-})
-
-router.get('/:job/content/(*)?', targetJob, canAccess, targetPath, async (req, res) => {
-    fs.stat(req.targetPath, (err, stats) => {
-        if (err || !(stats.isDirectory() || stats.isFile())) {
-            res.status(404).send()
-        } else {
-            if (stats.isDirectory()) {
-                ndir.files(req.targetPath, 'all', (err, paths) => {
-                    if (err) {
-                        res.status(500).send()
-                    } else {
-                        res.send({ dirs: paths.dirs, files: paths.files })
-                    }
-                }, { shortName: true, recursive: false })
-            } else {
-                res.writeHead(200, {
-                    'Content-Type': 'application/octet-stream',
-                    'Content-Length': stats.size
-                })
-                fs.createReadStream(req.targetPath).pipe(res)
-            }
-        }
-    })
+router.all('/:job/simplefs/' + simplefs.pattern, targetJob, canAccess, async (req, res) => {
+    let baseDir = Pit.getDir(req.targetJob.id)
+    await simplefs.performCommand(baseDir, req, res)
 })
 
 router.get('/:job/log', targetJob, canAccess, async (req, res) => {

@@ -140,3 +140,6 @@ exports.ensureAdmin    = (req, res, next) => {
 exports.selfOrAdmin    = (req, res) => (req.user.id == req.targetUser.id || req.user.admin) ?
     Promise.resolve('next') :
     Promise.reject({ code: 403, message: 'Forbidden' })
+exports.memberOrAdmin  = async (req, res) => (req.user.admin || await req.user.isMemberOf(req.targetGroup)) ?
+    Promise.resolve('next') :
+    Promise.reject({ code: 403, message: 'Forbidden' })
