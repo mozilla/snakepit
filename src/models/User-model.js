@@ -35,7 +35,7 @@ AutoShare.belongsTo(Group)
 const userPrefix = '/data/home/'
 
 User.prototype.isMemberOf = async function (group) {
-    return group && await User.UserGroup.findOne({ userId: this.id, groupId: group.id })
+    return group && await User.UserGroup.findOne({ where: { userId: this.id, groupId: group.id } })
 }
 
 User.afterCreate(async user => {
