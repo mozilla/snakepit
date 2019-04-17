@@ -306,7 +306,7 @@ async function runPit (pitId, drives, workers, timeout) {
 }
 exports.runPit = runPit
 
-async function exec (pitId, instance, command) {
+async function exec (pitId, instance, context) {
     let node = await getContainerNode(pitId, instance)
     if (!node) {
         return
@@ -315,11 +315,10 @@ async function exec (pitId, instance, command) {
     return await lxd.post(
         node.endpoint,
         'containers/' + containerName + '/exec',
-        {
-            'command': command,
+        assign(context, {
             'interactive': true,
             'wait-for-websocket': true,
-        },
+        }),
         { openSocket: true }
     )
 }
