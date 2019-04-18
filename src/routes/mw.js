@@ -51,6 +51,15 @@ async function targetJob (req, res, ensure) {
 exports.tryTargetJob = (req, res) => targetJob(req, res, false)
 exports.targetJob    = (req, res) => targetJob(req, res, true)
 
+async function targetInstance (req, res) {
+    if(!/^(d|[0-9]+)$/.test(req.params.instance)) {
+        return Promise.reject({ code: 400, message: 'Wrong instance id format' })
+    }
+    req.targetInstance = req.params.instance
+    return Promise.resolve('next')
+}
+exports.targetInstance = targetInstance
+
 async function targetNode (req, res, ensure) {
     if (!/^[a-z][a-z0-9]*$/.test(req.params.node)) {
         return Promise.reject({ code: 400, message: 'Wrong node id format' })

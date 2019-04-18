@@ -1,8 +1,11 @@
 const https = require('https')
+const WebSocket = require('ws')
 const axios = require('axios')
 const assign = require('assign-deep')
+const Parallel = require('async-parallel')
 
 const log = require('../utils/logger.js')
+const { to } = require('../utils/async.js')
 const config = require('../config.js')
 
 const lxdStatus = {
@@ -35,7 +38,7 @@ function getUrl (endpoint, resource) {
     return endpoint + '/1.0' + (resource ? ('/' + resource) : '')
 }
 
-async function wrapLxdResponse (endpoint, promise) {
+async function wrapLxdResponse (endpoint, promise, options) {
     let response
     try {
         response = await promise
@@ -46,7 +49,7 @@ async function wrapLxdResponse (endpoint, promise) {
     let data = response.data
     if (typeof data === 'string' || data instanceof String) {
         return data
-    } else {
+    } else if (typeof data === 'object') {
         switch(data.type) {
             case 'sync':
                 if (data.metadata) {
@@ -58,8 +61,34 @@ async function wrapLxdResponse (endpoint, promise) {
                     return data
                 }
             case 'async':
-                log.debug('Forwarding:', data.operation + '/wait')
-                return await wrapLxdResponse(endpoint, axios.get(endpoint + data.operation + '/wait', { httpsAgent: agent }))
+                if (options && options.openSocket) {
+                    log.debug('Opening socket:', data.operation + '/websocket')
+                    if (data.metadata && data.metadata.metadata && data.metadata.metadata.fds) {
+                        let wsEndpoint = endpoint.startsWith('http') ? ('ws' + endpoint.slice(4)) : endpoint
+                        let names = Object.keys(data.metadata.metadata.fds)
+                        let sockets = {}
+                        await Parallel.each(names, name => new Promise((resolve, reject) => {
+                            try {
+                                let wsc = new WebSocket(
+                                    wsEndpoint + data.operation + '/websocket?secret=' + data.metadata.metadata.fds[name],
+                                    null,
+                                    { agent: agent }
+                                )
+                                wsc.on('open', () => resolve(wsc))
+                                wsc.on('error', reject)
+                                sockets[name] = wsc
+                            } catch (ex) {
+                                reject(ex)
+                            }
+                        }))
+                        return sockets
+                    } else {
+                        throw "Unable to open web-socket"
+                    }
+                } else {
+                    log.debug('Forwarding:', data.operation + '/wait')
+                    return await wrapLxdResponse(endpoint, axios.get(endpoint + data.operation + '/wait', { httpsAgent: agent }), options)
+                }
             case 'error':
                 log.debug('LXD error', data.error)
                 throw data.error
@@ -76,7 +105,7 @@ function callLxd(method, endpoint, resource, data, options) {
         timeout: config.lxdTimeout
     }, options || {})
     log.debug(method, axiosConfig.url, data || '')
-    return wrapLxdResponse(endpoint, axios(axiosConfig))
+    return wrapLxdResponse(endpoint, axios(axiosConfig), options)
 }
 
 exports.get = function (endpoint, resource, options) {

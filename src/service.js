@@ -34,6 +34,7 @@ if (cluster.isMaster) {
     })
 } else {
     try {
+        const ws = require('ws')
         const http = require('http')
         const morgan = require('morgan')
         const express = require('express')
@@ -44,7 +45,7 @@ if (cluster.isMaster) {
         app.use(morgan('combined', {
             skip: (req, res) => res.statusCode < 400 && !config.debugHttp
         }))
-        
+
         app.use(require('./routes'))
 
         app.use((err, req, res, next) => {
@@ -57,7 +58,18 @@ if (cluster.isMaster) {
             res.status(code).send({ message: message })
         })
 
-        http.createServer(app).listen(config.port, config.interface)
+        const wss = new ws.Server({ noServer: true })
+        let server = http.createServer(app)
+        server.on('upgrade', (req, socket, header) => {
+            let res = new http.ServerResponse(req)
+            let headerClone = new Buffer(header.length)
+            header.copy(headerClone)
+            res.assignSocket(socket)
+            res.on('finish', () => res.socket.destroy())
+            res.openSocket = cb => wss.handleUpgrade(req, socket, headerClone, cb)
+            return app(req, res)
+        })
+        server.listen(config.port, config.interface)
         log.info('Snakepit service running on ' + config.interface + ':' + config.port)
     } catch (ex) {
         log.error('Failure during startup: ', ex, ex.stack)
