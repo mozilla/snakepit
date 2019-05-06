@@ -1,7 +1,5 @@
 const fs = require('fs-extra')
 const path = require('path')
-const zlib = require('zlib')
-const tar = require('tar-fs')
 const Tail = require('tail').Tail
 const Parallel = require('async-parallel')
 const Sequelize = require('sequelize')
@@ -237,12 +235,6 @@ router.delete('/:job/groups/:group', targetJob, canAccess, targetGroup, async (r
     await Job.JobGroup.destroy({ where: { jobId: req.targetJob.id, groupId: req.targetGroup.id } })
     res.send()
     clusterEvents.emit('restricted')
-})
-
-router.get('/:job/targz', targetJob, canAccess, async (req, res) => {
-    let jobDir = Pit.getDir(req.targetJob.id)
-    res.status(200).type('tar.gz')
-    tar.pack(jobDir).pipe(zlib.createGzip()).pipe(res)
 })
 
 router.all('/:job/simplefs/' + simplefs.pattern, targetJob, canAccess, async (req, res) => {
