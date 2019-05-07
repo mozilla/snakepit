@@ -69,7 +69,7 @@ router.post('/', async (req, res) => {
         let dbjob = await Job.create({
             id:           pit.id,
             userId:       req.user.id,
-            description:  ('' + job.description).substring(0,20),
+            description:  ('' + job.description).substring(0,40),
             provisioning: provisioning,
             request:      job.clusterRequest,
             continues:    job.continueJob
