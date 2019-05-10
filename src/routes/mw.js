@@ -52,7 +52,7 @@ exports.tryTargetJob = (req, res) => targetJob(req, res, false)
 exports.targetJob    = (req, res) => targetJob(req, res, true)
 
 async function targetInstance (req, res) {
-    if(!/^(d|[0-9]+)$/.test(req.params.instance)) {
+    if(!/^([0-9]+)$/.test(req.params.instance)) {
         return Promise.reject({ code: 400, message: 'Wrong instance id format' })
     }
     req.targetInstance = req.params.instance
@@ -152,3 +152,7 @@ exports.selfOrAdmin    = (req, res) => (req.user.id == req.targetUser.id || req.
 exports.memberOrAdmin  = async (req, res) => (req.user.admin || await req.user.isMemberOf(req.targetGroup)) ?
     Promise.resolve('next') :
     Promise.reject({ code: 403, message: 'Forbidden' })
+
+exports.ensureUpgrade  = (req, res, next) => res.openSocket ?
+    Promise.resolve('next') :
+    Promise.reject({ code: 404, message: 'Only web-socket upgrades' })

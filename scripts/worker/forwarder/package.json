@@ -1,0 +1,14 @@
+{
+  "name": "forwarder",
+  "version": "0.0.1",
+  "description": "Snakepit socket forwarding helper",
+  "main": "forwarder.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Tilman Kamp",
+  "license": "MPL-2.0",
+  "dependencies": {
+    "multiplex": "^6.7.0"
+  }
+}

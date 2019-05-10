@@ -17,7 +17,7 @@ const fslib = require('../utils/httpfs.js')
 const simplefs = require('../utils/simplefs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const { getDuration } = require('../utils/dateTime.js')
-const { ensureSignedIn, targetJob, targetInstance, targetGroup } = require('./mw.js')
+const { ensureSignedIn, ensureUpgrade, targetJob, targetInstance, targetGroup } = require('./mw.js')
 
 const jobStates = Job.jobStates
 
@@ -304,54 +304,68 @@ router.post('/:job/fs', targetJob, canAccess, async (req, res) => {
     )
 })
 
-router.get('/:job/instances/:instance/exec', targetJob, targetInstance, canAccess, async (req, res) => {
-    if (req.targetInstance === 'd' && !req.user.admin) {
-        throw { code: 403, message: 'Only admins can access daemon instances' }
-    } else if (res.openSocket) {
-        if (!req.query.context) {
-            throw { code: 400, message: 'No command' }
-        }
-        let context = JSON.parse(req.query.context)
-        let pitSockets = await pitRunner.exec(req.targetJob.id, req.targetInstance, context)
-        if (!pitSockets) {
-            throw { code: 404, message: 'Worker not active' }
-        }
-        res.openSocket(async client => {
-            let stdin = pitSockets['0']
-            let control = pitSockets.control
-            client.on('message', msg => {
-                if (msg[0] == 0 && control.readyState === control.OPEN) {
-                    control.send(msg.slice(1))
-                } else if (msg[0] == 1 && stdin.readyState === stdin.OPEN) {
-                    stdin.send(msg.slice(1))
-                }
-            })
-            let sendToClient = (buffer, n) => {
-                if (client.readyState === client.OPEN) {
-                    client.send(Buffer.concat([
-                        new Buffer([n]),
-                        Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
-                    ]))
-                }
-            }
-            let sockets
-            if (context.interactive) {
-                sockets = [client, control, stdin]
-                stdin.on('message', msg => sendToClient(msg, 1))
-            } else {
-                let stdout = pitSockets['1']
-                let stderr = pitSockets['2']
-                sockets = [client, control, stdin, stdout, stderr]
-                stdout.on('message', msg => sendToClient(msg, 1))
-                stderr.on('message', msg => sendToClient(msg, 2))
-            }
-            control.on('message', msg => sendToClient(msg, 0))
-            let close = () => sockets.forEach(s => s && s.close())
-            sockets.forEach(s => s && s.on('close', close))
-        })
-    } else {
-        throw { code: 404, message: 'Only web socket upgrades' }
+router.get('/:job/instances/:instance/exec', ensureUpgrade, targetJob, targetInstance, canAccess, async (req, res) => {
+    if (!req.query.context) {
+        throw { code: 400, message: 'No command' }
     }
+    let context = JSON.parse(req.query.context)
+    let pitSockets = await pitRunner.exec(req.targetJob.id, req.targetInstance, context)
+    if (!pitSockets) {
+        throw { code: 404, message: 'Worker not active' }
+    }
+    res.openSocket(async client => {
+        let stdin = pitSockets['0']
+        let control = pitSockets.control
+        client.on('message', msg => {
+            if (msg[0] == 0 && control.readyState === control.OPEN) {
+                control.send(msg.slice(1))
+            } else if (msg[0] == 1 && stdin.readyState === stdin.OPEN) {
+                stdin.send(msg.slice(1))
+            }
+        })
+        let sendToClient = (buffer, n) => {
+            if (client.readyState === client.OPEN) {
+                client.send(Buffer.concat([
+                    new Buffer([n]),
+                    Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
+                ]))
+            }
+        }
+        let sockets
+        if (context.interactive) {
+            sockets = [client, control, stdin]
+            stdin.on('message', msg => sendToClient(msg, 1))
+        } else {
+            let stdout = pitSockets['1']
+            let stderr = pitSockets['2']
+            sockets = [client, control, stdin, stdout, stderr]
+            stdout.on('message', msg => sendToClient(msg, 1))
+            stderr.on('message', msg => sendToClient(msg, 2))
+        }
+        control.on('message', msg => sendToClient(msg, 0))
+        let close = () => sockets.forEach(s => s && s.close())
+        sockets.forEach(s => s && s.on('close', close))
+    })
+})
+
+router.get('/:job/instances/:instance/forward', ensureUpgrade, targetJob, targetInstance, canAccess, async (req, res) => {
+    let pitSockets = await pitRunner.exec(req.targetJob.id, req.targetInstance, {
+        command: ['forwarder.sh'],
+        interactive: false
+    })
+    if (!pitSockets) {
+        throw { code: 404, message: 'Worker not active' }
+    }
+    res.openSocket(async client => {
+        let stdin   = pitSockets['0']
+        let stdout  = pitSockets['1']
+        let sockets = [client, stdin, stdout, pitSockets['2'], pitSockets['control']]
+        let connected = true
+        client.on('message', msg => connected && stdin .send(msg))
+        stdout.on('message', msg => connected && client.send(msg))
+        let close = () => { connected = false; sockets.forEach(s => s.close()) }
+        sockets.forEach(s => s.on('close', close))
+    })
 })
 
 router.post('/:job/stop', targetJob, canAccess, async (req, res) => {

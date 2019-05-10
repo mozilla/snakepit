@@ -16,19 +16,25 @@ print_header "Installing dependencies"
 # # !This image and your GPU nodes should feature the very same driver!
 # add-apt-repository -y ppa:graphics-drivers/ppa
 aptget update
-aptget install dhcpcd5 sshfs vim iputils-ping
+aptget install dhcpcd5 sshfs vim iputils-ping npm
 # aptget install nvidia-driver-410 nvidia-utils-410 nvidia-cuda-toolkit
 
 print_header "Preparing apt"
 mv 20auto-upgrades /etc/apt/apt.conf.d/20auto-upgrades
 mv apt /usr/local/sbin/apt
 mv apt-get /usr/local/sbin/apt-get
+mv forwarder/forwarder.sh /usr/bin/forwarder.sh
+mv forwarder /opt/forwarder
+pushd /opt/forwarder
+npm install
+popd
 
 print_header "Disabling cloud configuration"
 echo 'network: {config: disabled}' >/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
 
-print_header "Creating .ssh directory"
+print_header "Preparing SSH"
 mkdir -p /root/.ssh
+systemctl disable sshd
 
 print_header "Installing worker service"
 mv run.sh /usr/bin/run.sh
