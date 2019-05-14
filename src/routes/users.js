@@ -6,10 +6,11 @@ const fslib = require('../utils/httpfs.js')
 const simplefs = require('../utils/simplefs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const log = require('../utils/logger.js')
+const Job = require('../models/Job-model.js')
 const User = require('../models/User-model.js')
-const Group = require('../models/Group-model.js')
 const { trySignIn,
         ensureSignedIn,
+        ensureVerified,
         ensureAdmin,
         selfOrAdmin,
         tryTargetUser,
@@ -22,58 +23,29 @@ router.get('/:user/exists', async (req, res) => {
     res.status((await User.findByPk(req.params.user)) ? 200 : 404).send()
 })
 
+async function applyAndSaveUserConfig (targetUser, userConfig) {
+    if (userConfig.fullname) {
+        targetUser.fullname = userConfig.fullname
+    }
+    if (userConfig.email) {
+        targetUser.email = userConfig.email
+    }
+    if (userConfig.password) {
+        targetUser.password = await bcrypt.hash(userConfig.password, config.hashRounds)
+    }
+    await targetUser.save()
+}
+
 router.put('/:user', trySignIn, tryTargetUser, async (req, res) => {
-    if (req.targetUser && (!req.user || (req.user && req.user.id !== req.params.user && !req.user.admin))) {
-        res.status(403).send()
+    if (req.targetUser) {
+        return Promise.reject({ code: 403, message: 'User already existing' })
     } else {
-        let user = req.body
-        let dbuser = req.targetUser || User.build({ id: req.params.user })
-        let setUser = async (hash) => {
-            if ((await User.count()) === 0) {
-                dbuser.admin = true
-            } else if (req.user && req.user.admin) {
-                if (user.admin == 'yes') {
-                    dbuser.admin = true
-                } else if (user.admin == 'no') {
-                    dbuser.admin = false
-                }
-            } else if (user.admin == 'yes') {
-                res.status(403).send()
-                return
-            }
-            if (user.fullname) {
-                dbuser.fullname = user.fullname
-            }
-            if (user.email) {
-                dbuser.email = user.email
-            }
-            dbuser.password = hash
-            await dbuser.save()
-            if (user.autoshare) {
-                for(let asg of user.autoshare) {
-                    if (await Group.findByPk(asg)) {
-                        await User.AutoShare.insertOrUpdate({
-                            userId:  dbuser.id,
-                            groupId: asg
-                        })
-                    }
-                }
-            }
-            res.send()
-        }
-        if (user.password) {
-            try {
-                let hash = await bcrypt.hash(user.password, config.hashRounds)
-                await setUser(hash)
-            } catch (ex) {
-                res.status(500).send()
-            }
-        } else if (dbuser.password) {
-            await setUser(dbuser.password)
-        } else {
-            res.status(400).send()
+        if (!(req.user && req.user.admin) && await Job.findOne({ where: { userId: req.params.user } })) {
+            return Promise.reject({ code: 403, message: 'Only admins can re-create this account, as there are already jobs with this user-ID as owner.' })
         }
     }
+    await applyAndSaveUserConfig(User.build({ id: req.params.user }), req.body)
+    res.send()
 })
 
 router.post('/:user/authenticate', targetUser, async (req, res) => {
@@ -105,17 +77,34 @@ router.get('/', ensureAdmin, async (req, res) => {
 
 router.use(ensureSignedIn)
 
+router.post('/:user', targetUser, selfOrAdmin, ensureVerified, async (req, res) => {
+    let userConfig = req.body
+    if (userConfig.admin === true) {
+        if (req.user.admin) {
+            req.targetUser.admin = true
+        } else {
+            return Promise.reject({ code: 403, message: 'Not allowed' })
+        }
+    } else if (userConfig.admin === false) {
+        req.targetUser.admin = false
+    }
+    await applyAndSaveUserConfig(req.targetUser, userConfig)
+    if (userConfig.autoshare) {
+        await req.targetUser.setAutoShares(userConfig.autoshare)
+    }
+    res.send()
+})
+
 router.get('/:user', targetUser, selfOrAdmin, async (req, res) => {
-    let dbuser = req.targetUser
-    let groups = (await dbuser.getUsergroups()).map(ug => ug.groupId)
-    let autoshares = (await dbuser.getAutoshares()).map(a => a.groupId)
+    let groups = (await req.targetUser.getUsergroups()).map(ug => ug.groupId)
+    let autoshares = (await req.targetUser.getAutoshares()).map(a => a.groupId)
     res.json({
-        id:        dbuser.id,
-        fullname:  dbuser.fullname,
-        email:     dbuser.email,
+        id:        req.targetUser.id,
+        fullname:  req.targetUser.fullname,
+        email:     req.targetUser.email,
         groups:    groups.length > 0 ? groups : undefined,
         autoshare: autoshares.length > 0 ? autoshares : undefined,
-        admin:     dbuser.admin ? 'yes' : 'no'
+        admin:     req.targetUser.admin
     })
 })
 
@@ -125,7 +114,7 @@ router.delete('/:user', targetUser, selfOrAdmin, async (req, res) => {
 })
 
 router.put('/:user/groups/:group', ensureAdmin, targetUser, targetGroup, async (req, res) => {
-    await User.UserGroup.insertOrUpdate({ userId: req.targetUser.id, groupId: req.targetGroup.id })
+    await User.UserGroup.upsert({ userId: req.targetUser.id, groupId: req.targetGroup.id })
     res.send()
 })
 

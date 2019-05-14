@@ -32,6 +32,22 @@ Group.hasMany(AutoShare, { onDelete: 'cascade' })
 AutoShare.belongsTo(User)
 AutoShare.belongsTo(Group)
 
+User.prototype.setAutoShares = async function (autoShares) {
+    let autoShareGroups = await User.AutoShare.findAll({ where: { userId: this.id } })
+    let autoShareIds = autoShares.reduce((map, asId) => { map[asId] = true; return map }, {})
+    for (let asg of autoShareGroups) {
+        if (!(asg.id in autoShareIds)) {
+            await asg.destroy()
+        }
+    }
+    autoShareIds = autoShareGroups.reduce((map, asg) => { map[asg.id] = true; return map }, {})
+    for(let asgId of autoShares) {
+        if (!(asgId in autoShareIds)) {
+            await User.AutoShare.create({ userId: this.id, groupId: asgId })
+        }
+    }
+}
+
 const userPrefix = '/data/home/'
 
 User.prototype.isMemberOf = async function (group) {

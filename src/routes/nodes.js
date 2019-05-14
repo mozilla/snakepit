@@ -125,7 +125,7 @@ router.delete('/:node', targetNode, async (req, res) => {
 
 router.put('/:node/groups/:group', targetNode, targetGroup, async (req, res) => {
     for (let resource of await req.targetNode.getResources()) {
-        await Resource.ResourceGroup.insertOrUpdate({ resourceId: resource.id, groupId: req.targetGroup.id })
+        await Resource.ResourceGroup.upsert({ resourceId: resource.id, groupId: req.targetGroup.id })
     }
     res.send()
     clusterEvents.emit('restricted')
@@ -146,7 +146,7 @@ async function targetResource (req, res) {
 }
 
 router.put('/:node/resources/:resource/groups/:group', targetNode, targetResource, targetGroup, async (req, res) => {
-    await Resource.ResourceGroup.insertOrUpdate({ resourceId: req.targetResource.id, groupId: req.targetGroup.id })
+    await Resource.ResourceGroup.upsert({ resourceId: req.targetResource.id, groupId: req.targetGroup.id })
     res.send()
     clusterEvents.emit('restricted')
 })

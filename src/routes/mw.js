@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken')
+const bcrypt = require('bcrypt')
 
 const config = require('../config.js')
 const Alias = require('../models/Alias-model.js')
@@ -133,8 +134,7 @@ function signIn (req, res, ensure) {
         } else if (ensure) {
             let msgNT = 'No token'
             log.error(msgAut, msgNT)
-            res.status(401).json({ message: msgNT })
-            resolve()
+            reject({ code: 401, message: msgNT })
         } else {
             resolve('next')
         }
@@ -153,6 +153,30 @@ exports.memberOrAdmin  = async (req, res) => (req.user.admin || await req.user.i
     Promise.resolve('next') :
     Promise.reject({ code: 403, message: 'Forbidden' })
 
-exports.ensureUpgrade  = (req, res, next) => res.openSocket ?
+exports.ensureUpgrade  = (req, res) => res.openSocket ?
     Promise.resolve('next') :
     Promise.reject({ code: 404, message: 'Only web-socket upgrades' })
+
+function verify (req, res, ensure) {
+    req.verified = false
+    if (req.body && req.body.verification && req.user) {
+        return new Promise((resolve, reject) => {
+            bcrypt.compare(req.body.verification, req.user.password, (err, result) => {
+                if (result) {
+                    req.verified = true
+                    resolve('next')
+                } else {
+                    log.error('Verification for user ' + req.user.id + ' failed')
+                    reject({ code: 401, message: 'Verfification failed' })
+                }
+            })
+        })
+    } else if (ensure) {
+        return Promise.reject({ code: 403, message: 'Only verified access' })
+    } else {
+        return Promise.resolve('next')
+    }
+}
+
+exports.tryVerify      = (req, res) => verify(req, res, false)
+exports.ensureVerified = (req, res) => verify(req, res, true)

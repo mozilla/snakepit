@@ -227,7 +227,7 @@ async function canAccess (req, res) {
 }
 
 router.put('/:job/groups/:group', targetJob, canAccess, targetGroup, async (req, res) => {
-    await Job.JobGroup.insertOrUpdate({ jobId: req.targetJob.id, groupId: req.targetGroup.id })
+    await Job.JobGroup.upsert({ jobId: req.targetJob.id, groupId: req.targetGroup.id })
     res.send()
 })
 

@@ -22,7 +22,7 @@ router.use(ensureAdmin)
 
 router.put('/:alias', tryTargetAlias, async (req, res) => {
     if(req.targetAlias) {
-        throw({ code: 400, message: 'Alias already exists' })
+        return Promise.reject({ code: 400, message: 'Alias already existing' })
     }
     if (req.body && req.body.name) {
         await Alias.create({ id: req.params.alias, name: req.body.name })
@@ -32,7 +32,17 @@ router.put('/:alias', tryTargetAlias, async (req, res) => {
     }
 })
 
+router.post('/:alias', targetAlias, async (req, res) => {
+    if (req.body && req.body.name) {
+        req.targetAlias.name = req.body.name
+        await req.targetAlias.save()
+        res.send()
+    } else {
+        res.status(400).send()
+    }
+})
+
 router.delete('/:alias', targetAlias, async (req, res) => {
-    req.targetAlias.destroy()
+    await req.targetAlias.destroy()
     res.send()
 })

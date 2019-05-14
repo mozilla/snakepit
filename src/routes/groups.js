@@ -39,16 +39,24 @@ router.post('/:group/fs', targetGroup, memberOrAdmin, async (req, res) => {
 router.use(ensureAdmin)
 
 router.put('/:group', tryTargetGroup, async (req, res) => {
+    if (req.targetGroup) {
+        return Promise.reject({ code: 403, message: 'Group already existing' })
+    }
     if (req.body && req.body.title) {
-        if (req.targetGroup) {
-            req.targetGroup.title = req.body.title
-            await req.targetGroup.save()
-        } else {
-            await Group.create({
-                id:   req.params.group,
-                title: req.body.title
-            })
-        }
+        await Group.create({
+            id:   req.params.group,
+            title: req.body.title
+        })
+        res.send()
+    } else {
+        res.status(400).send()
+    }
+})
+
+router.post('/:group', targetGroup, async (req, res) => {
+    if (req.body && req.body.title) {
+        req.targetGroup.title = req.body.title
+        await req.targetGroup.save()
         res.send()
     } else {
         res.status(400).send()
