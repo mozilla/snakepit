@@ -27,7 +27,7 @@ router.use(ensureSignedIn)
 
 router.post('/', async (req, res) => {
     let job = req.body
-    var clusterRequest
+    let clusterRequest
     try {
         clusterRequest = parseClusterRequest(job.clusterRequest)
     } catch (ex) {
@@ -51,22 +51,37 @@ router.post('/', async (req, res) => {
     }
 
     let pit
-    let dbjob
+    let newJob
+    let archivePath
     try {
-        pit = await Pit.create()
         let provisioning
         if (job.origin) {
-            provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
-            if (job.diff) {
-                provisioning += ' with ' +
-                    (job.diff + '').split('\n').length + ' LoC diff'
+            if (job.hash) {
+                provisioning = 'Git commit ' + job.hash + ' from ' + job.origin
+            } else {
+                provisioning = 'Git clone of ' + job.origin
             }
         } else if (job.archive) {
-            provisioning = 'Archive (' + fs.statSync(job.archive).size + ' bytes)'
+            let basePath = req.user.getDir()
+            archivePath = path.resolve(basePath, job.archive)
+            if (!archivePath.startsWith(basePath)) {
+                res.status(403).send({ message: 'Archive outside user home' })
+                return
+            }
+            if (!(await fs.pathExists(archivePath))) {
+                res.status(404).send({ message: 'Archive not found' })
+                return
+            }
+            provisioning = 'Archive (' + (await fs.stat(basePath)).size + ' bytes)'
         } else {
             provisioning = 'Script'
         }
-        let dbjob = await Job.create({
+        if (job.diff) {
+            provisioning += ' with ' +
+                (job.diff + '').split('\n').length + ' LoC diff'
+        }
+        pit = await Pit.create()
+        newJob = await Job.create({
             id:           pit.id,
             userId:       req.user.id,
             description:  ('' + job.description).substring(0,40),
@@ -76,27 +91,29 @@ router.post('/', async (req, res) => {
         })
         if (!job.private) {
             for(let autoshare of (await req.user.getAutoshares())) {
-                await Job.JobGroup.create({ jobId: dbjob.id, groupId: autoshare.groupId })
+                await Job.JobGroup.create({ jobId: newJob.id, groupId: autoshare.groupId })
             }
         }
-        var files = {}
+        let files = {}
         files['script.sh'] = (job.script || 'if [ -f .compute ]; then bash .compute; fi') + '\n'
         if (job.origin) {
             files['origin'] = job.origin
-        }
-        if (job.hash) {
-            files['hash'] = job.hash
+            if (job.hash) {
+                files['hash'] = job.hash
+            }
+        } else if (archivePath) {
+            await fs.copy(archivePath, path.join(newJob.getDir(), 'archive.tar.gz'))
         }
         if (job.diff) {
             files['git.patch'] = job.diff + '\n'
         }
         let jobDir = Pit.getDir(pit.id)
         await Parallel.each(Object.keys(files), filename => fs.writeFile(path.join(jobDir, filename), files[filename]))
-        await dbjob.setState(jobStates.NEW)
+        await newJob.setState(jobStates.NEW)
         res.status(200).send({ id: pit.id })
     } catch (ex) {
-        if (dbjob) {
-            await dbjob.destroy()
+        if (newJob) {
+            await newJob.destroy()
         }
         if (pit) {
             await pit.destroy()
@@ -298,8 +315,8 @@ router.post('/:job/fs', targetJob, canAccess, async (req, res) => {
     let chunks = []
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => fslib.serve(
-        fslib.readOnly(fslib.real(Pit.getDir(req.targetJob.id))), 
-        Buffer.concat(chunks), 
+        fslib.readOnly(fslib.real(Pit.getDir(req.targetJob.id))),
+        Buffer.concat(chunks),
         result => res.send(result), config.debugJobFS)
     )
 })
