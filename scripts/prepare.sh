@@ -13,34 +13,21 @@ else
 fi
 
 job_src_dir="$JOB_DIR/src"
-
-if [ -f "$JOB_DIR/origin" ]; then
-    origin=$(<"$JOB_DIR/origin")
-fi
-
-if [ -f "$JOB_DIR/hash" ]; then
-    hash=$(<"$JOB_DIR/hash")
-fi
-
 archive="$JOB_DIR/archive.tar.gz"
 
-if [ -n "$origin" ]; then
-    mkdir -p "$DATA_ROOT/cache"
-    cache_entry=`echo -n $origin | md5sum | cut -f1 -d" "`
-    cache_repo="$DATA_ROOT/cache/$cache_entry"
-    if [ -d "$cache_repo" ]; then
-        git -C "$cache_repo" fetch --all >/dev/null
-        touch "$cache_repo"
-    else
-        git clone $origin "$cache_repo" >/dev/null
-    fi
-    cp -r "$cache_repo" "$job_src_dir"
+if [ -f "$JOB_DIR/origin" ]; then
+    echo "Git based"
+    origin=$(<"$JOB_DIR/origin")
+    git clone $origin "$job_src_dir"
     cd "$job_src_dir"
-    git reset --hard $hash
-    git lfs pull
+    if [ -f "$JOB_DIR/hash" ]; then
+        hash=$(<"$JOB_DIR/hash")
+        git reset --hard $hash
+    fi
 elif [ -f "$archive" ]; then
-    tar -xzf "$archive" -C "$job_src_dir"
-    rm "$archive"
+    echo "Archive based"
+    mkdir "$job_src_dir"
+    tar -xf "$archive" -C "$job_src_dir"
 else
     mkdir "$job_src_dir"
 fi
