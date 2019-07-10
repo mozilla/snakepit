@@ -24,6 +24,8 @@ if [ -f "$JOB_DIR/origin" ]; then
         hash=$(<"$JOB_DIR/hash")
         git reset --hard $hash
     fi
+    git lfs fetch
+    git lfs checkout
 elif [ -f "$archive" ]; then
     echo "Archive based"
     mkdir "$job_src_dir"
