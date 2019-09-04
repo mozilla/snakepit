@@ -5,8 +5,8 @@ if [ $# -ne 2 ] ; then
     exit 1
 fi
 
-$owner=$1
-$root_dir=$2
+owner=$1
+root_dir=$2
 
 if ! id "$owner" >/dev/null 2>&1; then
     echo "Unknown user: $owner"
