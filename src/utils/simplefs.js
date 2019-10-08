@@ -14,7 +14,10 @@ async function performCommand (basePath, req, res, readOnly) {
     if (!targetPath.startsWith(basePath)) {
         return res.status(404).send()
     }
-    let [statsErr, stats] = await to(fs.stat(targetPath))
+    let [statsErr, stats] = await to(fs.lstat(targetPath))
+    if (!statsErr && stats.isSymbolicLink()) {
+        return res.status(403).send()
+    }
     if (req.method === "GET") {
         if (statsErr || !(stats.isDirectory() || stats.isFile())) {
             res.status(404).send()
@@ -33,7 +36,7 @@ async function performCommand (basePath, req, res, readOnly) {
                 let names = await fs.readdir(targetPath)
                 const promises = names.map(async entry => {
                     let ePath = path.join(targetPath, entry)
-                    let eStat = await fs.stat(ePath)
+                    let eStat = await fs.lstat(ePath)
                     return {
                         name: entry,
                         isFile: eStat.isFile(),
