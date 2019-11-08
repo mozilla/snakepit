@@ -92,16 +92,16 @@ async function startJob (job) {
         let workers = []
         let processGroups = await job.getProcessgroups()
         jobEnv.NUM_GROUPS = processGroups.length
-        for(let processGroup of processGroups) {
+        for (let processGroup of processGroups) {
             let processes = await processGroup.getProcesses()
             jobEnv['NUM_PROCESSES_GROUP' + processGroup.index] = processes.length
-            for(let jobProcess of processes) {
+            for (let jobProcess of processes) {
                 let node = await jobProcess.getNode()
                 jobEnv['HOST_GROUP' + processGroup.index + '_PROCESS' + jobProcess.index] = 
                     pitRunner.getWorkerHost(node.id, job.id, workers.length)
                 let gpus = {}
                 let allocations = await jobProcess.getAllocations()
-                for(let allocation of allocations) {
+                for (let allocation of allocations) {
                     let resource = await allocation.getResource()
                     if (resource.type == 'cuda') {
                         gpus['gpu' + (resource.index + 1)] = {
@@ -152,9 +152,9 @@ async function cleanJob (job, reason) {
     if (results) {
         let workerIndex = 0
         let processGroups = await job.getProcessgroups()
-        for(let processGroup of processGroups) {
+        for (let processGroup of processGroups) {
             let processes = await processGroup.getProcesses()
-            for(let jobProcess of processes) {
+            for (let jobProcess of processes) {
                 let workerResult = results[workerIndex]
                 workerIndex++
                 if (workerResult) {
@@ -177,7 +177,7 @@ async function cleanJob (job, reason) {
 async function tick () {
     log.debug('Tick...')
 
-    for(let job of (await Job.findAll({ where: { state: jobStates.NEW } }))) {
+    for (let job of (await Job.findAll({ where: { state: jobStates.NEW } }))) {
         if (Object.keys(preparations).length < config.maxParallelPrep) {
             log.debug('Preparing job', job.id)
             await prepareJob(job)
@@ -187,26 +187,31 @@ async function tick () {
     }
 
     let isPreparing = {}
-    for(let job of (await Job.findAll({ where: { state: jobStates.PREPARING } }))) {
+    for (let job of (await Job.findAll({ where: { state: jobStates.PREPARING } }))) {
         if (job.since.getTime() + config.maxPrepDuration < Date.now()) {
             await stopJob(job, 'Exceeded max preparation time')
         } else {
             isPreparing[job.id] = true
         }
     }
-    for(let jobId of Object.keys(preparations)) {
+    for (let jobId of Object.keys(preparations)) {
         if (!isPreparing[jobId]) {
             stopPreparation(jobId)
             log.error('Stopped orphan preparation process for job', jobId)
         }
     }
 
-    let job = await Job.findOne({ where: { state: jobStates.WAITING }, order: ['rank'] })
-    if (job) {
-        log.debug('Trying to allocate job', job.id)
-        if (await reservations.tryAllocate(job)) {
-            log.debug('Starting job', job.id)
-            await startJob(job)
+    let waitingFor = new Set()
+    for (let job of await Job.findAll({ where: { state: jobStates.WAITING }, order: ['rank'] })) {
+        let resources = reservations.requestedResources(job.request)
+        if ([...resources].filter(x => waitingFor.has(x)).length === 0) {
+            waitingFor = new Set([...waitingFor, ...resources])
+            log.debug('Trying to allocate job', job.id)
+            if (await reservations.tryAllocate(job)) {
+                log.debug('Starting job', job.id)
+                await startJob(job)
+                break
+            }
         }
     }
 }
