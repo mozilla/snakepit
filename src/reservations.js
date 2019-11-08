@@ -194,7 +194,23 @@ function reservationSummary (clusterReservation) {
     return summary
 }
 
+function requestedResources (clusterRequest) {
+    if (typeof clusterRequest == 'string') {
+        clusterRequest = parseClusterRequest(clusterRequest)
+    }
+    let resources = new Set()
+    for (let groupRequest of clusterRequest) {
+        for (let resource of groupRequest.process) {
+            resources.add(resource.name)
+        }
+    }
+    return resources
+}
+
 async function allocate (clusterRequest, userId, job) {
+    if (typeof clusterRequest == 'string') {
+        clusterRequest = parseClusterRequest(clusterRequest)
+    }
     let simulation = !job
     let options
     try {
@@ -270,5 +286,6 @@ async function allocate (clusterRequest, userId, job) {
     }
 }
 
+exports.requestedResources = requestedResources
 exports.canAllocate = (request, user) => allocate(request, user.id)
-exports.tryAllocate = job => allocate(parseClusterRequest(job.request), job.userId, job)
+exports.tryAllocate = job => allocate(job.request, job.userId, job)
