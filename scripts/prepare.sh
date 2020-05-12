@@ -24,6 +24,7 @@ if [ -f "$JOB_DIR/origin" ]; then
         hash=$(<"$JOB_DIR/hash")
         git reset --hard $hash
     fi
+    git submodule update --recursive
     git lfs fetch
     git lfs checkout
 elif [ -f "$archive" ]; then
