@@ -38,7 +38,7 @@
     "async": "^2.6.1",
     "async-parallel": "^1.2.3",
     "axios": "^0.18.1",
-    "bcrypt": "^2.0.1",
+    "bcrypt": "^3.0.6",
     "body-parser": "^1.18.3",
     "buffer-serializer": "^1.1.0",
     "commander": "^2.14.1",
@@ -55,6 +55,7 @@
     "range-parser": "^1.2.0",
     "sequelize": ">=5.3.0",
     "tail": "^2.0.2",
+    "uuid": "^8.3.0",
     "ws": "^6.2.0"
   }
 }

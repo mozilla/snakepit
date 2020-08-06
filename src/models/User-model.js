@@ -4,6 +4,7 @@ const config = require('../config.js')
 const Group = require('./Group-model.js')
 
 const fs = require('fs-extra')
+const { v4: uuidv4 } = require('uuid')
 const path = require('path')
 
 var User = sequelize.define('user', {
@@ -64,7 +65,7 @@ User.afterCreate(async user => {
 User.afterDestroy(async user => {
     let userDir = userPrefix + user.id
     if (await fs.pathExists(userDir)) {
-        await fs.remove(userDir)
+        await fs.move(userDir, '/data/trash/' + uuidv4())
     }
 })
 

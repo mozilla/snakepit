@@ -2,6 +2,7 @@ const path = require('path')
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
 const config = require('../config.js')
+const { v4: uuidv4 } = require('uuid')
 
 const fs = require('fs-extra')
 
@@ -21,7 +22,7 @@ Pit.afterCreate(async pit => {
 Pit.afterDestroy(async pit => {
     let pitDir = pitPrefix + pit.id
     if (await fs.pathExists(pitDir)) {
-        await fs.remove(pitDir)
+        await fs.move(pitDir, '/data/trash/' + uuidv4())
     }
 })
 

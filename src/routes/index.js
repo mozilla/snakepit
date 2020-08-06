@@ -1,5 +1,4 @@
 const Router = require('express-promise-router')
-const fslib = require('../utils/httpfs.js')
 const simplefs = require('../utils/simplefs.js')
 const config = require('../config.js')
 
@@ -13,16 +12,6 @@ router.get('/hello', async (req, res) => {
 
 router.all('/shared/simplefs/' + simplefs.pattern, async (req, res) => {
     await simplefs.performCommand(sharedDir, req, res, true)
-})
-
-router.post('/shared/fs', async (req, res) => {
-    let chunks = []
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => fslib.serve(
-        fslib.readOnly(fslib.real(sharedDir)),
-        Buffer.concat(chunks), 
-        result => res.send(result), config.debugJobFS)
-    )
 })
 
 router.use('/users',   require('./users'))

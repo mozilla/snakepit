@@ -13,7 +13,6 @@ const reservations = require('../reservations.js')
 const parseClusterRequest = require('../clusterParser.js').parse
 
 const log = require('../utils/logger.js')
-const fslib = require('../utils/httpfs.js')
 const simplefs = require('../utils/simplefs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const { getDuration } = require('../utils/dateTime.js')
@@ -309,16 +308,6 @@ router.get('/:job/log', targetJob, canAccess, async (req, res) => {
     } else {
         res.status(404).send()
     }
-})
-
-router.post('/:job/fs', targetJob, canAccess, async (req, res) => {
-    let chunks = []
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => fslib.serve(
-        fslib.readOnly(fslib.real(Pit.getDir(req.targetJob.id))),
-        Buffer.concat(chunks),
-        result => res.send(result), config.debugJobFS)
-    )
 })
 
 router.get('/:job/instances/:instance/exec', ensureUpgrade, targetJob, targetInstance, canAccess, async (req, res) => {

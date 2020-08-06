@@ -1,4 +1,5 @@
 const fs = require('fs-extra')
+const { v4: uuidv4 } = require('uuid')
 const path = require('path')
 const Sequelize = require('sequelize')
 const sequelize = require('./db.js')
@@ -22,7 +23,7 @@ Group.afterCreate(async group => {
 Group.afterDestroy(async group => {
     let groupDir = groupPrefix + group.id
     if (await fs.pathExists(groupDir)) {
-        await fs.remove(groupDir)
+        await fs.move(groupDir, '/data/trash/' + uuidv4())
     }
 })
 

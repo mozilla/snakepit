@@ -2,7 +2,6 @@ const bcrypt = require('bcrypt')
 const jwt = require('jsonwebtoken')
 const Router = require('express-promise-router')
 const config = require('../config.js')
-const fslib = require('../utils/httpfs.js')
 const simplefs = require('../utils/simplefs.js')
 const clusterEvents = require('../utils/clusterEvents.js')
 const log = require('../utils/logger.js')
@@ -127,14 +126,4 @@ router.delete('/:user/groups/:group', ensureAdmin, targetUser, targetGroup, asyn
 router.all('/:user/simplefs/' + simplefs.pattern, targetUser, selfOrAdmin, async (req, res) => {
     let baseDir = User.getDir(req.targetUser.id)
     await simplefs.performCommand(baseDir, req, res)
-})
-
-router.post('/:user/fs', targetUser, selfOrAdmin, async (req, res) => {
-    let chunks = []
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => fslib.serve(
-        fslib.real(req.targetUser.getDir()), 
-        Buffer.concat(chunks), 
-        result => res.send(result), config.debugJobFS)
-    )
 })

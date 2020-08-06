@@ -18,6 +18,7 @@ mkdir -p "$root_dir/shared"
 mkdir -p "$root_dir/home"
 mkdir -p "$root_dir/groups"
 mkdir -p "$root_dir/pits"
+mkdir -p "$root_dir/trash"
 
 chown -R $owner:$owner "$root_dir"
 chmod -R 700 "$root_dir"
