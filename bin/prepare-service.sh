@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -x
 set -e
 if [ $# -ne 1 ] && [ $# -ne 2 ] ; then
     echo "Usage: prepare-service-container.sh <data-path> [code-path]"
@@ -12,7 +13,7 @@ print_header () {
 print_header "Configuring image source"
 bin/prepare-lxd.sh
 
-lxc init ubuntu-minimal:18.04/amd64 snakepit
+lxc init ubuntu-minimal:21.04/amd64 snakepit
 
 print_header "Configuring virtual drives"
 uid=`ls -ldn "$1" | awk '{print $3}'`
