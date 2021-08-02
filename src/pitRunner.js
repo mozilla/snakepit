@@ -234,7 +234,6 @@ async function startPit (pitId, drives, workers) {
                 workerHash,
                 assign({
                     devices: {
-                        // AJE: add nfs mount here
                         'pit_src': {
                             path: '/pit/src',
                             source: pitWorkerNfsSrc,
@@ -250,8 +249,8 @@ async function startPit (pitId, drives, workers) {
                             nictype: 'bridged',
                             parent:  config.lxdBridge
                         }
-                    }
-                    // TODO(aje): add raw.idmap
+                    },
+                    config: { 'raw.idmap': 'both ' + config.mountUid + ' 0' }
                 }, worker.options || {})
             )
         })
