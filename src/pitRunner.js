@@ -175,7 +175,6 @@ async function startPit (pitId, drives, workers) {
         let [key, keyPub] = await generateKeyPair()
 
         let pitDir = Pit.getDir(pitId)
-        let pitDirExternal = Pit.getDirExternal(pitId)
         let daemonHash = (await lxd.get(headNode.endpoint, 'images/aliases/snakepit-daemon')).target
         let workerHash = (await lxd.get(headNode.endpoint, 'images/aliases/snakepit-worker')).target
 
@@ -226,8 +225,9 @@ async function startPit (pitId, drives, workers) {
             let index = workers.indexOf(worker)
             let containerName = getContainerName(worker.node.id, pitId, index)
             let workerDir = path.join(pitDir, 'workers', '' + index)
-            let pitSrc = path.join(pitDirExternal, 'src')
-            let pitTmp = path.join(pitDirExternal, 'tmp')
+            let pitWorkerNfsRoot = '/mnt/pits_share'
+            let pitWorkerNfsSrc = path.join(pitWorkerNfsRoot, pitId + '', 'src')
+            let pitWorkerNfsTmp = path.join(pitWorkerNfsRoot, pitId + '', 'tmp')
             await fs.mkdirp(workerDir)
             await addContainer(
                 containerName,
@@ -237,12 +237,12 @@ async function startPit (pitId, drives, workers) {
                         // AJE: add nfs mount here
                         'pit_src': {
                             path: '/pit/src',
-                            source: pitSrc,
+                            source: pitWorkerNfsSrc,
                             type: 'disk'
                         },
                         'pit_tmp': {
                             path: '/pit/tmp',
-                            source: pitTmp,
+                            source: pitWorkerNfsTmp,
                             type: 'disk'
                         },
                         'eth0': {
