@@ -25,6 +25,7 @@ fi
 
 print_header "Starting image..."
 lxc start snakepit
+sleep 1
 exe="lxc exec snakepit -- "
 $exe systemctl isolate multi-user.target
 
