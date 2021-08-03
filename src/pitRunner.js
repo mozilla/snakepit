@@ -234,6 +234,7 @@ async function startPit (pitId, drives, workers) {
                 workerHash,
                 assign({
                     devices: {
+                        // TODO: move to scheduler.js ~L74
                         'pit_src': {
                             path: '/pit/src',
                             source: pitWorkerNfsSrc,
@@ -250,6 +251,7 @@ async function startPit (pitId, drives, workers) {
                             parent:  config.lxdBridge
                         }
                     },
+                    // for nfs shares
                     config: { 'raw.idmap': 'both ' + config.mountUid + ' 0' }
                 }, worker.options || {})
             )
