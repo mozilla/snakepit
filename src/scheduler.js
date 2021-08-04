@@ -130,7 +130,7 @@ async function startJob (job) {
                 workers.push({
                     node:    node,
                     // aje: insert nfs mounts here
-                    options: { devices: gpus },
+                    options: { devices: Object.assign({}, gpus, workerShares) },
                     env:     Object.assign({
                                  GROUP_INDEX:   processGroup.index,
                                  PROCESS_INDEX: jobProcess.index
