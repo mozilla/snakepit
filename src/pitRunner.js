@@ -160,9 +160,13 @@ function generateKeyPair () {
                 reject(2)
                 return
             }
+            // worker nodes can't connect to daemon node because ssh key is in
+            // invalid format on worker. needs newline.
+            // - not sure why order was reversed before, newline just added would
+            //   always be stripped
             resolve([
-                lines.slice(0, splitter).join('\n').trim(),
-                lines.slice(splitter + 1).join('\n').trim()
+                lines.slice(0, splitter).trim().join('\n'),
+                lines.slice(splitter + 1).trim().join('\n')
             ])
         })
     })
