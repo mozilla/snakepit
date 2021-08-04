@@ -83,6 +83,23 @@ async function startJob (job) {
             jobEnv[ug.groupId.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
         }
 
+
+        // aje nfs stuff
+        let workerShares = {
+            '/data/ro/shared': '/mnt/snakepit/shared',
+            '/data/rw/home': '/mnt/snakepit/home/USER',
+            '/data/rw/pit': '/mnt/snakepit/pits/PIT_ID',
+        }
+        for (let ug of (await user.getUsergroups())) {
+            shares['/data/rw/group-' + ug.groupId] = '/mnt/snakepit/groups/' + ug.groupId
+            jobEnv[ug.groupId.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
+        }
+
+
+
+
+
+
         if (config.workerEnv) {
             for(let ev of Object.keys(config.workerEnv)) {
                 jobEnv[ev] = config.workerEnv[ev]
