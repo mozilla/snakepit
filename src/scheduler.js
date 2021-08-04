@@ -91,7 +91,7 @@ async function startJob (job) {
             '/data/rw/pit': '/mnt/snakepit/pits/PIT_ID',
         }
         for (let ug of (await user.getUsergroups())) {
-            shares['/data/rw/group-' + ug.groupId] = '/mnt/snakepit/groups/' + ug.groupId
+            workerShares['/data/rw/group-' + ug.groupId] = '/mnt/snakepit/groups/' + ug.groupId
             jobEnv[ug.groupId.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
         }
 
