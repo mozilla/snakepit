@@ -237,16 +237,16 @@ async function startPit (pitId, drives, workers) {
                 assign({
                     devices: {
                         // TODO: move to scheduler.js ~L74
-                        'pit_src': {
-                            path: '/pit/src',
-                            source: pitWorkerNfsSrc,
-                            type: 'disk'
-                        },
-                        'pit_tmp': {
-                            path: '/pit/tmp',
-                            source: pitWorkerNfsTmp,
-                            type: 'disk'
-                        },
+                        // 'pit_src': {
+                        //     path: '/pit/src',
+                        //     source: pitWorkerNfsSrc,
+                        //     type: 'disk'
+                        // },
+                        // 'pit_tmp': {
+                        //     path: '/pit/tmp',
+                        //     source: pitWorkerNfsTmp,
+                        //     type: 'disk'
+                        // },
                         'eth0': {
                             type:    'nic',
                             nictype: 'bridged',
