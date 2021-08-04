@@ -96,7 +96,8 @@ async function startJob (job) {
         }
 
 
-
+        log.info("aje 99911111")
+        log.info(workerShares)
 
 
 
@@ -127,10 +128,12 @@ async function startJob (job) {
                         }
                     }
                 }
+                let mergedDevices = Object.assign({}, gpus, workerShares)
+                log.info(mergedDevices)
                 workers.push({
                     node:    node,
                     // aje: insert nfs mounts here
-                    options: { devices: Object.assign({}, gpus, workerShares) },
+                    options: { devices: mergedDevices,
                     env:     Object.assign({
                                  GROUP_INDEX:   processGroup.index,
                                  PROCESS_INDEX: jobProcess.index
