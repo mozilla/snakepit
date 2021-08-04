@@ -227,16 +227,17 @@ async function startPit (pitId, drives, workers) {
             let index = workers.indexOf(worker)
             let containerName = getContainerName(worker.node.id, pitId, index)
             let workerDir = path.join(pitDir, 'workers', '' + index)
-            let pitWorkerNfsRoot = '/mnt/pits_share'
-            let pitWorkerNfsSrc = path.join(pitWorkerNfsRoot, pitId + '', 'src')
-            let pitWorkerNfsTmp = path.join(pitWorkerNfsRoot, pitId + '', 'tmp')
+            // aje
+            // let pitWorkerNfsRoot = '/mnt/pits_share'
+            // let pitWorkerNfsSrc = path.join(pitWorkerNfsRoot, pitId + '', 'src')
+            // let pitWorkerNfsTmp = path.join(pitWorkerNfsRoot, pitId + '', 'tmp')
             await fs.mkdirp(workerDir)
             await addContainer(
                 containerName,
                 workerHash,
                 assign({
                     devices: {
-                        // TODO: move to scheduler.js ~L74
+                        // TODO: do in scheduler (don't have required info here (job and user))
                         // 'pit_src': {
                         //     path: '/pit/src',
                         //     source: pitWorkerNfsSrc,
