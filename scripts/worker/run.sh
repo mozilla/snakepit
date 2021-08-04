@@ -18,8 +18,7 @@ worker_dir="/data/rw/pit/workers/${WORKER_INDEX}"
 i=0
 while ! sshfs worker@${DAEMON}: /data -o IdentityFile=/root/.ssh/id_rsa,cache=yes,kernel_cache,big_writes,sshfs_sync,Ciphers=aes128-ctr,reconnect,ServerAliveInterval=15,ServerAliveCountMax=100,StrictHostKeyChecking=no ; do
     if [[ ${i} -gt 5 ]]; then
-        echo "couldn't connect to ssh mount"
-        exit
+        reboot
     fi
     let i=i+1
     sleep 1
@@ -28,8 +27,7 @@ done
 i=0
 while [[ ! -d "${worker_dir}" ]]; do
     if [[ ${i} -gt 5 ]]; then
-        echo "couldn't list worker_dir"
-        exit
+        reboot
     fi
     let i=i+1
     sleep 1
@@ -59,4 +57,4 @@ exit_code=${PIPESTATUS[0]}
 echo "$exit_code" >"${worker_dir}/status"
 print_log "Worker ${WORKER_INDEX} ended with exit code ${exit_code}"
 touch "${worker_dir}/stop"
-# poweroff
+poweroff
