@@ -109,8 +109,9 @@ Edit /etc/fstab as root. Add the following line:
 
 ```
 192.168.1.1:/snakepit   /mnt/snakepit   nfs   nosuid,soft,intr,no_subtree_check,tcp 0 0
-# hard or soft?
+# hard or soft? intr?
 # locking?
+# timeo, retrans?
 ```
 
 
