@@ -99,7 +99,7 @@ async function startJob (job) {
         workerDevices = {}
         if (workerShares) {
             for (let dest of Object.keys(workerShares)) {
-                dest.split('/').pop() = {
+                workerDevices[dest.split('/').pop()] = {
                     path:   dest,
                     source: workerShares[dest],
                     type:   'disk'
