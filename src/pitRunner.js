@@ -227,18 +227,15 @@ async function startPit (pitId, drives, workers) {
             let index = workers.indexOf(worker)
             let containerName = getContainerName(worker.node.id, pitId, index)
             let workerDir = path.join(pitDir, 'workers', '' + index)
-            // aje
-            // let pitWorkerNfsRoot = '/mnt/snakepit'
             await fs.mkdirp(workerDir)
             await addContainer(
                 containerName,
                 workerHash,
                 assign({
                     devices: {
-                        // TODO: do most in scheduler (don't have required info here (job and user))
                         'pit': {
                             path: '/data/rw/pit',
-                            source: '/mnt/snakepit/pits/' + pitId,  // Pit.getDirExternal(pitId),
+                            source: '/mnt/snakepit/pits/' + pitId,
                             type: 'disk'
                         },
                         'eth0': {
@@ -247,7 +244,6 @@ async function startPit (pitId, drives, workers) {
                             parent:  config.lxdBridge
                         }
                     },
-                    // for nfs shares
                     config: { 'raw.idmap': 'both ' + config.mountUid + ' 0' }
                 }, worker.options || {})
             )
