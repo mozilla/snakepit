@@ -83,7 +83,7 @@ On the head node, install the nfs-server package:
 sudo apt install nfs-kernel-server
 ```
 
-Add the following line to the `/etc/exports` file:
+As root, add the following line to the `/etc/exports` file:
 
 ```bash
 /snakepit       192.168.0.0/16(rw,no_root_squash,no_subtree_check)
