@@ -68,6 +68,62 @@ __After Snakepit is configured and/or the machine got added, you should unset it
 ```
 $ lxc config unset core.trust_password
 ```
+### Installing
+
+All the following steps are only to be done on the head node.
+First you have do create a Snakepit user:
+```
+$ sudo adduser snakepit
+[...]
+```
+
+First clone the Snakepit project.
+From within Snakepit's project root, you can now call:
+```
+/path/to/snakepit/clone$ sudo bin/prepare-directories.sh snakepit /snakepit
+```
+This will create the required data directory structure in `/snakepit` owned by user `snakepit`.
+This directory is from now on called "data-root".
+You could also pick a different path.
+
+Now it's time to prepare the snakepit service:
+```
+/path/to/snakepit/clone$ sudo bin/prepare-service.sh /snakepit /path/to/snakepit/clone
+```
+This will create the `snakepit` LXD container and bind the data-root to its internal directory `/data`
+and `/path/to/snakepit/clone` to its internal directory `/code`. If you omit `/path/to/snakepit/clone`,
+the script will clone the project another time within the container into `/code`.
+The script is also automatically mapping the outer directory-owner of
+the data-root (in our case user `snakepit`) to its inner `root` user.
+
+If you get a line with "Problem accessing https://...:8443", you have to figure out the URL for
+the local LXD service and run the provided command.
+The `bin/prepare-service.sh` script looks for the `lxdbr0` bridge network adapter (this is a default one in LXD).
+If not existing, it will create and attach it to the snakepit service container as `eth0`.
+The following commands will help you figuring out the service address:
+* `sudo lxc exec snakepit -- ip addr` lists all interfaces of the snakepit service container and their IP addresses
+* `sudo lxc network list` shows all LXD networks
+* `sudo lxc network show <network-name>` shows details and addresses of one network
+* `sudo lxc exec snakepit -- curl -k https://<address>:8443/1.0` tests an address from inside the snakepit service container
+
+Next step is to create the worker and daemon LXD container images:
+```
+/path/to/snakepit/clone$ sudo bin/prepare-images.sh
+```
+This is a highly automated process and should not require any interaction.
+
+After this you have the chance to install any required software into the worker image:
+```
+/path/to/snakepit/clone$ sudo lxc exec snakepit-worker -- bash
+root@snakepit-worker:/root# apt install some-requirement
+[...]
+root@snakepit-worker:/root# exit
+```
+
+Before the images can be used, you have to publish them:
+```
+/path/to/snakepit/clone$ sudo bin/publish-images.sh
+```
 
 ### Configuring NFS
 
@@ -149,68 +205,12 @@ sudo mount /mnt/snakepit
 ls -la /mnt/snakepit
 # there should be files owned by snakepit:snakepit
 ```
-### Installing
-
-All the following steps are only to be done on the head node. 
-First you have do create a Snakepit user:
-```
-$ sudo adduser snakepit
-[...]
-```
-
-First clone the Snakepit project.
-From within Snakepit's project root, you can now call:
-```
-/path/to/snakepit/clone$ sudo bin/prepare-directories.sh snakepit /snakepit
-```
-This will create the required data directory structure in `/snakepit` owned by user `snakepit`.
-This directory is from now on called "data-root".
-You could also pick a different path.
-
-Now it's time to prepare the snakepit service:
-```
-/path/to/snakepit/clone$ sudo bin/prepare-service.sh /snakepit /path/to/snakepit/clone
-```
-This will create the `snakepit` LXD container and bind the data-root to its internal directory `/data`
-and `/path/to/snakepit/clone` to its internal directory `/code`. If you omit `/path/to/snakepit/clone`,
-the script will clone the project another time within the container into `/code`.
-The script is also automatically mapping the outer directory-owner of
-the data-root (in our case user `snakepit`) to its inner `root` user.
-
-If you get a line with "Problem accessing https://...:8443", you have to figure out the URL for
-the local LXD service and run the provided command.
-The `bin/prepare-service.sh` script looks for the `lxdbr0` bridge network adapter (this is a default one in LXD).
-If not existing, it will create and attach it to the snakepit service container as `eth0`.
-The following commands will help you figuring out the service address:
-* `sudo lxc exec snakepit -- ip addr` lists all interfaces of the snakepit service container and their IP addresses
-* `sudo lxc network list` shows all LXD networks
-* `sudo lxc network show <network-name>` shows details and addresses of one network
-* `sudo lxc exec snakepit -- curl -k https://<address>:8443/1.0` tests an address from inside the snakepit service container
-
-Next step is to create the worker and daemon LXD container images:
-```
-/path/to/snakepit/clone$ sudo bin/prepare-images.sh
-```
-This is a highly automated process and should not require any interaction.
-
-After this you have the chance to install any required software into the worker image:
-```
-/path/to/snakepit/clone$ sudo lxc exec snakepit-worker -- bash
-root@snakepit-worker:/root# apt install some-requirement
-[...]
-root@snakepit-worker:/root# exit
-```
-
-Before the images can be used, you have to publish them:
-```
-/path/to/snakepit/clone$ sudo bin/publish-images.sh
-```
 
 ### Access to Snakepit service
 
 The snakepit service itself only provides unencrypted HTTP access. 
 Therefore it is highly recommended to run snakepit behind a front-end web server with HTTPS configuration.
-The front-end server has to forward requests to port 80 of the address of the `eth0` interface of 
+The front-end server has to forward requests to port 80 of the address of the `eth0` interface of
 the snakepit service (`sudo lxc exec snakepit -- ip addr`).
 You can check connectivity through
 ```
