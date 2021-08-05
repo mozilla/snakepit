@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -x
 set -e
 if [ $# -ne 1 ] && [ $# -ne 2 ] ; then
     echo "Usage: prepare-service-container.sh <data-path> [code-path]"
