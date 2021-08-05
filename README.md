@@ -85,8 +85,8 @@ sudo apt install nfs-kernel-server
 
 Add the following line to the `/etc/exports` file:
 
-```
-/snakepit       192.168.0.0/16(rw,no_root_squash)
+```bash
+/snakepit       192.168.0.0/16(rw,no_root_squash,no_subtree_check)
 ```
 
 Then restart with `systemctl restart nfs-server`. Verify exports are working with `exportfs`.
@@ -107,14 +107,12 @@ sudo mkdir /mnt/snakepit
 
 Edit /etc/fstab as root. Add the following line:
 
-```
-192.168.1.1:/snakepit   /mnt/snakepit   nfs   nosuid,soft,intr,no_subtree_check,tcp 0 0
-# hard or soft? intr?
-# locking?
+```bash
+192.168.1.1:/snakepit   /mnt/snakepit   nfs   nosuid,hard,tcp 0 0
+# hard or soft? seems hard as we care about data...
+# local_lock?
 # timeo, retrans?
 ```
-
-
 
 __After Snakepit is configured and/or the machine got added, you should unset it again:__
 ```
