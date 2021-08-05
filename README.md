@@ -64,6 +64,11 @@ Would you like LXD to be available over the network (yes/no) [default=no]? yes
 ```
 You'll be asked to set a password which will be required later during Snakepit's setup.
 
+__After Snakepit is configured and/or the machine got added, you should unset it again:__
+```
+$ lxc config unset core.trust_password
+```
+
 ### Configuring NFS
 
 NFS is used for job data access (sshfs was used previously, but was slow).
@@ -140,12 +145,6 @@ sudo mount /mnt/snakepit
 ls -la /mnt/snakepit
 # there should be files owned by snakepit:snakepit
 ```
-
-__After Snakepit is configured and/or the machine got added, you should unset it again:__
-```
-$ lxc config unset core.trust_password
-```
-
 ### Installing
 
 All the following steps are only to be done on the head node. 
