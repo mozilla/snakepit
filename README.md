@@ -98,7 +98,9 @@ Then restart with `systemctl restart nfs-server`. Verify exports are working wit
 
 #### Configure NFS on worker nodes
 
-On each worker node, install the nfs client package.
+The steps below need to be done on each worker node.
+
+Install the nfs client package.
 
 ```bash
 sudo apt install nfs-common
