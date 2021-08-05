@@ -181,7 +181,7 @@ async function startPit (pitId, drives, workers) {
         let workerHash = (await lxd.get(headNode.endpoint, 'images/aliases/snakepit-worker')).target
 
         let daemonDevices = {
-            '/data/rw/pit': {
+            'pit': {
                 path: '/data/rw/pit',
                 source: Pit.getDirExternal(pitId),
                 type: 'disk'
