@@ -87,17 +87,35 @@ async function startJob (job) {
         // aje nfs stuff
         let workerShares = {
             '/data/ro/shared': '/mnt/snakepit/shared',
-            '/data/rw/home': '/mnt/snakepit/home/USER',
-            '/data/rw/pit': '/mnt/snakepit/pits/PIT_ID',
+            '/data/rw/home': '/mnt/snakepit/home/' + user.id,
+            // pit added in pitRunner.js
+            // '/data/rw/pit': '/mnt/snakepit/pits/PIT_ID',
         }
         for (let ug of (await user.getUsergroups())) {
             workerShares['/data/rw/group-' + ug.groupId] = '/mnt/snakepit/groups/' + ug.groupId
             jobEnv[ug.groupId.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
         }
 
+        workerDevices = {}
+        if (workerShares) {
+            for (let dest of Object.keys(workerShares)) {
+                workerDevices[dest] = {
+                    path:   dest,
+                    source: workerShares[dest],
+                    type:   'disk'
+                }
+            }
+        }
+
+        // 'pit': {
+        //     path: '/data/rw/pit',
+        //     source: '/mnt/snakepit/pits/' + pitId,  // Pit.getDirExternal(pitId),
+        //     type: 'disk'
+        // },
+
 
         log.info("aje 99911111")
-        log.info(workerShares)
+        log.info(workerDevices)
 
 
 
@@ -128,7 +146,7 @@ async function startJob (job) {
                         }
                     }
                 }
-                let mergedDevices = Object.assign({}, gpus, workerShares)
+                let mergedDevices = Object.assign({}, gpus, workerDevices)
                 log.info(mergedDevices)
                 workers.push({
                     node:    node,
