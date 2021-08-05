@@ -108,12 +108,14 @@ sudo apt install nfs-common
 
 Determine the UID of the snakepit user on the head node.
 
-```
+```bash
 # from the system
-id snakepit
+$ id snakepit
+uid=1777(snakepit) gid=1777(snakepit) groups=1777(snakepit),27(sudo),110(lxd)
 
 # from snakepit config
-lxc exec snakepit -- cat /etc/snakepit/snakepit.conf | grep mountUid
+$ lxc exec snakepit -- cat /etc/snakepit/snakepit.conf | grep mountUid
+mountUid: "1777"
 ```
 
 Create a snakepit user with the same UID as on the head node.
