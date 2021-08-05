@@ -64,6 +64,57 @@ Would you like LXD to be available over the network (yes/no) [default=no]? yes
 ```
 You'll be asked to set a password which will be required later during Snakepit's setup.
 
+### Configuring NFS
+
+NFS is used for job data access (sshfs was used previously, but was slow).
+
+Steps below assume the following internal networking layout. Adjust accordingly if different.
+
+```
+head node is at 192.168.1.1
+worker nodes are at 192.168.2.1, 192.168.3.1, etc
+```
+
+#### head node
+
+On the head node, install the nfs-server package:
+
+```bash
+sudo apt install nfs-kernel-server
+```
+
+Add the following line to the `/etc/exports` file:
+
+```
+/snakepit       192.168.0.0/16(rw,no_root_squash)
+```
+
+Then restart with `systemctl restart nfs-server`. Verify exports are working with `exportfs`.
+
+#### worker nodes
+
+On each worker node, install the nfs client package:
+
+```bash
+sudo apt install nfs-common
+```
+
+Create the mount point.
+
+```bash
+sudo mkdir /mnt/snakepit
+```
+
+Edit /etc/fstab as root. Add the following line:
+
+```
+192.168.1.1:/snakepit   /mnt/snakepit   nfs   nosuid,soft,intr,no_subtree_check,tcp 0 0
+# hard or soft?
+# locking?
+```
+
+
+
 __After Snakepit is configured and/or the machine got added, you should unset it again:__
 ```
 $ lxc config unset core.trust_password
