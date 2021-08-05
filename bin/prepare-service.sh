@@ -12,7 +12,7 @@ print_header () {
 print_header "Configuring image source"
 bin/prepare-lxd.sh
 
-lxc init ubuntu-minimal:21.04/amd64 snakepit
+lxc init ubuntu-minimal:18.04/amd64 snakepit
 
 print_header "Configuring virtual drives"
 uid=`ls -ldn "$1" | awk '{print $3}'`
@@ -24,7 +24,6 @@ fi
 
 print_header "Starting image..."
 lxc start snakepit
-sleep 1
 exe="lxc exec snakepit -- "
 $exe systemctl isolate multi-user.target
 
