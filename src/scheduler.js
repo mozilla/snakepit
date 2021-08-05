@@ -83,41 +83,23 @@ async function startJob (job) {
             jobEnv[ug.groupId.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
         }
 
-
-        // aje nfs stuff
         let workerShares = {
             '/data/ro/shared': '/mnt/snakepit/shared',
             '/data/rw/home': '/mnt/snakepit/home/' + user.id,
-            // pit added in pitRunner.js
-            // '/data/rw/pit': '/mnt/snakepit/pits/PIT_ID',
+            // pit added in pitRunner.js (we don't know the pit id here)
         }
         for (let ug of (await user.getUsergroups())) {
             workerShares['/data/rw/group-' + ug.groupId] = '/mnt/snakepit/groups/' + ug.groupId
             jobEnv[ug.groupId.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
         }
-
-        workerDevices = {}
-        if (workerShares) {
-            for (let dest of Object.keys(workerShares)) {
-                workerDevices[dest.split('/').pop()] = {
-                    path:   dest,
-                    source: workerShares[dest],
-                    type:   'disk'
-                }
+        let workerDiskDevices = {}
+        for (let dest of Object.keys(workerShares)) {
+            workerDiskDevices[dest.split('/').pop()] = {
+                path:   dest,
+                source: workerShares[dest],
+                type:   'disk'
             }
         }
-
-        // 'pit': {
-        //     path: '/data/rw/pit',
-        //     source: '/mnt/snakepit/pits/' + pitId,  // Pit.getDirExternal(pitId),
-        //     type: 'disk'
-        // },
-
-
-        log.info("aje 99911111")
-        log.info(workerDevices)
-
-
 
         if (config.workerEnv) {
             for(let ev of Object.keys(config.workerEnv)) {
@@ -146,11 +128,9 @@ async function startJob (job) {
                         }
                     }
                 }
-                let mergedDevices = Object.assign({}, gpus, workerDevices)
-                log.info(mergedDevices)
+                let mergedDevices = Object.assign({}, gpus, workerDiskDevices)
                 workers.push({
                     node:    node,
-                    // aje: insert nfs mounts here
                     options: { devices: mergedDevices },
                     env:     Object.assign({
                                  GROUP_INDEX:   processGroup.index,
