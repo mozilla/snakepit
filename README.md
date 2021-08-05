@@ -77,13 +77,13 @@ worker nodes are at 192.168.2.1, 192.168.3.1, etc
 
 #### head node
 
-On the head node, install the nfs-server package:
+On the head node, install the nfs-server package.
 
 ```bash
 sudo apt install nfs-kernel-server
 ```
 
-As root, add the following line to the `/etc/exports` file:
+As root, add the following line to the `/etc/exports` file.
 
 ```bash
 /snakepit       192.168.0.0/16(rw,no_root_squash,no_subtree_check)
@@ -93,10 +93,29 @@ Then restart with `systemctl restart nfs-server`. Verify exports are working wit
 
 #### worker nodes
 
-On each worker node, install the nfs client package:
+On each worker node, install the nfs client package.
 
 ```bash
 sudo apt install nfs-common
+```
+
+Determine the UID of the snakepit user on the head node.
+
+```
+# from the system
+id snakepit
+
+# from snakepit config
+lxc exec snakepit -- cat /etc/snakepit/snakepit.conf | grep mountUid
+```
+
+Create a snakepit user with the same UID as on the head node.
+
+NFS won't work if the UID is not the same.
+
+```bash
+sudo addgroup --gid 1777 snakepit
+sudo adduser --uid 1777 --gid 1777 --disabled-password --gecos '' snakepit
 ```
 
 Create the mount point.
@@ -105,13 +124,21 @@ Create the mount point.
 sudo mkdir /mnt/snakepit
 ```
 
-Edit /etc/fstab as root. Add the following line:
+Edit /etc/fstab as root. Add the following line.
 
 ```bash
 192.168.1.1:/snakepit   /mnt/snakepit   nfs   nosuid,hard,tcp 0 0
 # hard or soft? seems hard as we care about data...
 # local_lock?
 # timeo, retrans?
+```
+
+Mount and verify that it's working.
+
+```bash
+sudo mount /mnt/snakepit
+ls -la /mnt/snakepit
+# there should be files owned by snakepit:snakepit
 ```
 
 __After Snakepit is configured and/or the machine got added, you should unset it again:__
