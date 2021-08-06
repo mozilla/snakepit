@@ -162,7 +162,7 @@ Install the nfs client package.
 sudo apt install nfs-common
 ```
 
-Determine the UID of the snakepit user on the head node.
+Determine the UID and GID of the snakepit user on the head node.
 
 ```bash
 # on the head node
@@ -176,7 +176,7 @@ $ lxc exec snakepit -- cat /etc/snakepit/snakepit.conf | grep mountUid
 mountUid: "1777"
 ```
 
-Create a snakepit user with the same UID as on the head node.
+Create a snakepit user with the same UID and GID as on the head node.
 
 NFS won't work if the UID is not the same.
 
