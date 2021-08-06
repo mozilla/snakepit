@@ -131,7 +131,7 @@ NFS is used for job data access (sshfs was used previously, but was slow).
 
 Steps below assume the following internal networking layout. Adjust accordingly if different.
 
-```
+```bash
 head node is at 192.168.1.1
 worker nodes are at 192.168.2.1, 192.168.3.1, etc
 ```
@@ -159,7 +159,7 @@ The steps below need to be done on each worker node.
 Install the nfs client package.
 
 ```bash
-sudo apt install nfs-common
+$ sudo apt install nfs-common
 ```
 
 Determine the UID and GID of the snakepit user on the head node.
@@ -181,14 +181,14 @@ Create a snakepit user with the same UID and GID as on the head node.
 NFS won't work if the UID is not the same.
 
 ```bash
-sudo addgroup --gid 1777 snakepit
-sudo adduser --uid 1777 --gid 1777 --disabled-password --gecos '' snakepit
+$ sudo addgroup --gid 1777 snakepit
+$ sudo adduser --uid 1777 --gid 1777 --disabled-password --gecos '' snakepit
 ```
 
 Create the mount point.
 
 ```bash
-sudo mkdir /mnt/snakepit
+$ sudo mkdir /mnt/snakepit
 ```
 
 Edit /etc/fstab as root. Add the following line.
@@ -203,8 +203,8 @@ Edit /etc/fstab as root. Add the following line.
 Mount and verify that it's working.
 
 ```bash
-sudo mount /mnt/snakepit
-ls -la /mnt/snakepit
+$ sudo mount /mnt/snakepit
+$ ls -la /mnt/snakepit
 # there should be files owned by snakepit:snakepit
 ```
 
