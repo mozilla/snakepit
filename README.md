@@ -136,7 +136,7 @@ head node is at 192.168.1.1
 worker nodes are at 192.168.2.1, 192.168.3.1, etc
 ```
 
-#### Configure NFS on head node
+#### Configure NFS on the head node
 
 On the head node, install the nfs-server package.
 
@@ -152,7 +152,7 @@ As root, add the following line to the `/etc/exports` file.
 
 Then restart with `systemctl restart nfs-server`. Verify exports are working with `exportfs`.
 
-#### Configure NFS on worker nodes
+#### Configure NFS on the worker nodes
 
 The steps below need to be done on each worker node.
 
