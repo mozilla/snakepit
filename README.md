@@ -141,7 +141,7 @@ worker nodes are at 192.168.2.1, 192.168.3.1, etc
 On the head node, install the nfs-server package.
 
 ```bash
-sudo apt install nfs-kernel-server
+$ sudo apt install nfs-kernel-server
 ```
 
 As root, add the following line to the `/etc/exports` file.
