@@ -195,9 +195,6 @@ Edit /etc/fstab as root. Add the following line.
 
 ```bash
 192.168.1.1:/snakepit   /mnt/snakepit   nfs   nosuid,hard,tcp,bg,noatime 0 0
-# hard or soft? seems hard as we care about data...
-# local_lock?
-# timeo, retrans?
 ```
 
 Mount and verify that it's working.
