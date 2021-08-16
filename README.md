@@ -127,7 +127,7 @@ Before the images can be used, you have to publish them:
 
 ### Configuring NFS
 
-NFS is used for job data access (sshfs was used previously, but was slow).
+NFS is used for job data access. sshFS was used previously, but new workloads benefit from the faster disk access NFS allows.
 
 Steps below assume the following internal networking layout. Adjust accordingly if different.
 
