@@ -68,6 +68,7 @@ __After Snakepit is configured and/or the machine got added, you should unset it
 ```
 $ lxc config unset core.trust_password
 ```
+
 ### Installing
 
 All the following steps are only to be done on the head node.
