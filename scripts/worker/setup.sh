@@ -40,3 +40,11 @@ print_header "Installing worker service"
 mv run.sh /usr/bin/run.sh
 mv snakepit.service /lib/systemd/system/
 systemctl enable snakepit.service
+
+print_header "Configuring /etc/environment..."
+echo 'http_proxy="http://192.168.1.1:3128/"' >> /etc/environment
+echo 'HTTP_PROXY="http://192.168.1.1:3128/"' >> /etc/environment
+echo 'https_proxy="http://192.168.1.1:3128/"' >> /etc/environment
+echo 'HTTPS_PROXY="http://192.168.1.1:3128/"' >> /etc/environment
+echo 'ftp_proxy="http://192.168.1.1:3128/"' >> /etc/environment
+echo 'no_proxy="localhost,127.0.0.1,::1,.mlc,192.168.1.1,10.2.224.243"' >> /etc/environment
