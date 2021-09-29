@@ -41,5 +41,5 @@ mv run.sh /usr/bin/run.sh
 mv snakepit.service /lib/systemd/system/
 systemctl enable snakepit.service
 
-print_header "Configuring /etc/environment..."
+print_header "Configuring proxy environment variables..."
 mv proxy_env.sh /etc/profile.d/proxy_env.sh
