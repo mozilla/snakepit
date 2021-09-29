@@ -16,15 +16,6 @@ mkdir /data
 worker_dir="/data/rw/pit/workers/${WORKER_INDEX}"
 
 i=0
-while ! sshfs worker@${DAEMON}: /data -o IdentityFile=/root/.ssh/id_rsa,cache=yes,kernel_cache,big_writes,sshfs_sync,Ciphers=aes128-ctr,reconnect,ServerAliveInterval=15,ServerAliveCountMax=100,StrictHostKeyChecking=no ; do
-    if [[ ${i} -gt 5 ]]; then
-        reboot
-    fi
-    let i=i+1
-    sleep 1
-done
-
-i=0
 while [[ ! -d "${worker_dir}" ]]; do
     if [[ ${i} -gt 5 ]]; then
         reboot

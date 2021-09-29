@@ -71,7 +71,7 @@ $ lxc config unset core.trust_password
 
 ### Installing
 
-All the following steps are only to be done on the head node. 
+All the following steps are only to be done on the head node.
 First you have do create a Snakepit user:
 ```
 $ sudo adduser snakepit
@@ -126,11 +126,91 @@ Before the images can be used, you have to publish them:
 /path/to/snakepit/clone$ sudo bin/publish-images.sh
 ```
 
+### Configuring NFS
+
+NFS is used for job data access. sshFS was used previously, but new workloads benefit from the faster disk access NFS allows.
+
+Steps below assume the following internal networking layout. Adjust accordingly if different.
+
+```bash
+head node is at 192.168.1.1
+worker nodes are at 192.168.2.1, 192.168.3.1, etc
+```
+
+#### Configure NFS on the head node
+
+On the head node, install the nfs-server package.
+
+```bash
+$ sudo apt install nfs-kernel-server
+```
+
+As root, add the following line to the `/etc/exports` file.
+
+```bash
+/snakepit       192.168.0.0/16(rw,no_root_squash,no_subtree_check)
+```
+
+Then restart with `systemctl restart nfs-server`. Verify exports are working with `exportfs`.
+
+#### Configure NFS on the worker nodes
+
+The steps below need to be done on each worker node.
+
+Install the nfs client package.
+
+```bash
+$ sudo apt install nfs-common
+```
+
+Determine the UID and GID of the snakepit user on the head node.
+
+```bash
+# on the head node
+
+# from the system
+$ id snakepit
+uid=1777(snakepit) gid=1777(snakepit) groups=1777(snakepit),27(sudo),110(lxd)
+
+# from snakepit config
+$ lxc exec snakepit -- cat /etc/snakepit/snakepit.conf | grep mountUid
+mountUid: "1777"
+```
+
+Create a snakepit user with the same UID and GID as on the head node.
+
+NFS won't work if the UID is not the same.
+
+```bash
+$ sudo addgroup --gid 1777 snakepit
+$ sudo adduser --uid 1777 --gid 1777 --disabled-password --gecos '' snakepit
+```
+
+Create the mount point.
+
+```bash
+$ sudo mkdir /mnt/snakepit
+```
+
+Edit /etc/fstab as root. Add the following line.
+
+```bash
+192.168.1.1:/snakepit   /mnt/snakepit   nfs   nosuid,hard,tcp,bg,noatime 0 0
+```
+
+Mount and verify that it's working.
+
+```bash
+$ sudo mount /mnt/snakepit
+$ ls -la /mnt/snakepit
+# there should be files owned by snakepit:snakepit
+```
+
 ### Access to Snakepit service
 
 The snakepit service itself only provides unencrypted HTTP access. 
 Therefore it is highly recommended to run snakepit behind a front-end web server with HTTPS configuration.
-The front-end server has to forward requests to port 80 of the address of the `eth0` interface of 
+The front-end server has to forward requests to port 80 of the address of the `eth0` interface of
 the snakepit service (`sudo lxc exec snakepit -- ip addr`).
 You can check connectivity through
 ```

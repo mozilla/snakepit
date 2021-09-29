@@ -231,12 +231,18 @@ async function startPit (pitId, drives, workers) {
                 workerHash,
                 assign({
                     devices: {
+                        'pit': {
+                            path: '/data/rw/pit',
+                            source: '/mnt/snakepit/pits/' + pitId,
+                            type: 'disk'
+                        },
                         'eth0': {
                             type:    'nic',
                             nictype: 'bridged',
                             parent:  config.lxdBridge
                         }
-                    }
+                    },
+                    config: { 'raw.idmap': 'both ' + config.mountUid + ' 0' }
                 }, worker.options || {})
             )
         })

@@ -83,6 +83,24 @@ async function startJob (job) {
             jobEnv[ug.groupId.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
         }
 
+        let workerShares = {
+            '/data/ro/shared': '/mnt/snakepit/shared',
+            '/data/rw/home': '/mnt/snakepit/home/' + user.id,
+            // pit added in pitRunner.js (we don't know the pit id here)
+        }
+        for (let ug of (await user.getUsergroups())) {
+            workerShares['/data/rw/group-' + ug.groupId] = '/mnt/snakepit/groups/' + ug.groupId
+            jobEnv[ug.groupId.toUpperCase() + '_GROUP_DIR'] = '/data/rw/group-' + ug.groupId
+        }
+        let workerDiskDevices = {}
+        for (let dest of Object.keys(workerShares)) {
+            workerDiskDevices[dest.split('/').pop()] = {
+                path:   dest,
+                source: workerShares[dest],
+                type:   'disk'
+            }
+        }
+
         if (config.workerEnv) {
             for(let ev of Object.keys(config.workerEnv)) {
                 jobEnv[ev] = config.workerEnv[ev]
@@ -110,9 +128,10 @@ async function startJob (job) {
                         }
                     }
                 }
+                let mergedDevices = Object.assign({}, gpus, workerDiskDevices)
                 workers.push({
                     node:    node,
-                    options: { devices: gpus },
+                    options: { devices: mergedDevices },
                     env:     Object.assign({
                                  GROUP_INDEX:   processGroup.index,
                                  PROCESS_INDEX: jobProcess.index
