@@ -16,7 +16,7 @@ print_header "Installing dependencies"
 # # !This image and your GPU nodes should feature the very same driver!
 # add-apt-repository -y ppa:graphics-drivers/ppa
 aptget update
-aptget install dhcpcd5 sshfs vim iputils-ping npm nfs-common
+aptget install dhcpcd5 sshfs vim iputils-ping npm nfs-common git
 # aptget install nvidia-driver-410 nvidia-utils-410 nvidia-cuda-toolkit
 
 print_header "Preparing apt"
