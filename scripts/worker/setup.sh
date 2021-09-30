@@ -28,7 +28,7 @@ aptget install dhcpcd5 sshfs vim iputils-ping npm git
 # cuda-11-2 doesn't install everything (missing cuda-runtime-11-2 and cuda-demo-suite-11-2)
 aptget install nvidia-driver-460 nvidia-utils-460 \
   nvidia-cuda-toolkit cuda-11-2 cuda-runtime-11-2 \
-  cuda-demo-suite-11-2 cuda-drivers-460
+  cuda-demo-suite-11-2 cuda-drivers cuda-drivers-460
 
 print_header "Preparing apt"
 mv 20auto-upgrades /etc/apt/apt.conf.d/20auto-upgrades
