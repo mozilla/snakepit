@@ -17,7 +17,6 @@ echo "deb http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86
 # seems to not be used
 # echo "deb http://developer.download.nvidia.com/compute/machine-learning/repos/ubuntu1804/x86_64 /" > /etc/apt/sources.list.d/nvidia-machine-learning.list
 
-
 print_header "Installing dependencies"
 aptget update
 # install general things
