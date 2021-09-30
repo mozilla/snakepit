@@ -10,20 +10,22 @@ print_header () {
 }
 
 print_header "Configuring APT repositories"
+aptget update
+aptget install software-properties-common
+apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub
 echo "deb http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64 /" > /etc/apt/sources.list.d/cuda.list
-echo "deb http://developer.download.nvidia.com/compute/machine-learning/repos/ubuntu1804/x86_64 /" > /etc/apt/sources.list.d/nvidia-machine-learning.list
+# seems to not be used
+# echo "deb http://developer.download.nvidia.com/compute/machine-learning/repos/ubuntu1804/x86_64 /" > /etc/apt/sources.list.d/nvidia-machine-learning.list
 
 print_header "Installing dependencies"
-# # Official Nvidia Ubuntu PPA
-# aptget update
-# aptget install software-properties-common
 # # !This image and your GPU nodes should feature the very same driver!
+# # Official Nvidia Ubuntu PPA
 # add-apt-repository -y ppa:graphics-drivers/ppa
 aptget update
-# install ubuntu repo things
+# install general things
 aptget install dhcpcd5 sshfs vim iputils-ping npm git
-# install nvidia repo things
-aptget install nvidia-driver-410 nvidia-utils-410 nvidia-cuda-toolkit
+# install nvidia things
+aptget install nvidia-driver-460 nvidia-utils-460 nvidia-cuda-toolkit
 
 print_header "Preparing apt"
 mv 20auto-upgrades /etc/apt/apt.conf.d/20auto-upgrades
