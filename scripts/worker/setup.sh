@@ -18,13 +18,11 @@ echo "deb http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86
 # echo "deb http://developer.download.nvidia.com/compute/machine-learning/repos/ubuntu1804/x86_64 /" > /etc/apt/sources.list.d/nvidia-machine-learning.list
 
 print_header "Installing dependencies"
-# # !This image and your GPU nodes should feature the very same driver!
-# # Official Nvidia Ubuntu PPA
-# add-apt-repository -y ppa:graphics-drivers/ppa
 aptget update
 # install general things
 aptget install dhcpcd5 sshfs vim iputils-ping npm git
 # install nvidia things
+# !This image and your GPU nodes should feature the very same driver!
 aptget install nvidia-driver-460 nvidia-utils-460 nvidia-cuda-toolkit
 # install cuda (specify just 'cuda' to get latest)
 aptget install cuda-11-2
