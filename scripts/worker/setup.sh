@@ -27,6 +27,8 @@ aptget install dhcpcd5 sshfs vim iputils-ping npm git
 aptget install cuda-11-2
 # 11-2 installs 470 (or what the host has installed?), downgrade to 460
 aptget install cuda-drivers-460
+# cleanup unused pacakges to reduce image size
+apt autoremove
 
 print_header "Preparing apt"
 mv 20auto-upgrades /etc/apt/apt.conf.d/20auto-upgrades
