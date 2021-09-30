@@ -26,6 +26,8 @@ aptget update
 aptget install dhcpcd5 sshfs vim iputils-ping npm git
 # install nvidia things
 aptget install nvidia-driver-460 nvidia-utils-460 nvidia-cuda-toolkit
+# install cuda (specify just 'cuda' to get latest)
+aptget install cuda-11-2
 
 print_header "Preparing apt"
 mv 20auto-upgrades /etc/apt/apt.conf.d/20auto-upgrades
