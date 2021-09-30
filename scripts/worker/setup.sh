@@ -21,11 +21,10 @@ print_header "Installing dependencies"
 aptget update
 # install general things
 aptget install dhcpcd5 sshfs vim iputils-ping npm git
-# install cuda (specify just 'cuda' to get latest)
-aptget install cuda-11-2
 # install nvidia things
 # !This image and your GPU nodes should feature the very same driver!
-aptget install nvidia-driver-460 nvidia-utils-460 nvidia-cuda-toolkit
+# (just 'cuda' gets the latest)
+aptget install nvidia-driver-460 nvidia-utils-460 nvidia-cuda-toolkit cuda-11-2 cuda-drivers-460
 
 print_header "Preparing apt"
 mv 20auto-upgrades /etc/apt/apt.conf.d/20auto-upgrades
