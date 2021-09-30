@@ -23,9 +23,7 @@ aptget update
 aptget install dhcpcd5 sshfs vim iputils-ping npm git
 # install nvidia things
 # !This image and your GPU nodes should feature the very same driver!
-# (just 'cuda' gets the latest)
-# cuda conflicts with installing cuda-drivers-460 it seems
-# cuda-11-2 doesn't install everything (missing cuda-runtime-11-2 and cuda-demo-suite-11-2)
+# (just 'cuda' gets the latest, '11-4' currently)
 aptget install cuda-11-2
 # 11-2 installs 470 (or what the host has installed?), downgrade to 460
 aptget install cuda-drivers-460
