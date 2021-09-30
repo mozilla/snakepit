@@ -21,7 +21,7 @@ print_header "Installing dependencies"
 # add-apt-repository -y ppa:graphics-drivers/ppa
 aptget update
 # install ubuntu repo things
-aptget install dhcpcd5 sshfs vim iputils-ping npm nfs-common git
+aptget install dhcpcd5 sshfs vim iputils-ping npm git
 # install nvidia repo things
 aptget install nvidia-driver-410 nvidia-utils-410 nvidia-cuda-toolkit
 
