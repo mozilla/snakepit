@@ -50,5 +50,20 @@ mv run.sh /usr/bin/run.sh
 mv snakepit.service /lib/systemd/system/
 systemctl enable snakepit.service
 
-print_header "Configuring proxy environment variables..."
+print_header "Configuring APT proxy"
+mv proxy_apt.conf /etc/apt/apt.conf.d/proxy.conf
+
+print_header "Configuring /etc/profile.d proxy environment variables"
 mv proxy_env.sh /etc/profile.d/proxy_env.sh
+
+# /etc/environment doesn't do any variable interpolation (can't do HTTP_PROXY=$http_proxy)
+print_header "Configuring /etc/environment"
+echo 'http_proxy="http://192.168.1.1:3128/"' >> /etc/environment
+echo 'https_proxy="http://192.168.1.1:3128/"' >> /etc/environment
+echo 'ftp_proxy="http://192.168.1.1:3128/"' >> /etc/environment
+echo 'no_proxy="localhost,127.0.0.1,::1,.mlc,192.168.1.1,10.2.224.243"export http_proxy="http://192.168.1.1:3128/"' >> /etc/environment
+# all caps versions of the above
+echo 'HTTP_PROXY="http://192.168.1.1:3128/"' >> /etc/environment
+echo 'HTTPS_PROXY="http://192.168.1.1:3128/"' >> /etc/environment
+echo 'FTP_PROXY="http://192.168.1.1:3128/"' >> /etc/environment
+echo 'NO_PROXY="localhost,127.0.0.1,::1,.mlc,192.168.1.1,10.2.224.243"export http_proxy="http://192.168.1.1:3128/"' >> /etc/environment
