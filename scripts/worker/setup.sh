@@ -26,9 +26,11 @@ aptget install dhcpcd5 sshfs vim iputils-ping npm git
 # (just 'cuda' gets the latest)
 # cuda conflicts with installing cuda-drivers-460 it seems
 # cuda-11-2 doesn't install everything (missing cuda-runtime-11-2 and cuda-demo-suite-11-2)
-aptget install nvidia-driver-460 nvidia-utils-460 \
-  nvidia-cuda-toolkit cuda-11-2 cuda-runtime-11-2 \
-  cuda-demo-suite-11-2 cuda-drivers cuda-drivers-460
+aptget install cuda-11-2
+# 11-2 installs 470 (or what the host has installed?), downgrade to 460
+aptget install cuda-drivers-460
+# other packages that seem handy
+aptget install libcudnn7 libcudnn7-dev libnvinfer-dev libnvinfer5
 
 print_header "Preparing apt"
 mv 20auto-upgrades /etc/apt/apt.conf.d/20auto-upgrades
