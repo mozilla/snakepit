@@ -27,6 +27,7 @@ aptget install dhcpcd5 sshfs vim iputils-ping npm git
 #just 'cuda' gets the latest, '11-4' currently)
 aptget install cuda-11-2
 # 11-2 installs 470 or what the host has installed?), downgrade to 460.32.03
+# need to specify exact versions of all dependencies, otherwise apt will try to use latest and fail
 aptget install \
     nvidia-driver-460=460.32.03-0ubuntu1 \
     libnvidia-gl-460=460.32.03-0ubuntu1 \
@@ -48,6 +49,7 @@ aptget install \
     libnvidia-ifr1-460=460.32.03-0ubuntu1 \
     libnvidia-fbc1-460=460.32.03-0ubuntu1 \
     libnvidia-gl-460=460.32.03-0ubuntu1 \
+    libnvidia-common-460 \
     nvidia-settings \
     nvidia-prime
 # clean up
