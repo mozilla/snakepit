@@ -21,12 +21,35 @@ print_header "Installing dependencies"
 aptget update
 # install general things
 aptget install dhcpcd5 sshfs vim iputils-ping npm git
+
 # install nvidia things
 # !This image and your GPU nodes should feature the very same driver!
-# (just 'cuda' gets the latest, '11-4' currently)
+#just 'cuda' gets the latest, '11-4' currently)
 aptget install cuda-11-2
-# 11-2 installs 470 (or what the host has installed?), downgrade to 460
-aptget install cuda-drivers-460=460.32.03-1
+# 11-2 installs 470 or what the host has installed?), downgrade to 460.32.03
+aptget install \
+    nvidia-driver-460=460.32.03-0ubuntu1 \
+    libnvidia-gl-460=460.32.03-0ubuntu1 \
+    nvidia-dkms-460=460.32.03-0ubuntu1 \
+    nvidia-kernel-source-460=460.32.03-0ubuntu1 \
+    libnvidia-compute-460=460.32.03-0ubuntu1 \
+    libnvidia-extra-460=460.32.03-0ubuntu1 \
+    nvidia-compute-utils-460=460.32.03-0ubuntu1 \
+    libnvidia-decode-460=460.32.03-0ubuntu1 \
+    libnvidia-encode-460=460.32.03-0ubuntu1 \
+    nvidia-utils-460=460.32.03-0ubuntu1 \
+    xserver-xorg-video-nvidia-460=460.32.03-0ubuntu1 \
+    libnvidia-cfg1-460=460.32.03-0ubuntu1 \
+    libnvidia-ifr1-460=460.32.03-0ubuntu1 \
+    libnvidia-fbc1-460=460.32.03-0ubuntu1 \
+    libnvidia-compute-460=460.32.03-0ubuntu1 \
+    libnvidia-decode-460=460.32.03-0ubuntu1 \
+    libnvidia-encode-460=460.32.03-0ubuntu1 \
+    libnvidia-ifr1-460=460.32.03-0ubuntu1 \
+    libnvidia-fbc1-460=460.32.03-0ubuntu1 \
+    libnvidia-gl-460=460.32.03-0ubuntu1 \
+    nvidia-settings \
+    nvidia-prime
 # clean up
 apt clean
 
