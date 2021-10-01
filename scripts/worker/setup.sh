@@ -33,6 +33,7 @@ aptget install \
     libnvidia-gl-460=460.32.03-0ubuntu1 \
     nvidia-dkms-460=460.32.03-0ubuntu1 \
     nvidia-kernel-source-460=460.32.03-0ubuntu1 \
+    libnvidia-common-460=460.32.03-0ubuntu1 \
     libnvidia-compute-460=460.32.03-0ubuntu1 \
     libnvidia-extra-460=460.32.03-0ubuntu1 \
     nvidia-compute-utils-460=460.32.03-0ubuntu1 \
