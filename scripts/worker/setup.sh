@@ -29,32 +29,25 @@ aptget install cuda-11-2
 # 11-2 installs 470 or what the host has installed?), downgrade to 460.32.03
 # need to specify exact versions of all dependencies, otherwise apt will try to use latest and fail
 aptget install \
-    nvidia-driver-460=460.32.03-0ubuntu1 \
-    libnvidia-gl-460=460.32.03-0ubuntu1 \
-    nvidia-dkms-460=460.32.03-0ubuntu1 \
-    nvidia-kernel-source-460=460.32.03-0ubuntu1 \
-    libnvidia-common-460=460.32.03-0ubuntu1 \
-    libnvidia-compute-460=460.32.03-0ubuntu1 \
-    libnvidia-extra-460=460.32.03-0ubuntu1 \
-    nvidia-compute-utils-460=460.32.03-0ubuntu1 \
-    libnvidia-decode-460=460.32.03-0ubuntu1 \
-    libnvidia-encode-460=460.32.03-0ubuntu1 \
-    nvidia-utils-460=460.32.03-0ubuntu1 \
-    xserver-xorg-video-nvidia-460=460.32.03-0ubuntu1 \
     libnvidia-cfg1-460=460.32.03-0ubuntu1 \
-    libnvidia-ifr1-460=460.32.03-0ubuntu1 \
-    libnvidia-fbc1-460=460.32.03-0ubuntu1 \
+    libnvidia-common-460=460.32.03-0ubuntu1 \
     libnvidia-compute-460=460.32.03-0ubuntu1 \
     libnvidia-decode-460=460.32.03-0ubuntu1 \
     libnvidia-encode-460=460.32.03-0ubuntu1 \
-    libnvidia-ifr1-460=460.32.03-0ubuntu1 \
+    libnvidia-extra-460=460.32.03-0ubuntu1 \
     libnvidia-fbc1-460=460.32.03-0ubuntu1 \
     libnvidia-gl-460=460.32.03-0ubuntu1 \
-    libnvidia-common-460=460.32.03-0ubuntu1 \
-    libnvidia-kernel-common-460=460.32.03-0ubuntu1 \
+    libnvidia-ifr1-460=460.32.03-0ubuntu1 \
+    nvidia-compute-utils-460=460.32.03-0ubuntu1 \
+    nvidia-dkms-460=460.32.03-0ubuntu1 \
+    nvidia-driver-460=460.32.03-0ubuntu1 \
+    nvidia-kernel-common-460=460.32.03-0ubuntu1 \
+    nvidia-kernel-source-460=460.32.03-0ubuntu1 \
     nvidia-modprobe=460.32.03-0ubuntu1 \
+    nvidia-prime \
     nvidia-settings=460.32.03-0ubuntu1 \
-    nvidia-prime
+    nvidia-utils-460=460.32.03-0ubuntu1 \
+    xserver-xorg-video-nvidia-460=460.32.03-0ubuntu1
 # clean up
 apt clean
 
