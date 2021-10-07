@@ -2,7 +2,7 @@
 set -e
 
 aptget() {
-    DEBIAN_FRONTEND=noninteractive apt-get -yq --allow-downgrades "$@"
+    DEBIAN_FRONTEND=noninteractive apt-get -yq "$@"
 }
 
 print_header () {
@@ -28,7 +28,8 @@ aptget install dhcpcd5 sshfs vim iputils-ping npm git
 aptget install cuda-11-2
 # 11-2 installs 470 or what the host has installed?), downgrade to 460.32.03
 # need to specify exact versions of all dependencies, otherwise apt will try to use latest and fail
-aptget install \
+DEBIAN_FRONTEND=noninteractive \
+apt-get -yq --allow-downgrades install \
     libnvidia-cfg1-460=460.32.03-0ubuntu1 \
     libnvidia-common-460=460.32.03-0ubuntu1 \
     libnvidia-compute-460=460.32.03-0ubuntu1 \
