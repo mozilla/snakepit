@@ -2,7 +2,7 @@
 set -e
 
 aptget() {
-    DEBIAN_FRONTEND=noninteractive apt-get -yq "$@"
+    DEBIAN_FRONTEND=noninteractive apt-get -yq --allow-downgrades "$@"
 }
 
 print_header () {
