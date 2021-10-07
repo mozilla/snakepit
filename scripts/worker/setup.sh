@@ -50,8 +50,10 @@ aptget install \
     libnvidia-ifr1-460=460.32.03-0ubuntu1 \
     libnvidia-fbc1-460=460.32.03-0ubuntu1 \
     libnvidia-gl-460=460.32.03-0ubuntu1 \
-    libnvidia-common-460 \
-    nvidia-settings \
+    libnvidia-common-460=460.32.03-0ubuntu1 \
+    libnvidia-kernel-common-460=460.32.03-0ubuntu1 \
+    nvidia-modprobe=460.32.03-0ubuntu1 \
+    nvidia-settings=460.32.03-0ubuntu1 \
     nvidia-prime
 # clean up
 apt clean
